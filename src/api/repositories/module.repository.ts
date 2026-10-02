@@ -245,34 +245,51 @@ export class ModuleRepository {
   }
 
   // --- DYNAMIC SIDEBAR TREE BUILDING ---
-  async getSidebarTree(userRole: string, departmentId?: string, projectId?: string) {
+  async getSidebarTree(userRole: string, departmentId?: string, projectId?: string, userId?: string) {
     const allModules = await this.getModules();
     const allSubModules = await this.getSubModules();
     const allFeatures = await this.getFeatures();
+    const visibilityRules = await db.select().from(moduleVisibilityRules);
 
-    const enabledModules = allModules.filter((m) => m.isEnabled);
-    const enabledSubModules = allSubModules.filter((sm) => sm.isEnabled);
-    const enabledFeatures = allFeatures.filter((f) => f.isEnabled);
+    const precedence = [
+      { targetType: 'USER', targetId: userId, priority: 4 },
+      { targetType: 'PROJECT', targetId: projectId, priority: 3 },
+      { targetType: 'DEPARTMENT', targetId: departmentId, priority: 2 },
+      { targetType: 'ROLE', targetId: userRole, priority: 1 },
+    ];
 
-    // Build hierarchical tree structure
-    const tree = enabledModules.map((m) => {
-      const subList = enabledSubModules
-        .filter((sm) => sm.moduleId === m.id)
-        .map((sm) => {
-          const featList = enabledFeatures.filter((f) => f.subModuleId === sm.id);
-          return {
-            ...sm,
-            features: featList,
-          };
-        });
+    const matchingRule = (entityType: string, entityId: string): boolean | undefined => {
+      const matches = visibilityRules
+        .filter((rule) => rule.entityType === entityType && rule.entityId === entityId)
+        .map((rule) => {
+          const scope = precedence.find((p) => p.targetType === rule.targetType && p.targetId && p.targetId === rule.targetId);
+          return scope ? { rule, priority: scope.priority } : null;
+        })
+        .filter((item): item is { rule: typeof visibilityRules[number]; priority: number } => Boolean(item))
+        .sort((a, b) => b.priority - a.priority);
 
-      return {
-        ...m,
-        subModules: subList,
-      };
-    });
+      if (!matches.length) return undefined;
+      const highestPriority = matches[0].priority;
+      const highestScope = matches.filter((item) => item.priority === highestPriority).map((item) => item.rule);
+      if (highestScope.some((rule) => !rule.isEnabled)) return false;
+      return true;
+    };
 
-    return tree;
+    const enabledModules = allModules.filter((module) => module.isEnabled && !module.isArchived && matchingRule('MODULE', module.id) !== false);
+    const enabledSubModules = allSubModules.filter((subModule) => subModule.isEnabled && !subModule.isArchived && matchingRule('SUB_MODULE', subModule.id) !== false);
+    const enabledFeatures = allFeatures.filter((feature) => feature.isEnabled && !feature.isArchived && matchingRule('FEATURE', feature.id) !== false);
+
+    return enabledModules
+      .map((module) => {
+        const subModulesForModule = enabledSubModules
+          .filter((subModule) => subModule.moduleId === module.id)
+          .map((subModule) => ({
+            ...subModule,
+            features: enabledFeatures.filter((feature) => feature.subModuleId === subModule.id),
+          }));
+        return { ...module, subModules: subModulesForModule };
+      })
+      .filter((module) => module.subModules.length > 0);
   }
 
   // --- DASHBOARD WIDGET REGISTRY ---

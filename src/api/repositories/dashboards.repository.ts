@@ -17,6 +17,7 @@ export interface CreateDashboardDto {
   scopeType?: string;
   scopeId?: string;
   isDefault?: boolean;
+  createdBy?: string;
 }
 
 export interface AddWidgetDto {
@@ -196,7 +197,7 @@ export class DashboardsRepository {
       isSystem: false,
       isFavorite: false,
       layoutConfigJson: null,
-      createdBy: 'ADMIN',
+      createdBy: data.createdBy?.trim() || 'SYSTEM_WORKFLOW',
       createdAt: now,
       updatedAt: now,
     };
@@ -224,7 +225,7 @@ export class DashboardsRepository {
       isSystem: false,
       isFavorite: false,
       layoutConfigJson: orig.layoutConfigJson,
-      createdBy: 'ADMIN',
+      createdBy: 'SYSTEM_WORKFLOW',
       createdAt: now,
       updatedAt: now,
     };

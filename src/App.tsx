@@ -62,6 +62,18 @@ function MainApp() {
     }
   };
 
+  // A persisted token is not trusted until the server validates the session.
+  if (isLoading && !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#070F1E] flex items-center justify-center p-6">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-9 w-9 rounded-full border-2 border-slate-700 border-t-slate-200 animate-spin" />
+          <p className="text-sm font-semibold text-slate-200">Verifying secure session…</p>
+        </div>
+      </div>
+    );
+  }
+
   // If unauthenticated, show ONLY the non-bypassable Login Modal screen
   if (!isAuthenticated) {
     return (

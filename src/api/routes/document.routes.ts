@@ -40,6 +40,7 @@ router.post('/documents/:id/restore', requireRoles('ADMIN', 'MANAGER'), controll
 router.get('/documents/:id/versions', controller.getVersions.bind(controller));
 router.post('/versions', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createVersion.bind(controller));
 router.post('/checkout', controller.checkoutDocument.bind(controller));
+router.post('/checkin', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.checkinDocument.bind(controller));
 
 // Reviews & Approvals
 router.get('/documents/:id/reviews', controller.getReviews.bind(controller));

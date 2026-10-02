@@ -28,11 +28,11 @@ export const ProjectDocumentsView: React.FC<ProjectDocumentsViewProps> = ({ proj
   const [formData, setFormData] = useState({
     documentCategory: 'DRAWING',
     title: '',
-    fileUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b3?auto=format&fit=crop&w=600&q=80',
+    fileUrl: '',
     fileType: 'application/pdf',
-    fileSize: 4500000,
+    fileSize: 0,
     version: 'v1.0',
-    notes: 'Uploaded for engineering verification',
+    notes: '',
   });
 
   const fetchDocuments = async () => {
@@ -59,6 +59,10 @@ export const ProjectDocumentsView: React.FC<ProjectDocumentsViewProps> = ({ proj
 
   const handleUploadDocument = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.title.trim() || !formData.fileUrl.trim()) {
+      window.alert('Document title and actual file reference are required.');
+      return;
+    }
     try {
       const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/projects/documents', {
@@ -230,7 +234,7 @@ export const ProjectDocumentsView: React.FC<ProjectDocumentsViewProps> = ({ proj
                 <label className="block font-semibold mb-1">Engineering Notes / Approvals</label>
                 <textarea
                   rows={2}
-                  placeholder="Review notes, ADNOC approval ref, consultant remarks..."
+                  placeholder="Review notes, client approval reference, consultant remarks..."
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"

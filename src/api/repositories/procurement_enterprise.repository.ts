@@ -1272,6 +1272,51 @@ export class ProcurementEnterpriseRepository {
       };
     });
   }
+  public async updatePurchaseOrderStatus(
+    id: string,
+    status: 'ISSUED' | 'REJECTED' | 'PARTIALLY_DELIVERED' | 'DELIVERED' | 'INVOICED' | 'CLOSED' | 'CANCELLED',
+    actorName: string,
+    remarks?: string
+  ): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    if (!actorName?.trim()) throw new Error('Authenticated workflow actor is required.');
+
+    const [existing] = await db.select().from(phase69PurchaseOrders)
+      .where(and(eq(phase69PurchaseOrders.id, id), eq(phase69PurchaseOrders.isDeleted, false)))
+      .limit(1);
+    if (!existing) return null;
+
+    const transitions: Record<string, string[]> = {
+      PENDING_APPROVAL: ['ISSUED', 'REJECTED', 'CANCELLED'],
+      DRAFT: ['PENDING_APPROVAL', 'REJECTED', 'CANCELLED'],
+      ISSUED: ['PARTIALLY_DELIVERED', 'DELIVERED', 'CLOSED', 'CANCELLED'],
+      PARTIALLY_DELIVERED: ['DELIVERED', 'CLOSED'],
+      DELIVERED: ['INVOICED', 'CLOSED'],
+      INVOICED: ['CLOSED'],
+      REJECTED: ['DRAFT'],
+      CLOSED: [],
+      CANCELLED: [],
+    };
+
+    if (!transitions[existing.status]?.includes(status)) {
+      throw new Error(`Invalid purchase order transition: ${existing.status} → ${status}`);
+    }
+
+    if (status === 'ISSUED' && !existing.approvedBy) {
+      // Approval metadata is set atomically with release.
+    }
+
+    const [updated] = await db.update(phase69PurchaseOrders).set({
+      status,
+      approvedBy: status === 'ISSUED' ? actorName.trim() : existing.approvedBy,
+      updatedBy: actorName.trim(),
+      updatedAt: new Date().toISOString(),
+      notes: remarks ? [existing.notes, remarks].filter(Boolean).join('\n') : existing.notes,
+    } as any).where(eq(phase69PurchaseOrders.id, id)).returning();
+
+    return updated || null;
+  }
+
   // --- Contracts & Variations ---
   public async getContracts(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

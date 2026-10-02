@@ -3,15 +3,10 @@
  * Prevents `SyntaxError: Unexpected EOF` and ensures all requests carry JWT authentication.
  */
 
+import { getStoredAccessToken } from './authStorage';
+
 export function getAuthToken(): string {
-  if (typeof window === 'undefined') return '';
-  return (
-    localStorage.getItem('sitesync_jwt_access_token') ||
-    localStorage.getItem('sitesync_access_token') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('accessToken') ||
-    ''
-  );
+  return getStoredAccessToken();
 }
 
 export async function safeJson<T = any>(res: Response): Promise<T | null> {

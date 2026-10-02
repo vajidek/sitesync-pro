@@ -126,8 +126,8 @@ export async function createFolder(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
+    createdBy,
+    updatedBy: createdBy,
     isDeleted: false,
   };
 
@@ -668,7 +668,10 @@ export async function approveDocument(data: {
     throw new Error('Maker-checker violation: reviewer cannot also be the approver.');
   }
 
-  const decision = String(data.decision || '').trim();
+  const decision = String(data.decision || '').trim().toUpperCase();
+  if (!['APPROVED', 'REJECTED', 'RETURNED'].includes(decision)) {
+    throw new Error('A valid document approval decision is required.');
+  }
   await db.insert(phase61DocumentApprovals).values({
     id,
     documentId: data.documentId,
@@ -769,13 +772,14 @@ export async function shareDocument(data: {
   const now = new Date().toISOString();
   const actor = String(data.createdBy || '').trim();
   if (!actor) throw new Error('Authenticated document sharing actor identity is required.');
+  if (!data.sharedWithEmail && !data.recipientName) throw new Error('A recipient email or recipient name is required for document sharing.');
   const token = crypto.randomBytes(16).toString('hex');
   const record = {
     id: crypto.randomUUID(),
     documentId: data.documentId,
     shareToken: token,
     sharedWithEmail: data.sharedWithEmail || null,
-    recipientName: data.recipientName || 'External Auditor',
+    recipientName: data.recipientName || null,
     permissionLevel: data.permissionLevel || 'READ_ONLY',
     expiryDate: data.expiryDate || null,
     passwordProtected: false,

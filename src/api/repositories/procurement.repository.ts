@@ -1012,6 +1012,47 @@ export class ProcurementRepository {
         if (poRows[0]) poRecord = poRows[0] as unknown as PurchaseOrder;
       }
 
+      if (!poRecord) {
+        throw new Error('The referenced purchase order could not be resolved.');
+      }
+
+      // Canonicalize the GRN to the authoritative PO identity rather than trusting
+      // a partially supplied request body.
+      newGrn.poId = poRecord.id;
+      newGrn.poNumber = poRecord.poNumber;
+
+      if (poRecord.vendorId && poRecord.vendorId !== newGrn.vendorId) {
+        throw new Error('GRN vendor does not match the linked purchase order vendor.');
+      }
+      if (poRecord.projectId && poRecord.projectId !== newGrn.projectId) {
+        throw new Error('GRN project does not match the linked purchase order project.');
+      }
+
+      const [warehouse] = await tx
+        .select()
+        .from(warehouses)
+        .where(eq(warehouses.id, newGrn.warehouseId))
+        .limit(1);
+      if (!warehouse || !warehouse.isActive) {
+        throw new Error('Selected warehouse was not found or is inactive.');
+      }
+
+      if (warehouse.siteId) {
+        const projectSites = await tx
+          .select({ id: sites.id })
+          .from(sites)
+          .where(eq(sites.projectId, newGrn.projectId));
+        if (projectSites.length > 0 && !projectSites.some((site) => site.id === warehouse.siteId)) {
+          throw new Error('Selected warehouse does not belong to a site under the selected project.');
+        }
+      }
+
+      if (newGrn.qualityStatus === 'PENDING_INSPECTION' || newGrn.qualityStatus === 'Failed Quality Audit') {
+        if ((newGrn.items || []).some((item: GRNItem) => Number(item.acceptedQty || 0) > 0)) {
+          throw new Error('Accepted quantity cannot be stock-posted while the GRN is pending inspection or has failed quality audit.');
+        }
+      }
+
       // If PO exists, validate against previously received quantities to enforce over-receipt protection
       if (poRecord) {
         const existingGrns = (await tx
@@ -1058,6 +1099,7 @@ export class ProcurementRepository {
         vendorName: newGrn.vendorName,
         projectId: newGrn.projectId,
         projectName: newGrn.projectName,
+        warehouseId: newGrn.warehouseId,
         warehouseName: newGrn.warehouseName,
         receivedDate: newGrn.receivedDate,
         challanNo: newGrn.challanNo,
@@ -1070,54 +1112,79 @@ export class ProcurementRepository {
         createdAt: now,
       } as any);
 
-      // 3. Atomically update Store Stock for accepted quantities
-      for (const gi of newGrn.items || []) {
-        const acceptedQty = Number(gi.acceptedQty ?? gi.receivedQty ?? 0);
-        if (acceptedQty > 0) {
+      // 3. Atomically update warehouse stock for quality-approved accepted quantities.
+      const stockPostable = newGrn.qualityStatus === 'Passed' || newGrn.qualityStatus === 'Passed with Partial Rejection';
+      if (stockPostable) {
+        for (const gi of newGrn.items || []) {
+          const acceptedQty = Number(gi.acceptedQty ?? 0);
+          if (!Number.isFinite(acceptedQty) || acceptedQty < 0) throw new Error('Accepted quantity must be a valid non-negative number.');
+          if (acceptedQty === 0) continue;
+
           const matRows = await tx
             .select()
             .from(materials)
-            .where(
-              or(
-                eq(materials.itemCode, gi.itemCode || ''),
-                eq(materials.name, gi.description || '')
-              )
-            )
+            .where(or(eq(materials.itemCode, gi.itemCode || ''), eq(materials.name, gi.description || '')))
+            .limit(1);
+          if (!matRows.length) throw new Error('Material ' + (gi.itemCode || gi.description || '') + ' was not found in the material master.');
+
+          const mat = matRows[0];
+          const [warehouseStock] = await tx
+            .select()
+            .from(stocks)
+            .where(and(eq(stocks.warehouseId, newGrn.warehouseId), eq(stocks.materialId, mat.id)))
             .limit(1);
 
-          if (matRows[0]) {
-            const mat = matRows[0];
-            const newStock = (mat.currentStock || 0) + acceptedQty;
-            await tx
-              .update(materials)
-              .set({ currentStock: newStock, updatedAt: new Date().toISOString() } as any)
-              .where(eq(materials.id, mat.id));
-
-            await tx.insert(stockTransactions).values({
-              id: `stx_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-              transactionCode: newGrn.grnNumber,
-              transactionType: 'GOODS_RECEIPT',
+          if (warehouseStock) {
+            await tx.update(stocks).set({
+              quantity: Number(warehouseStock.quantity || 0) + acceptedQty,
+              updatedAt: new Date().toISOString(),
+            }).where(eq(stocks.id, warehouseStock.id));
+          } else {
+            await tx.insert(stocks).values({
+              id: 'stk-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+              warehouseId: newGrn.warehouseId,
               materialId: mat.id,
-              materialName: mat.name,
-              materialCode: mat.itemCode,
-              warehouseId: 'wh-001',
-              warehouseName: newGrn.warehouseName,
               quantity: acceptedQty,
-              unitPrice: mat.unitPrice || 0,
-              totalValue: acceptedQty * (mat.unitPrice || 0),
-              projectId: newGrn.projectId,
-              projectName: newGrn.projectName,
-              referenceDoc: `${newGrn.poNumber} / ${newGrn.grnNumber}`,
-              notes: `GRN Inward: ${newGrn.grnNumber} against PO ${newGrn.poNumber}`,
-              receivedByName: newGrn.inspectedByName || 'Store Manager',
-              status: 'COMPLETED',
-              transactionDate: newGrn.receivedDate,
-              createdAt: new Date().toISOString(),
+              reservedQuantity: 0,
+              batchNumber: null,
+              rackLocation: null,
+              updatedAt: new Date().toISOString(),
             } as any);
           }
+
+          // Maintain the material-level stock figure as a cached aggregate.
+          const warehouseStocks = await tx
+            .select({ quantity: stocks.quantity })
+            .from(stocks)
+            .where(eq(stocks.materialId, mat.id));
+          const aggregateStock = warehouseStocks.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+          await tx.update(materials)
+            .set({ currentStock: aggregateStock, updatedAt: new Date().toISOString() } as any)
+            .where(eq(materials.id, mat.id));
+
+          await tx.insert(stockTransactions).values({
+            id: 'stx_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+            transactionCode: newGrn.grnNumber,
+            transactionType: 'GOODS_RECEIPT',
+            materialId: mat.id,
+            materialName: mat.name,
+            materialCode: mat.itemCode,
+            warehouseId: newGrn.warehouseId,
+            warehouseName: newGrn.warehouseName,
+            quantity: acceptedQty,
+            unitPrice: mat.unitPrice || 0,
+            totalValue: acceptedQty * (mat.unitPrice || 0),
+            projectId: newGrn.projectId,
+            projectName: newGrn.projectName,
+            referenceDoc: `${newGrn.poNumber} / ${newGrn.grnNumber}`,
+            notes: `GRN Inward: ${newGrn.grnNumber} against PO ${newGrn.poNumber}`,
+            receivedByName: newGrn.inspectedByName,
+            status: 'COMPLETED',
+            transactionDate: newGrn.receivedDate,
+            createdAt: new Date().toISOString(),
+          } as any);
         }
       }
-
       // 4. Update linked PO items and progressive status ('Partially Received' vs 'Completed')
       if (poRecord) {
         const allGrnsForPo = [

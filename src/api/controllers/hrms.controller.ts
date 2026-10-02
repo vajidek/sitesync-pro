@@ -135,6 +135,35 @@ export class HrmsController {
     }
   };
 
+  public verifyAttendance = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const attendanceId = String(req.params.id || '').trim();
+      const decision = String(req.body?.decision || 'VERIFY').trim().toUpperCase() as 'VERIFY' | 'REJECT';
+      const reason = String(req.body?.reason || '').trim();
+
+      if (!['VERIFY', 'REJECT'].includes(decision)) {
+        res.status(400).json({ success: false, message: 'Decision must be VERIFY or REJECT.' });
+        return;
+      }
+      if (!reason) {
+        res.status(400).json({ success: false, message: 'A reason is required for attendance verification or rejection.' });
+        return;
+      }
+
+      const result = await this.service.verifyAttendanceRecord(attendanceId, actor, decision, reason);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Attendance record not found.' });
+        return;
+      }
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  };
+
   public syncEssl = async (req: Request, res: Response): Promise<void> => {
     try {
       const deviceId = String(req.body?.deviceId || '').trim();

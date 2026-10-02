@@ -28,6 +28,8 @@ import {
   projects,
   boqItems,
   hrLabourAllocations,
+  materialReturns,
+  materialReturnItems,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 import { employeeExpenseRepository } from './employee_expense.repository';
@@ -1421,14 +1423,25 @@ export class ProjectControlsRepository {
     const activities = await this.getActivities(resolvedProjectId);
     const boqRows = await db.select().from(boqItems).where(eq(boqItems.projectId, resolvedProjectId));
 
-    // Actual material cost from issued quantities.
+    // Actual material cost = persisted issues minus persisted site-to-store returns.
     const issueRows = await db.select().from(materialIssues).where(eq(materialIssues.projectId, resolvedProjectId));
     const issueIds = issueRows.map((row) => row.id);
-    let realMaterialsCost = 0;
-    if (issueIds.length > 0) {
-      const issueItems = await db.select().from(materialIssueItems).where(inArray(materialIssueItems.issueId, issueIds));
-      realMaterialsCost = issueItems.reduce((sum, item) => sum + Number(item.issuedQty || 0) * Number(item.unitPrice || 0), 0);
-    }
+    const issueItems = issueIds.length > 0
+      ? await db.select().from(materialIssueItems).where(inArray(materialIssueItems.issueId, issueIds))
+      : [];
+    const returnRows = await db.select().from(materialReturns).where(eq(materialReturns.projectId, resolvedProjectId));
+    const returnIds = returnRows.map((row) => row.id);
+    const returnItems = returnIds.length > 0
+      ? await db.select().from(materialReturnItems).where(inArray(materialReturnItems.returnId, returnIds))
+      : [];
+
+    const realMaterialsIssuedCost = issueItems
+      .filter((item: any) => Number(item.issuedQty || 0) > 0)
+      .reduce((sum: number, item: any) => sum + Number(item.issuedQty || 0) * Number(item.unitPrice || 0), 0);
+    const realMaterialsReturnedCost = returnItems
+      .filter((item: any) => Number(item.returnedQty || 0) > 0)
+      .reduce((sum: number, item: any) => sum + Number(item.returnedQty || 0) * Number(item.unitPrice || 0), 0);
+    const realMaterialsCost = realMaterialsIssuedCost - realMaterialsReturnedCost;
 
     const poRows = await db.select().from(phase69PurchaseOrders).where(eq(phase69PurchaseOrders.projectId, resolvedProjectId));
     const realPOCommitments = poRows.filter((row) => row.status !== 'CANCELLED').reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
@@ -1461,6 +1474,20 @@ export class ProjectControlsRepository {
       0
     );
 
+    const materialCostByWbs = new Map<string, number>();
+    for (const item of issueItems as any[]) {
+      if (!item.wbsId) continue;
+      const amount = Number(item.issuedQty || 0) * Number(item.unitPrice || 0);
+      materialCostByWbs.set(item.wbsId, (materialCostByWbs.get(item.wbsId) || 0) + amount);
+    }
+
+    const labourCostByWbs = new Map<string, number>();
+    for (const row of labourRows as any[]) {
+      if (!row.wbsId) continue;
+      const amount = Number(row.totalLaborCostUsd || 0);
+      labourCostByWbs.set(row.wbsId, (labourCostByWbs.get(row.wbsId) || 0) + amount);
+    }
+
     const ipcs = await commercialRepository.getClientIPCs(resolvedProjectId);
     const realBilledRevenue = ipcs.filter((ipc: any) => ['CERTIFIED', 'PAID'].includes(ipc.status)).reduce((sum: number, ipc: any) => sum + Number(ipc.grossWorkDoneCertified || 0), 0);
     const executedBoqValue = (boqRows as any[]).reduce((sum, item) => sum + Number(item.executedQty || 0) * Number(item.rate || 0), 0);
@@ -1491,20 +1518,49 @@ export class ProjectControlsRepository {
       });
     }
 
+    const issueItemsByIssueId = new Map<string, any[]>();
+    for (const item of issueItems as any[]) {
+      const list = issueItemsByIssueId.get(item.issueId) || [];
+      list.push(item);
+      issueItemsByIssueId.set(item.issueId, list);
+    }
+
+    const returnItemsByReturnId = new Map<string, any[]>();
+    for (const item of returnItems as any[]) {
+      const list = returnItemsByReturnId.get(item.returnId) || [];
+      list.push(item);
+      returnItemsByReturnId.set(item.returnId, list);
+    }
+
     for (const issue of issueRows as any[]) {
-      const rows = (await db.select().from(materialIssueItems).where(eq(materialIssueItems.issueId, issue.id))) as any[];
+      const rows = issueItemsByIssueId.get(issue.id) || [];
       const amount = rows.reduce((sum, item) => sum + Number(item.issuedQty || 0) * Number(item.unitPrice || 0), 0);
       if (amount <= 0) continue;
       transactions.push({
         id: `TX-ISS-${issue.id}`, type: 'ACTUAL', category: 'DIRECT_MATERIAL', categoryLabel: 'Material Issue',
-        sourceDocType: 'MATERIAL_ISSUE', sourceDocNumber: issue.issueNumber, sourceDocId: issue.id, date: issue.issueDate || issue.createdAt?.slice(0, 10) || '',
+        sourceDocType: 'MATERIAL_ISSUE', sourceDocNumber: issue.issueNumber, sourceDocId: issue.id,
+        date: issue.issueDate || issue.createdAt?.slice(0, 10) || '',
         description: rows.map((item) => item.materialName || item.description).filter(Boolean).join(', ') || 'Material issue',
         vendorOrPayee: issue.issuedTo || issue.warehouseName || 'Site', amount, originalAmount: amount,
         currency: project.currency || '', originalCurrency: project.currency || '', status: issue.status || '', authorizedBy: issue.issuedBy || 'SYSTEM_SOURCE',
       });
     }
 
-    for (const subcontract of projectSubcontracts as any[]) {
+    for (const materialReturn of returnRows as any[]) {
+      const rows = returnItemsByReturnId.get(materialReturn.id) || [];
+      const amount = rows.reduce((sum, item) => sum + Number(item.returnedQty || 0) * Number(item.unitPrice || 0), 0);
+      if (amount <= 0 || String(materialReturn.status || '').toUpperCase() === 'CANCELLED') continue;
+      transactions.push({
+        id: `TX-RET-${materialReturn.id}`, type: 'ACTUAL', category: 'MATERIAL_RETURN_REVERSAL', categoryLabel: 'Material Return Reversal',
+        sourceDocType: 'MATERIAL_ISSUE', sourceDocNumber: materialReturn.returnNumber, sourceDocId: materialReturn.id,
+        date: materialReturn.returnDate || materialReturn.createdAt?.slice(0, 10) || '',
+        description: rows.map((item) => item.materialName || item.description).filter(Boolean).join(', ') || 'Material return reversal',
+        vendorOrPayee: materialReturn.receivedBy || materialReturn.warehouseName || 'Store', amount: -amount, originalAmount: amount,
+        currency: project.currency || '', originalCurrency: project.currency || '', status: materialReturn.status || '', authorizedBy: materialReturn.receivedBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+        for (const subcontract of projectSubcontracts as any[]) {
       const amount = Number(subcontract.contractValue || 0);
       if (amount <= 0) continue;
       transactions.push({
@@ -1625,6 +1681,9 @@ export class ProjectControlsRepository {
 
       const plannedActivityCost = wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.plannedCost || 0), 0);
       const actualActivityCost = wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.actualCost || 0), 0);
+      const actualMaterialCost = materialCostByWbs.get(wbs.id) || 0;
+      const actualLaborCost = labourCostByWbs.get(wbs.id) || 0;
+      const actualAllocatedCost = actualActivityCost + actualMaterialCost + actualLaborCost;
       const weightedProgress = plannedActivityCost > 0
         ? wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.plannedCost || 0) * Number(activity.percentComplete || 0), 0) / plannedActivityCost
         : wbsBoq.reduce((sum: number, item: any) => sum + Number(item.quantity || 0) * Number(item.rate || 0) * (Number(item.executedQty || 0) / Math.max(1, Number(item.quantity || 0))), 0) / Math.max(1, budgetFromBoq) * 100;
@@ -1646,7 +1705,7 @@ export class ProjectControlsRepository {
 
       // Only WBS-tagged activity actuals are shown here. Project-level transactions without WBS tags
       // remain in the transparent unallocated project-cost figure below.
-      const actualCost = actualActivityCost;
+      const actualCost = actualAllocatedCost;
       const costVariance = earnedValue - actualCost;
       const scheduleVariance = earnedValue - plannedValue;
       const cpi = actualCost > 0 ? Number((earnedValue / actualCost).toFixed(2)) : null;
@@ -1660,7 +1719,7 @@ export class ProjectControlsRepository {
         progressPercent, budget, committedCost: 0, actualCost, certifiedCost: 0, billedRevenue: 0,
         earnedValue, plannedValue, costVariance, scheduleVariance, costToComplete, estimateAtCompletion, varianceAtCompletion,
         cpi, spi, costStatus: cpi === null ? 'NO_ACTUAL_COST' : cpi >= 1 ? 'UNDER_BUDGET' : 'COST_PRESSURE',
-        actualCostAllocationStatus: actualActivityCost > 0 ? 'WBS_ALLOCATED' : 'PROJECT_LEVEL_UNALLOCATED',
+        actualCostAllocationStatus: actualAllocatedCost > 0 ? 'WBS_ALLOCATED' : 'PROJECT_LEVEL_UNALLOCATED',
         plannedCostSource: plannedActivityCost > 0 ? 'ACTIVITY_PLAN' : 'BOQ_TIME_PHASING_UNAVAILABLE',
       };
     });
@@ -1715,7 +1774,7 @@ export class ProjectControlsRepository {
         burnRatePerElapsedDay: Number(burnRate.toFixed(2)),
         realTimeMargin: realBilledRevenue - projectActualCost,
         realTimeMarginPercent: realBilledRevenue > 0 ? Number((((realBilledRevenue - projectActualCost) / realBilledRevenue) * 100).toFixed(1)) : 0,
-        costBreakdown: { realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realLaborCost, realBilledRevenue }, 
+        costBreakdown: { realMaterialsIssuedCost, realMaterialsReturnedCost, realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realLaborCost, realBilledRevenue }, 
         transactionCount: transactions.length,
       },
       wbsBreakdown: items,

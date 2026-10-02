@@ -1,4 +1,5 @@
 import { db } from '../../db/index';
+import { isDemoSeedAllowed } from '../config/env';
 import { sql } from 'drizzle-orm';
 import {
   phase63Incidents,
@@ -22,10 +23,20 @@ import {
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 
+function requireFields(data: any, fields: string[], context: string): void {
+  const missing = fields.filter((field) => data?.[field] === undefined || data?.[field] === null || String(data[field]).trim() === '');
+  if (missing.length) throw new Error(`${context} requires: ${missing.join(', ')}.`);
+}
+
 export class HSERepository {
   private static isTablesEnsured = false;
 
   public async ensureHSETablesExist(): Promise<void> {
+    if (HSERepository.isTablesEnsured) return;
+    if (!isDemoSeedAllowed()) {
+      HSERepository.isTablesEnsured = true;
+      return;
+    }
     if (HSERepository.isTablesEnsured) return;
     try {
       await this.seedInitialHSEData();
@@ -413,6 +424,7 @@ export class HSERepository {
 
   // Create Operations
   public async createIncident(data: any) {
+    requireFields(data, ['title','incidentType','severity','location','incidentDate','description','reportedBy'], 'Incident');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -426,8 +438,8 @@ export class HSERepository {
       incidentType: data.incidentType || 'FIRST_AID',
       severity: data.severity || 'LOW',
       location: data.location,
-      projectId: data.projectId || 'PRJ-101',
-      projectName: data.projectName || 'Al Reem Mechanical Piping & Structural Hub',
+      projectId: data.projectId || null,
+      projectName: data.projectName || null,
       incidentDate: data.incidentDate || now.split('T')[0],
       injuredPersonName: data.injuredPersonName || null,
       injuredPersonRole: data.injuredPersonRole || null,
@@ -438,7 +450,7 @@ export class HSERepository {
       preventiveAction: data.preventiveAction || null,
       status: data.status || 'REPORTED',
       investigatorName: data.investigatorName || null,
-      reportedBy: data.reportedBy || 'HSE Officer',
+      reportedBy: data.reportedBy || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -447,6 +459,7 @@ export class HSERepository {
   }
 
   public async createNearMiss(data: any) {
+    requireFields(data, ['title','category','location','reportedDate','potentialSeverity','description','reportedBy'], 'Near miss');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -464,7 +477,7 @@ export class HSERepository {
       description: data.description,
       preventiveAction: data.preventiveAction || null,
       status: data.status || 'OPEN',
-      reportedBy: data.reportedBy || 'Site Inspector',
+      reportedBy: data.reportedBy || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -473,6 +486,7 @@ export class HSERepository {
   }
 
   public async createHazardReport(data: any) {
+    requireFields(data, ['location','hazardType','riskLevel','description','reportedBy'], 'Hazard report');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -490,7 +504,7 @@ export class HSERepository {
       assignedTo: data.assignedTo || null,
       dueDate: data.dueDate || null,
       status: data.status || 'IDENTIFIED',
-      reportedBy: data.reportedBy || 'Safety Inspector',
+      reportedBy: data.reportedBy || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -499,14 +513,19 @@ export class HSERepository {
   }
 
   public async createRiskAssessment(data: any) {
+    requireFields(data, ['activityName','departmentOrSite','hazardDescription','severity','likelihood','residualSeverity','residualLikelihood','assessedBy'], 'Risk assessment');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
     const count = (await db.select().from(phase63RiskAssessments)).length + 1;
     const num = `RA-2026-${String(count).padStart(4, '0')}`;
 
-    const sev = Number(data.severity) || 3;
-    const lik = Number(data.likelihood) || 3;
+    const sev = Number(data.severity);
+    const lik = Number(data.likelihood);
+    const residualSeverity = Number(data.residualSeverity);
+    const residualLikelihood = Number(data.residualLikelihood);
+    if (!Number.isFinite(sev) || sev < 1 || sev > 5 || !Number.isFinite(lik) || lik < 1 || lik > 5) throw new Error('Risk severity and likelihood (1–5) are required.');
+    if (!Number.isFinite(residualSeverity) || residualSeverity < 1 || residualSeverity > 5 || !Number.isFinite(residualLikelihood) || residualLikelihood < 1 || residualLikelihood > 5) throw new Error('Residual severity and likelihood (1–5) are required.');
     const score = sev * lik;
 
     let cat = 'MODERATE';
@@ -527,10 +546,10 @@ export class HSERepository {
       riskCategory: cat,
       existingControls: data.existingControls || null,
       additionalControls: data.additionalControls || null,
-      residualSeverity: data.residualSeverity || Math.max(1, sev - 1),
-      residualLikelihood: data.residualLikelihood || Math.max(1, lik - 1),
-      residualRiskScore: (data.residualSeverity || Math.max(1, sev - 1)) * (data.residualLikelihood || Math.max(1, lik - 1)),
-      assessedBy: data.assessedBy || 'HSE Lead',
+      residualSeverity,
+      residualLikelihood,
+      residualRiskScore: residualSeverity * residualLikelihood,
+      assessedBy: data.assessedBy || null,
       reviewDate: data.reviewDate || now.split('T')[0],
       status: data.status || 'ACTIVE',
       createdAt: now,
@@ -541,6 +560,7 @@ export class HSERepository {
   }
 
   public async createJsa(data: any) {
+    requireFields(data, ['jobTitle','location','supervisorName','jsaDate','jobSteps'], 'JSA');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -557,8 +577,8 @@ export class HSERepository {
       jobSteps: data.jobSteps,
       requiredPpe: data.requiredPpe || 'Safety Helmet, Shoes, High-Vis Vest',
       permitRequired: Boolean(data.permitRequired),
-      status: data.status || 'APPROVED',
-      approvedBy: data.approvedBy || 'HSE Director',
+      status: data.status || 'DRAFT',
+      approvedBy: data.approvedBy || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -567,6 +587,7 @@ export class HSERepository {
   }
 
   public async createWorkPermit(data: any) {
+    requireFields(data, ['permitType','location','description','contractorName','supervisorName','issueDateTime','expiryDateTime'], 'Work permit');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -576,16 +597,16 @@ export class HSERepository {
     const newRec = {
       id,
       permitNumber: data.permitNumber || num,
-      permitType: data.permitType || 'HOT_WORK',
+      permitType: data.permitType || null,
       location: data.location,
       description: data.description,
-      contractorName: data.contractorName || 'SiteSync Operations Team',
+      contractorName: data.contractorName || null,
       supervisorName: data.supervisorName,
       issueDateTime: data.issueDateTime || now,
-      expiryDateTime: data.expiryDateTime || new Date(Date.now() + 12 * 3600 * 1000).toISOString(),
-      safetyChecklist: data.safetyChecklist || 'Standard PTW Checklist Verified',
+      expiryDateTime: data.expiryDateTime || null,
+      safetyChecklist: data.safetyChecklist || null,
       isolationStatus: data.isolationStatus || 'NOT_APPLICABLE',
-      gasTestResult: data.gasTestResult || 'O2: 20.9%, LEL: 0%, H2S: 0 ppm',
+      gasTestResult: data.gasTestResult || null,
       status: data.status || 'PENDING_APPROVAL',
       approvedBy: data.approvedBy || null,
       createdAt: now,
@@ -596,6 +617,7 @@ export class HSERepository {
   }
 
   public async createPpeIssuance(data: any) {
+    requireFields(data, ['employeeId','employeeName','department','ppeItem','quantity','issuedBy'], 'PPE issuance');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -609,11 +631,11 @@ export class HSERepository {
       employeeName: data.employeeName,
       department: data.department || 'SITE_OPERATIONS',
       ppeItem: data.ppeItem,
-      quantity: Number(data.quantity) || 1,
+      quantity: Number(data.quantity),
       issueDate: data.issueDate || now.split('T')[0],
       expiryDate: data.expiryDate || null,
       condition: data.condition || 'NEW',
-      issuedBy: data.issuedBy || 'Store Manager',
+      issuedBy: data.issuedBy || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -638,10 +660,11 @@ export class HSERepository {
     const openHazards = hazards.filter((h) => h.status !== 'CLOSED' && h.status !== 'RESOLVED').length;
     const activePermits = permits.filter((p) => p.status === 'ACTIVE' || p.status === 'APPROVED').length;
     const highRisks = risks.filter((r) => r.riskCategory === 'HIGH' || r.riskCategory === 'CRITICAL').length;
-    const safeManHours = 1250400; // Calculated safe man hours without LTI
+    const safeManHours = null;
 
     return {
       safeManHours,
+      safeManHoursSource: 'NOT_MAPPED',
       totalIncidents,
       openIncidents,
       totalNearMiss,

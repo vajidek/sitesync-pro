@@ -1,4 +1,5 @@
 import { db } from '../../db/index';
+import { isDemoSeedAllowed } from '../config/env';
 import { sql } from 'drizzle-orm';
 import {
   phase62ItpMasters,
@@ -22,10 +23,20 @@ import {
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 
+function requireFields(data: any, fields: string[], context: string): void {
+  const missing = fields.filter((field) => data?.[field] === undefined || data?.[field] === null || String(data[field]).trim() === '');
+  if (missing.length) throw new Error(`${context} requires: ${missing.join(', ')}.`);
+}
+
 export class QAQCRepository {
   private static isTablesEnsured = false;
 
   public async ensureQAQCTablesExist(): Promise<void> {
+    if (QAQCRepository.isTablesEnsured) return;
+    if (!isDemoSeedAllowed()) {
+      QAQCRepository.isTablesEnsured = true;
+      return;
+    }
     if (QAQCRepository.isTablesEnsured) return;
     try {
       // Seed initial ITPs and Inspections if empty
@@ -145,6 +156,7 @@ export class QAQCRepository {
   }
 
   public async createInspection(data: any) {
+    requireFields(data, ['title','projectId','location'], 'Inspection');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -157,7 +169,7 @@ export class QAQCRepository {
         client_representative, result, status, remarks, created_at, updated_at
       ) VALUES (
         ${id}, ${insNumber}, ${data.itpId || null}, ${data.title}, ${data.discipline || 'MECHANICAL'},
-        ${data.inspectionType || 'SITE_INSPECTION'}, ${data.projectId || 'PRJ-101'}, ${data.location},
+        ${data.inspectionType || 'SITE_INSPECTION'}, ${data.projectId || null}, ${data.location},
         ${data.requestedDate || now.split('T')[0]}, ${data.inspectionDate || null}, ${data.inspectorName || null},
         ${data.clientRepresentative || null}, ${data.result || 'PENDING'}, ${data.status || 'SUBMITTED'},
         ${data.remarks || null}, ${now}, ${now}
@@ -171,7 +183,7 @@ export class QAQCRepository {
             id, inspection_id, check_point, acceptance_criteria, observed_result, status, comments, created_at, updated_at
           ) VALUES (
             ${uuidv4()}, ${id}, ${item.checkPoint}, ${item.acceptanceCriteria}, ${item.observedResult || null},
-            ${item.status || 'PASS'}, ${item.comments || null}, ${now}, ${now}
+            ${item.status || 'PENDING'}, ${item.comments || null}, ${now}, ${now}
           )
         `);
       }
@@ -200,6 +212,7 @@ export class QAQCRepository {
   }
 
   public async createNcr(data: any) {
+    requireFields(data, ['projectId','title','description','location','issuedTo','issuedBy','targetCloseDate'], 'NCR');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -211,9 +224,9 @@ export class QAQCRepository {
         location, issued_to, issued_by, issue_date, target_close_date, root_cause,
         disposition, status, remarks, created_at, updated_at
       ) VALUES (
-        ${id}, ${ncrNum}, ${data.inspectionId || null}, ${data.projectId || 'PRJ-101'},
+        ${id}, ${ncrNum}, ${data.inspectionId || null}, ${data.projectId || null},
         ${data.title}, ${data.severity || 'MAJOR'}, ${data.description}, ${data.location},
-        ${data.issuedTo}, ${data.issuedBy || 'QA/QC Inspector'}, ${now.split('T')[0]},
+        ${data.issuedTo}, ${data.issuedBy || null}, ${now.split('T')[0]},
         ${data.targetCloseDate}, ${data.rootCause || null}, ${data.disposition || 'REWORK'},
         ${data.status || 'OPEN'}, ${data.remarks || null}, ${now}, ${now}
       )
@@ -272,20 +285,21 @@ export class QAQCRepository {
   }
 
   public async createItp(data: any) {
+    requireFields(data, ['title','projectId','projectName','preparedBy'], 'ITP');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
-    const itpNum = `ITP-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const itpNum = data.itpNumber || `ITP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     await db.execute(sql`
       INSERT INTO phase62_itp_masters (
         id, itp_number, title, discipline, project_id, project_name, revision_number,
         standard_reference, status, prepared_by, approved_by, created_at, updated_at
       ) VALUES (
-        ${id}, ${itpNum}, ${data.title}, ${data.discipline || 'MECHANICAL'}, ${data.projectId || 'PRJ-101'},
-        ${data.projectName || 'Al Reem Mechanical Piping & Structural Hub'}, ${data.revisionNumber || 'R0'},
-        ${data.standardReference || null}, ${data.status || 'APPROVED'}, ${data.preparedBy || 'Quality Inspector'},
-        ${data.approvedBy || 'QA/QC Manager'}, ${now}, ${now}
+        ${id}, ${itpNum}, ${data.title}, ${data.discipline || 'MECHANICAL'}, ${data.projectId || null},
+        ${data.projectName || null}, ${data.revisionNumber || 'R0'},
+        ${data.standardReference || null}, ${data.status || 'DRAFT'}, ${data.preparedBy || null},
+        ${data.approvedBy || 'PENDING_APPROVAL'}, ${now}, ${now}
       )
     `);
 
@@ -302,6 +316,7 @@ export class QAQCRepository {
   }
 
   public async createMaterialInspection(data: any) {
+    requireFields(data, ['materialName','supplierName','quantityReceived','unitOfMeasure','inspectionDate'], 'Material inspection');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -316,8 +331,8 @@ export class QAQCRepository {
         ${id}, ${mirNum}, ${data.materialName}, ${data.supplierName}, ${data.poNumber || null},
         ${data.deliveryNoteNumber || null}, ${data.quantityReceived || 0}, ${data.unitOfMeasure || 'Pcs'},
         ${data.heatNumberCertRef || null}, ${data.inspectionDate || now.split('T')[0]},
-        ${data.visualCheck || 'PASS'}, ${data.dimensionalCheck || 'PASS'}, ${data.certVerification || 'VERIFIED'},
-        ${data.result || 'ACCEPTED'}, ${data.remarks || null}, ${now}, ${now}
+        ${data.visualCheck || 'PENDING'}, ${data.dimensionalCheck || 'PENDING'}, ${data.certVerification || 'PENDING'},
+        ${data.result || 'PENDING'}, ${data.remarks || null}, ${now}, ${now}
       )
     `);
 
@@ -334,6 +349,7 @@ export class QAQCRepository {
   }
 
   public async createSiteTest(data: any) {
+    requireFields(data, ['testType','locationChainage','testedByLab','sampleDate','testDate','requiredValue','obtainedValue'], 'Site test');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -345,9 +361,9 @@ export class QAQCRepository {
         test_date, required_value, obtained_value, result, witnessed_by, remarks, created_at, updated_at
       ) VALUES (
         ${id}, ${tstNum}, ${data.testType || 'CONCRETE_CUBE'}, ${data.locationChainage},
-        ${data.testedByLab || 'Site QA Lab'}, ${data.sampleDate || now.split('T')[0]},
-        ${data.testDate || now.split('T')[0]}, ${data.requiredValue}, ${data.obtainedValue},
-        ${data.result || 'PASS'}, ${data.witnessedBy || null}, ${data.remarks || null}, ${now}, ${now}
+        ${data.testedByLab || null}, ${data.sampleDate || null},
+        ${data.testDate || null}, ${data.requiredValue || null}, ${data.obtainedValue || null},
+        ${data.result || 'PENDING'}, ${data.witnessedBy || null}, ${data.remarks || null}, ${now}, ${now}
       )
     `);
 
@@ -364,6 +380,7 @@ export class QAQCRepository {
   }
 
   public async createWeldingInspection(data: any) {
+    requireFields(data, ['jointNumber','welderId','pipeDiameterInch','pipeMaterial','wpsNumber','fitupStatus','visualStatus','ndtMethod'], 'Welding inspection');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -374,11 +391,11 @@ export class QAQCRepository {
         id, report_number, joint_number, welder_id, pipe_diameter_inch, pipe_material,
         wps_number, fitup_status, visual_status, ndt_method, ndt_result, repair_count, created_at, updated_at
       ) VALUES (
-        ${id}, ${reportNum}, ${data.jointNumber || 'J-101'}, ${data.welderId || 'W-809'},
-        ${data.pipeDiameterInch || 12}, ${data.pipeMaterial || 'Carbon Steel A106 Gr B'},
-        ${data.wpsNumber || 'WPS-MECH-001'}, ${data.fitupStatus || 'ACCEPTED'},
-        ${data.visualStatus || 'ACCEPTED'}, ${data.ndtMethod || 'RADIOGRAPHY_RT'},
-        ${data.ndtResult || 'PASS'}, ${data.repairCount || 0}, ${now}, ${now}
+        ${id}, ${reportNum}, ${data.jointNumber || null}, ${data.welderId || null},
+        ${data.pipeDiameterInch || null}, ${data.pipeMaterial || null},
+        ${data.wpsNumber || null}, ${data.fitupStatus || 'PENDING'},
+        ${data.visualStatus || 'PENDING'}, ${data.ndtMethod || null},
+        ${data.ndtResult || 'PENDING'}, ${data.repairCount || 0}, ${now}, ${now}
       )
     `);
 
@@ -395,6 +412,7 @@ export class QAQCRepository {
   }
 
   public async createHydroTest(data: any) {
+    requireFields(data, ['lineOrTankNumber','testMedium','designPressureBar','testPressureBar','testDurationHours','holdingTimeMinutes','pressureDropObservedBar','allowableDropBar'], 'Hydro test');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -406,11 +424,11 @@ export class QAQCRepository {
         test_pressure_bar, test_duration_hours, holding_time_minutes, pressure_drop_observed_bar,
         allowable_drop_bar, result, kwa_witness_name, consultant_witness_name, status, created_at, updated_at
       ) VALUES (
-        ${id}, ${hydNum}, ${data.lineOrTankNumber || 'Line 14-PL-201'}, ${data.testMedium || 'POTABLE_WATER'},
-        ${data.designPressureBar || 10}, ${data.testPressureBar || 15}, ${data.testDurationHours || 24},
-        ${data.holdingTimeMinutes || 120}, ${data.pressureDropObservedBar || 0.0}, ${data.allowableDropBar || 0.2},
-        ${data.result || 'PASS'}, ${data.kwaWitnessName || null}, ${data.consultantWitnessName || null},
-        ${data.status || 'APPROVED'}, ${now}, ${now}
+        ${id}, ${hydNum}, ${data.lineOrTankNumber || null}, ${data.testMedium || null},
+        ${data.designPressureBar || null}, ${data.testPressureBar || null}, ${data.testDurationHours || null},
+        ${data.holdingTimeMinutes || null}, ${data.pressureDropObservedBar || null}, ${data.allowableDropBar || null},
+        ${data.result || 'PENDING'}, ${data.kwaWitnessName || null}, ${data.consultantWitnessName || null},
+        ${data.status || 'SUBMITTED'}, ${now}, ${now}
       )
     `);
 
@@ -426,6 +444,7 @@ export class QAQCRepository {
   }
 
   public async createPressureTest(data: any) {
+    requireFields(data, ['equipmentPipelineRef','testMedium','testPressureBar','gaugeCalibCertRef','startPressureBar','endPressureBar'], 'Pressure test');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -437,9 +456,9 @@ export class QAQCRepository {
         gauge_calib_cert_ref, start_pressure_bar, end_pressure_bar, result, remarks, created_at, updated_at
       ) VALUES (
         ${id}, ${prtNum}, ${data.equipmentPipelineRef}, ${data.testMedium || 'COMPRESSED_AIR'},
-        ${data.testPressureBar || 3.5}, ${data.gaugeCalibCertRef || 'CAL-2026-881'},
+        ${data.testPressureBar || null}, ${data.gaugeCalibCertRef || null},
         ${data.startPressureBar || 3.5}, ${data.endPressureBar || 3.5},
-        ${data.result || 'PASS'}, ${data.remarks || null}, ${now}, ${now}
+        ${data.result || 'PENDING'}, ${data.remarks || null}, ${now}, ${now}
       )
     `);
 

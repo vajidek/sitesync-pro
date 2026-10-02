@@ -16,6 +16,7 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - PR #17 — Daily progress project/site validation + maker-checker lifecycle.
 - PR #18 — Cost control source-driven EVM; removed synthetic budgets/burn-rate metrics.
 - PR #19 — Project Controls explicit project-context requirement outside DEMO.
+- PR #66 — Auth canonical token storage, removal of browser role authority, safe auth-state cleanup, production login-password guard.
 
 ## Current unfinished area
 1. Authentication storage contract cleanup:

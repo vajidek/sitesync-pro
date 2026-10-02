@@ -431,7 +431,6 @@ export class HSERepository {
       actionType,
       module: 'HSE',
       entityId,
-      entityNumber,
       performedBy: actor,
       details,
       ipAddress: null,

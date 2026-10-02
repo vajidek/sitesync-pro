@@ -322,7 +322,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
 
   const handlePrWorkflowAction = async (
     id: string,
-    status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'PO_ISSUED' | 'REJECTED'
+    status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'REJECTED'
   ) => {
     try {
       const result = await safeFetchJson<any>(`/api/procurement-enterprise/purchase-requisitions/${id}/status`, {
@@ -338,7 +338,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
   };
 
   const approvedPurchaseRequisitions = purchaseRequisitions.filter((pr) =>
-    ['HOD_APPROVED', 'FINANCE_APPROVED', 'PO_ISSUED'].includes(pr.status)
+    ['HOD_APPROVED', 'FINANCE_APPROVED'].includes(pr.status)
   );
 
   const handleSelectRfqRequisition = (requisitionId: string) => {

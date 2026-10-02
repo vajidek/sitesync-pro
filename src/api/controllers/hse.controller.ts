@@ -17,6 +17,16 @@ import {
   CreateWasteManagementSchema,
 } from '../validators/hse.validator';
 
+function getAuthenticatedActor(req: Request, res: Response): { userId: string; userName: string } | null {
+  const user = (req as any).user;
+  const userId = String(user?.id || user?.userId || '').trim();
+  const userName = String(user?.name || user?.fullName || user?.email || '').trim();
+  if (!userId || !userName) {
+    res.status(401).json({ success: false, message: 'Authenticated user context is required.' });
+    return null;
+  }
+  return { userId, userName };
+}
 export class HSEController {
   private service: HSEService;
 
@@ -45,8 +55,16 @@ export class HSEController {
 
   public createIncident = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreateIncidentSchema.parse(req.body);
-      const result = await this.service.createIncident(validated);
+      const result = await this.service.createIncident({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        reportedBy: actor.userName,
+        status: 'REPORTED',
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
@@ -65,8 +83,16 @@ export class HSEController {
 
   public createNearMiss = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreateNearMissSchema.parse(req.body);
-      const result = await this.service.createNearMiss(validated);
+      const result = await this.service.createNearMiss({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        reportedBy: actor.userName,
+        status: 'OPEN',
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
@@ -85,8 +111,16 @@ export class HSEController {
 
   public createHazardReport = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreateHazardReportSchema.parse(req.body);
-      const result = await this.service.createHazardReport(validated);
+      const result = await this.service.createHazardReport({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        reportedBy: actor.userName,
+        status: 'IDENTIFIED',
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
@@ -105,8 +139,16 @@ export class HSEController {
 
   public createRiskAssessment = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreateRiskAssessmentSchema.parse(req.body);
-      const result = await this.service.createRiskAssessment(validated);
+      const result = await this.service.createRiskAssessment({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        assessedBy: actor.userName,
+        status: 'ACTIVE',
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
@@ -125,8 +167,16 @@ export class HSEController {
 
   public createJsa = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreateJsaSchema.parse(req.body);
-      const result = await this.service.createJsa(validated);
+      const result = await this.service.createJsa({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        status: 'DRAFT',
+        approvedBy: undefined,
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
@@ -155,8 +205,16 @@ export class HSEController {
 
   public createWorkPermit = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreateWorkPermitSchema.parse(req.body);
-      const result = await this.service.createWorkPermit(validated);
+      const result = await this.service.createWorkPermit({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        status: 'PENDING_APPROVAL',
+        approvedBy: undefined,
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
@@ -185,8 +243,15 @@ export class HSEController {
 
   public createPpeIssuance = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const validated = CreatePpeIssuanceSchema.parse(req.body);
-      const result = await this.service.createPpeIssuance(validated);
+      const result = await this.service.createPpeIssuance({
+        ...validated,
+        createdBy: actor.userName,
+        updatedBy: actor.userName,
+        issuedBy: actor.userName,
+      });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });

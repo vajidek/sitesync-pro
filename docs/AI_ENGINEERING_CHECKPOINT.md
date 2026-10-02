@@ -21,18 +21,27 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - PR #69 — Cost Control net material returns and WBS material/labour allocation.
 - PR #70 — Billing core: atomic finance posting and trustworthy measurement valuation.
 - PR #71 — RA Billing: server-authoritative contract deductions and removal of synthetic UI controls.
+- PR #77 — Payroll: loan recovery + payslip calculation made atomic; rollback-safe payroll persistence.
+- PR #78 — Store: central stock ledger preserves Project/WBS/BOQ/Cost Code allocation context.
+- PR #79 — Store: purchase requests carry WBS/BOQ/Cost Code traceability with migration.
+- PR #80 — Cost Control: material actual allocation consumes the central stock transaction ledger.
 
-## Current unfinished area
-Completed above. Do not repeat those items.
+## Current status
+- HR master-data hardening: completed in main through authenticated actor propagation, canonical employee/leave/salary/loan writes, configurable numbering, and removal of production fallback identities/codes.
+- HR loan recovery failure semantics: completed in main. Payroll recovery failures are fail-closed, and payroll recovery/payslip/run persistence is atomic.
+- Store → Site → BOQ/Cost Code traceability: substantially hardened. Central stock ledger now stores allocation context; purchase requests carry allocation fields; Cost Control consumes stock-ledger allocations. Remaining work is UI/UX and any transaction types not yet mapped to the same allocation chain.
+- Do not repeat the completed items above.
 
-## Current unfinished area
-HR/Attendance/Payroll core hardening is complete above. Do not repeat it.
+## Next unfinished area
+1. QA/QC — transaction integrity, inspection workflow, NCR/corrective-action lifecycle, and removal of synthetic defaults.
+2. HSE — incident/near-miss/risk/permit workflow integrity and role-based approvals.
+3. Documents/CDE — revision control, transmittals, approvals, and source-document traceability.
+4. Claims/Variations — commercial lifecycle integration and evidence linkage.
+5. UI/UX consolidation — remove duplicated modules/screens and unify ERP navigation/workflows.
+6. CI/testing — compile/test coverage and deployment gates.
 
-## Current unfinished area
-1. HR master-data hardening: remove remaining fallback actors/codes and enforce authenticated audit context for employee/leave/salary/loan writes.
-2. HR loan recovery failure semantics and transaction integrity during payroll calculation.
-3. Store → Site → BOQ/Cost Code traceability gaps that remain after existing MIV controls.
-4. QA/QC, HSE, Documents/CDE, Claims, UI/UX consolidation, and CI/testing.
+## Continuation marker
+Last verified main merge: PR #80. Next work should begin at QA/QC; do not restart Store/Cost/HR/Finance hardening unless new evidence shows a regression.
 
 ## Safe marking rule
 Prefer this checkpoint file. It does not affect ERP runtime behavior. Use source-code comments only when truly useful.

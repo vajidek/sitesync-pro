@@ -110,62 +110,38 @@ router.get('/stock-transactions', procurementController.getStockTransactions);
 router.get('/material-ledger', procurementController.getMaterialLedger);
 
 // ==========================================
-// 13. PHASE 56 ENTERPRISE PROCUREMENT ENDPOINTS
+// 13. PHASE 56 ENTERPRISE-SPECIFIC EXTENSIONS
 // ==========================================
-
-// PR Endpoints
-router.get('/pr', procurementController.getPhase56PRs);
-router.post('/pr', procurementController.createPhase56PR);
-router.get('/pr/:id', procurementController.getPhase56PRById);
-router.post('/pr/approve', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), procurementController.approvePhase56PR);
-router.delete('/pr/:id', requireRoles('ADMIN', 'MANAGER'), procurementController.deletePhase56PR);
-
-// RFQ Endpoints
-router.get('/rfq', procurementController.getPhase56RFQs);
-router.post('/rfq', procurementController.createPhase56RFQ);
-router.get('/rfq/:id', procurementController.getPhase56RFQById);
-router.delete('/rfq/:id', requireRoles('ADMIN', 'MANAGER'), procurementController.deletePhase56RFQ);
-
-// Vendor Quotations
-router.get('/quotations', procurementController.getPhase56VendorQuotations);
-router.post('/quotations', procurementController.createPhase56VendorQuotation);
-
-// Evaluations
+// Canonical PR / RFQ / quotation / PO / GRN paths are owned by
+// /procurement-enterprise. The legacy /procurement router keeps its
+// historical endpoints so existing screens do not break. Do not register
+// the same paths here a second time, otherwise the first Express handler
+// shadows the enterprise handler.
+//
+// Enterprise-only extensions remain exposed here because they do not
+// collide with the legacy canonical transaction routes.
 router.get('/evaluations/technical', procurementController.getTechnicalEvaluations);
-router.post('/evaluations/technical', procurementController.createTechnicalEvaluation);
+router.post('/evaluations/technical', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), procurementController.createTechnicalEvaluation);
 router.get('/evaluations/commercial', procurementController.getCommercialEvaluations);
-router.post('/evaluations/commercial', procurementController.createCommercialEvaluation);
+router.post('/evaluations/commercial', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), procurementController.createCommercialEvaluation);
 
-// Comparative Statements
 router.get('/comparative', procurementController.getComparativeStatements);
-router.post('/comparative', procurementController.createComparativeStatement);
+router.post('/comparative', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), procurementController.createComparativeStatement);
 router.put('/comparative/:id/approve', requireRoles('ADMIN', 'MANAGER'), procurementController.approveComparativeStatement);
 router.post('/comparative/:id/generate-po', requireRoles('ADMIN', 'MANAGER'), procurementController.generatePoFromComparativeStatement);
 router.post('/comparative/:id/convert-to-po', requireRoles('ADMIN', 'MANAGER'), procurementController.generatePoFromComparativeStatement);
 
-// Purchase Orders
-router.get('/po', procurementController.getPhase56POs);
-router.post('/po', requireRoles('ADMIN', 'MANAGER'), procurementController.createPhase56PO);
-router.get('/po/:id', procurementController.getPhase56POById);
-router.put('/po/revise', requireRoles('ADMIN', 'MANAGER'), procurementController.revisePO);
-
-// Delivery Schedules
 router.get('/delivery', procurementController.getDeliverySchedules);
-router.post('/delivery', procurementController.createDeliverySchedule);
-router.put('/delivery/:id/status', procurementController.updateDeliveryScheduleStatus);
+router.post('/delivery', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), procurementController.createDeliverySchedule);
+router.put('/delivery/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), procurementController.updateDeliveryScheduleStatus);
 
-// Vendor Performance
 router.get('/performance', procurementController.getVendorPerformances);
-router.post('/performance', procurementController.createVendorPerformance);
+router.post('/performance', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), procurementController.createVendorPerformance);
 
-// Budget Allocations
 router.get('/budgets', procurementController.getBudgetAllocations);
 router.post('/budgets', requireRoles('ADMIN', 'MANAGER'), procurementController.createBudgetAllocation);
 
-// Procurement Logs
-router.get('/logs', procurementController.getProcurementLogs);
-
-// ==========================================
+router.get('/logs', procurementController.getProcurementLogs);// ==========================================
 // 14. PHASE 77 / P2.0: CONTRACTOR RUNNING ACCOUNT (RA) BILLING & CERTIFICATION
 // ==========================================
 router.get('/ra-bills', procurementController.getRABills);

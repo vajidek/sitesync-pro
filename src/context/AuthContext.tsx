@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { UserProfile, UserRole, UserPermissions } from '../types';
 import { ROLE_CONFIG } from '../data/mockData';
+import { clearStoredAuthTokens, getStoredAccessToken, getStoredRefreshToken, setStoredAuthTokens } from '../lib/authStorage';
 
 const EMPTY_PERMISSIONS: UserPermissions = {
   canViewFinancials: false,
@@ -55,20 +56,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEY_ROLE = 'sitesync_active_role';
-const STORAGE_KEY_ACCESS = 'sitesync_jwt_access_token';
-const STORAGE_KEY_REFRESH = 'sitesync_jwt_refresh_token';
-
-// Centralized helper to get active auth token from any recognized storage key
-export const getActiveStoredToken = (): string => {
-  return (
-    localStorage.getItem(STORAGE_KEY_ACCESS) ||
-    localStorage.getItem('sitesync_access_token') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('accessToken') ||
-    ''
-  );
-};
+// Canonical token access; legacy aliases are migrated once by authStorage.
+export const getActiveStoredToken = (): string => getStoredAccessToken();
 
 const safeJsonResponse = async (r: Response) => {
   try {
@@ -81,11 +70,8 @@ const safeJsonResponse = async (r: Response) => {
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [tokens, setTokens] = useState<AuthTokens | null>(() => {
-    const access = getActiveStoredToken();
-    const refresh =
-      localStorage.getItem(STORAGE_KEY_REFRESH) ||
-      localStorage.getItem('sitesync_refresh_token') ||
-      localStorage.getItem('refreshToken');
+    const access = getStoredAccessToken();
+    const refresh = getStoredRefreshToken();
     return access && refresh ? { accessToken: access, refreshToken: refresh } : access ? { accessToken: access, refreshToken: '' } : null;
   });
 
@@ -106,22 +92,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('sitesync_idle_timeout_mins', mins.toString());
   };
 
-  // Helper to completely purge authentication state
+  // Purge authentication state without touching unrelated ERP browser storage.
   const clearAuthState = () => {
-    const rememberedUserId = localStorage.getItem('sitesync_remember_userid');
-    const idleMins = localStorage.getItem('sitesync_idle_timeout_mins');
-    
-    // Clear localStorage and sessionStorage
-    localStorage.clear();
-    sessionStorage.clear();
-    
-    if (rememberedUserId) {
-      localStorage.setItem('sitesync_remember_userid', rememberedUserId);
-    }
-    if (idleMins) {
-      localStorage.setItem('sitesync_idle_timeout_mins', idleMins);
-    }
-
+    clearStoredAuthTokens();
+    sessionStorage.removeItem('sitesync_session');
     setTokens(null);
     setUser(null);
     setActiveRole(null);
@@ -129,37 +103,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsAuthenticated(false);
   };
 
-  // Sync token state to LocalStorage with all common alias keys
+  // Persist only the canonical transport token pair.
   useEffect(() => {
     if (tokens) {
-      localStorage.setItem(STORAGE_KEY_ACCESS, tokens.accessToken);
-      localStorage.setItem('sitesync_access_token', tokens.accessToken);
-      localStorage.setItem('token', tokens.accessToken);
-      localStorage.setItem('accessToken', tokens.accessToken);
-      localStorage.setItem(STORAGE_KEY_REFRESH, tokens.refreshToken);
-      localStorage.setItem('sitesync_refresh_token', tokens.refreshToken);
-      localStorage.setItem('refreshToken', tokens.refreshToken);
+      setStoredAuthTokens(tokens.accessToken, tokens.refreshToken);
     } else {
-      localStorage.removeItem(STORAGE_KEY_ACCESS);
-      localStorage.removeItem('sitesync_access_token');
-      localStorage.removeItem('token');
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem(STORAGE_KEY_REFRESH);
-      localStorage.removeItem('sitesync_refresh_token');
-      localStorage.removeItem('refreshToken');
+      clearStoredAuthTokens();
     }
   }, [tokens]);
-
-  // Sync active role state to LocalStorage
-  useEffect(() => {
-    if (activeRole) {
-      localStorage.setItem(STORAGE_KEY_ROLE, activeRole);
-      localStorage.setItem('sitesync_role', activeRole);
-    } else {
-      localStorage.removeItem(STORAGE_KEY_ROLE);
-      localStorage.removeItem('sitesync_role');
-    }
-  }, [activeRole]);
 
   // Idle timeout activity listener for session security
   useEffect(() => {
@@ -306,8 +257,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsLoading(false);
     }
   };
-  const login = async (userIdOrEmail: string, role?: UserRole, password = 'Password123!'): Promise<{ success: boolean; error?: string; user?: UserProfile }> => {
-    return loginWithUserId(userIdOrEmail, password, true);
+  const login = async (userIdOrEmail: string, role?: UserRole, password?: string): Promise<{ success: boolean; error?: string; user?: UserProfile }> => {
+    const effectivePassword = password || (isDemoClientMode() ? 'Password123!' : '');
+    if (!effectivePassword) {
+      const message = 'Password is required.';
+      setError(message);
+      return { success: false, error: message };
+    }
+    return loginWithUserId(userIdOrEmail, effectivePassword, true);
   };
 
   const loginWithUserId = async (userId: string, password: string, rememberMe = false): Promise<{ success: boolean; error?: string; user?: UserProfile }> => {
@@ -341,8 +298,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           passwordLastChangedAt: uData.passwordLastChangedAt,
           lastLoginAt: uData.lastLoginAt,
           avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
-          department: uData.department || 'Operations',
-          phone: uData.phone || '+971 50 123 4567',
+          department: uData.department || '',
+          phone: uData.phone || undefined,
           assignedProjectId: uData.assignedProjectId,
           assignedProjectName: uData.assignedProjectName,
           permissions: resolveUiPermissions(uData.uiPermissions ?? uData.permissions),

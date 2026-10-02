@@ -40,6 +40,7 @@ router.get('/pr', controller.getPurchaseRequisitions);
 router.get('/purchase-requisitions', controller.getPurchaseRequisitions);
 router.post('/pr', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR', 'STORE_KEEPER'), controller.createPurchaseRequisition);
 router.post('/purchase-requisitions', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR', 'STORE_KEEPER'), controller.createPurchaseRequisition);
+router.put('/purchase-requisitions/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.updatePurchaseRequisitionStatus);
 
 // Purchase Orders
 router.get('/po', controller.getPurchaseOrders);

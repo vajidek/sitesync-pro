@@ -1330,6 +1330,7 @@ class FleetRepository {
       const cost = Number(data.costAmount);
       if (!Number.isFinite(cost) || cost < 0) throw new Error('Maintenance cost must be a valid non-negative amount.');
     }
+    if (!String(data.description || '').trim()) throw new Error('Maintenance description is required.');
 
     const projectId = String(data.projectId || '').trim();
     const wbsId = String((data as any).wbsId || '').trim();
@@ -1372,10 +1373,11 @@ class FleetRepository {
       maintenanceCode: data.maintenanceCode || `MNT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
       assetType,
       assetId,
-      assetName: data.assetName,
-      assetCode: data.assetCode,
+      assetName: String(data.assetName || ''),
+      assetCode: String(data.assetCode || ''),
       projectId: projectId || undefined,
       projectName: data.projectName,
+
       wbsId: wbsId || undefined,
       boqItemId: boqItemId || undefined,
       costCodeId: costCodeId || undefined,
@@ -1387,9 +1389,9 @@ class FleetRepository {
       odometerKm: data.odometerKm == null ? undefined : Number(data.odometerKm),
       runningHours: data.runningHours == null ? undefined : Number(data.runningHours),
       costAmount: data.costAmount == null ? 0 : Number(data.costAmount),
-      vendorName: data.vendorName,
-      invoiceNumber: data.invoiceNumber,
-      description: data.description,
+      vendorName: String(data.vendorName || ''),
+      invoiceNumber: data.invoiceNumber ? String(data.invoiceNumber) : undefined,
+      description: String(data.description || '').trim(),
       performedBy,
       status: data.status || 'SCHEDULED',
       nextServiceDueDate: data.nextServiceDueDate,

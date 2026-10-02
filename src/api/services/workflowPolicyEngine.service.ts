@@ -493,9 +493,13 @@ export class WorkflowPolicyEngineService {
     const { user, entityType, action, instance, context } = params;
     const policy = await this.getWorkflowConfig(entityType);
 
-    const userRoleCode = (user?.role || user?.roleCode || user?.roleId || 'EMPLOYEE').toUpperCase();
-    const userId = user?.id || user?.userId || 'usr-anonymous';
-    const userName = user?.name || user?.email || 'User';
+    const userRoleCode = String(user?.role || user?.roleCode || user?.roleId || '').trim().toUpperCase();
+    const userId = String(user?.id || user?.userId || '').trim();
+    const userName = String(user?.name || user?.email || '').trim();
+
+    if (!userId || !userName || !userRoleCode) {
+      throw new Error('Authenticated workflow actor identity (id, name and role) is required.');
+    }
 
     // 1. If Workflow is disabled OR both Verification and Approval are OFF (Test A)
     if (!policy.isActive || (!policy.verificationRequired && !policy.approvalRequired)) {

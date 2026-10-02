@@ -1481,35 +1481,27 @@ export class HrmsRepository {
     const runRows = await db.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
     if (runRows.length === 0) throw new Error(`Payroll run ${runId} not found`);
     const run = runRows[0];
-
-    if (run.status !== 'APPROVED') {
-      throw new Error(`Payroll run ${run.runNumber} must be APPROVED before disbursement. Current status: ${run.status}`);
-    }
+    if (run.status !== 'APPROVED') throw new Error(`Payroll run ${run.runNumber} must be APPROVED before disbursement. Current status: ${run.status}`);
     if (run.isLocked) throw new Error(`Payroll run ${run.runNumber} is already locked.`);
 
     const providedReference = String(neftBatchReference || '').trim();
     const neftRef = providedReference || (isDemoSeedAllowed() ? `DEMO-NEFT-${Date.now()}` : '');
-    if (!neftRef) {
-      throw new Error('Actual bank/NEFT batch reference is required for payroll disbursement outside DEMO mode.');
-    }
+    if (!neftRef) throw new Error('Actual bank/NEFT batch reference is required for payroll disbursement outside DEMO mode.');
 
     const payslips = await db.select().from(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, runId));
     if (payslips.length === 0) throw new Error(`Payroll run ${run.runNumber} contains no payslips.`);
 
     const eligiblePayslips = payslips.filter((p: any) => !p.isHold && p.paymentStatus !== 'ON_HOLD');
     const heldPayslips = payslips.filter((p: any) => p.isHold || p.paymentStatus === 'ON_HOLD');
-    if (eligiblePayslips.length === 0) throw new Error(`Cannot disburse payroll run: all payslips are currently on hold.`);
+    if (eligiblePayslips.length === 0) throw new Error('Cannot disburse payroll run: all payslips are currently on hold.');
 
     const isFullDisbursement = heldPayslips.length === 0;
     const finalRunStatus = isFullDisbursement ? 'DISBURSED' : 'PARTIALLY_DISBURSED';
     const lockHash = run.lockHash || statutoryEngineService.generateLockHash(runId, run.payrollMonth, payslips);
     const disbursedTotal = eligiblePayslips.reduce((sum: number, p: any) => sum + Number(p.netSalaryAed || 0), 0);
     const heldTotal = heldPayslips.reduce((sum: number, p: any) => sum + Number(p.netSalaryAed || 0), 0);
-
     if (disbursedTotal <= 0) throw new Error('Disbursement amount must be greater than zero.');
 
-    // Post Finance GL first. A payroll run must not become PAID/DISBURSED when
-    // the corresponding accounting journal cannot be posted.
     const totalGross = eligiblePayslips.reduce((sum: number, p: any) => sum + Number(p.grossSalaryAed || p.netSalaryAed || 0), 0);
     const totalDeductions = Math.max(0, totalGross - disbursedTotal);
     const journalLines: any[] = [
@@ -1521,23 +1513,26 @@ export class HrmsRepository {
       lineDescription: `Statutory deductions withheld on run ${run.runNumber}`,
     });
 
-    await financeRepository.createJournalEntry(
-      {
+    const now = new Date().toISOString();
+    const updated = await db.transaction(async (tx) => {
+      const currentRows = await tx.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
+      if (!currentRows.length) throw new Error(`Payroll run ${runId} disappeared during disbursement.`);
+      if (currentRows[0].status !== 'APPROVED') throw new Error(`Payroll run ${run.runNumber} changed state during disbursement.`);
+
+      const duplicateRef = await tx.execute(sql`
+        SELECT COUNT(*)::int AS count FROM hr_payroll_runs
+        WHERE neft_batch_reference = ${neftRef} AND id <> ${runId} AND neft_batch_reference IS NOT NULL
+      `);
+      if (Number((duplicateRef.rows?.[0] as any)?.count || 0) > 0) throw new Error(`Duplicate payroll payment reference '${neftRef}'.`);
+
+      await financeRepository.createJournalEntry({
         voucherType: 'PAYROLL_JOURNAL',
         postingDate: new Date().toISOString().split('T')[0],
         referenceNumber: `${run.runNumber}:${neftRef}`,
         narration: `Payroll disbursement journal for ${run.payrollMonth} (${neftRef})`,
         postedBy: actor.userName,
         createdBy: actor.userName,
-      },
-      journalLines
-    );
-
-    const now = new Date().toISOString();
-    const updated = await db.transaction(async (tx) => {
-      const currentRows = await tx.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
-      if (!currentRows.length) throw new Error(`Payroll run ${runId} disappeared during disbursement.`);
-      if (currentRows[0].status !== 'APPROVED') throw new Error(`Payroll run ${run.runNumber} changed state during disbursement.`);
+      }, journalLines, tx);
 
       const [updatedRun] = await tx.update(hrPayrollRuns).set({
         status: finalRunStatus,
@@ -1547,7 +1542,7 @@ export class HrmsRepository {
         neftBatchReference: neftRef,
         updatedAt: now,
       }).where(eq(hrPayrollRuns.id, runId)).returning();
-      if (!updatedRun) throw new Error('Payroll run update failed after finance posting. Manual reconciliation is required.');
+      if (!updatedRun) throw new Error('Payroll run update failed after finance posting.');
 
       for (const payslip of eligiblePayslips) {
         await tx.update(phase70PaySlips).set({
@@ -1557,19 +1552,20 @@ export class HrmsRepository {
           updatedAt: now,
         }).where(eq(phase70PaySlips.id, payslip.id));
       }
-      return updatedRun;
-    });
 
-    await this.recordAuditLog({
-      actionType: isFullDisbursement ? 'PAYROLL_DISBURSED_AND_LOCKED' : 'PAYROLL_PARTIALLY_DISBURSED',
-      entityType: 'PAYROLL_RUN',
-      entityId: runId,
-      referenceNumber: run.runNumber,
-      performedBy: actor.userName,
-      detailsJson: JSON.stringify({
-        neftBatchReference: neftRef, lockHash, disbursedEmployeeCount: eligiblePayslips.length,
-        disbursedTotalAmount: disbursedTotal, heldEmployeeCount: heldPayslips.length, heldTotalAmount: heldTotal, status: finalRunStatus,
-      }),
+      await this.recordAuditLog({
+        actionType: isFullDisbursement ? 'PAYROLL_DISBURSED_AND_LOCKED' : 'PAYROLL_PARTIALLY_DISBURSED',
+        entityType: 'PAYROLL_RUN',
+        entityId: runId,
+        referenceNumber: run.runNumber,
+        performedBy: actor.userName,
+        detailsJson: JSON.stringify({
+          neftBatchReference: neftRef, lockHash, disbursedEmployeeCount: eligiblePayslips.length,
+          disbursedTotalAmount: disbursedTotal, heldEmployeeCount: heldPayslips.length, heldTotalAmount: heldTotal, status: finalRunStatus,
+        }),
+      }, tx);
+
+      return updatedRun;
     });
 
     return {
@@ -1580,76 +1576,6 @@ export class HrmsRepository {
       heldTotalAmount: heldTotal,
     };
   }
-  public async rejectPayrollRun(
-    runId: string,
-    checker: { userId: string; userName: string },
-    remarks: string
-  ): Promise<any> {
-    await this.ensureHrmsTablesExist();
-    const runRows = await db.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
-    if (runRows.length === 0) throw new Error(`Payroll run ${runId} not found`);
-    const run = runRows[0];
-
-    if (run.isLocked) throw new Error(`Cannot reject payroll run ${runId} as it has already been disbursed and locked`);
-
-    // Strict Maker-Checker separation enforcement
-    if (run.makerUserId && run.makerUserId === checker.userId) {
-      throw new Error(`Maker-Checker Violation: The preparer (${run.makerUserName}) cannot act as checker to reject/approve.`);
-    }
-
-    const now = new Date().toISOString();
-
-    // Rollback loan recoveries deducted during this run
-    try {
-      const periodId = (run as any).periodId || runId.replace('prun-', '');
-      const existingRecoveries = await db.execute(sql`
-        SELECT * FROM hr_loan_recoveries WHERE period_id = ${periodId} OR payroll_run_id = ${runId}
-      `);
-      if (existingRecoveries?.rows && existingRecoveries.rows.length > 0) {
-        for (const rec of existingRecoveries.rows as any[]) {
-          await db.execute(sql`
-            UPDATE phase70_loans 
-            SET outstanding_balance_aed = outstanding_balance_aed + ${Number(rec.recovered_amount || 0)},
-                total_repaid_aed = GREATEST(0, total_repaid_aed - ${Number(rec.recovered_amount || 0)}),
-                status = 'ACTIVE',
-                updated_at = ${now}
-            WHERE id = ${rec.loan_id}
-          `);
-        }
-        await db.execute(sql`DELETE FROM hr_loan_recoveries WHERE period_id = ${periodId} OR payroll_run_id = ${runId}`);
-      }
-    } catch (rbErr) {
-      console.warn('Loan recovery rollback on rejection notice:', rbErr);
-    }
-
-    const [updated] = await db.update(hrPayrollRuns).set({
-      status: 'REJECTED',
-      checkerUserId: checker.userId,
-      checkerUserName: checker.userName,
-      checkerTimestamp: now,
-      checkerRemarks: remarks || 'Rejected by QA Checker for recalculation / attendance review',
-      isLocked: false,
-      updatedAt: now,
-    }).where(eq(hrPayrollRuns.id, runId)).returning();
-
-    // Mark payslips as REJECTED
-    await db.update(phase70PaySlips).set({
-      paymentStatus: 'REJECTED',
-      updatedAt: now,
-    }).where(eq(phase70PaySlips.payrollRunId, runId));
-
-    await this.recordAuditLog({
-      actionType: 'PAYROLL_REJECTED_BY_CHECKER',
-      entityType: 'PAYROLL_RUN',
-      entityId: runId,
-      referenceNumber: run.runNumber,
-      performedBy: checker.userName,
-      detailsJson: JSON.stringify({ remarks, status: 'REJECTED', loanRecoveriesRolledBack: true }),
-    });
-
-    return updated;
-  }
-
   // 8.5 Attendance Finalization System
   public async getAttendanceFinalizations(periodId?: string, monthYear?: string): Promise<any[]> {
     await this.ensureHrmsTablesExist();

@@ -26,6 +26,7 @@ import {
 } from '../../db/schema';
 import { eq, and, isNull, desc, sql, like, or } from 'drizzle-orm';
 import crypto from 'crypto';
+import { isDemoSeedAllowed } from '../config/env';
 
 let tablesCreated = false;
 
@@ -34,6 +35,11 @@ export async function ensureDocumentTablesExist() {
   try {
     // Seed default categories and root folders if empty
     const existingCat = await db.select().from(phase61DocumentCategories).limit(1);
+    if (!isDemoSeedAllowed()) {
+      tablesCreated = true;
+      return;
+    }
+
     if (existingCat.length === 0) {
       const now = new Date().toISOString();
       await db.insert(phase61DocumentCategories).values([
@@ -95,6 +101,8 @@ export async function createFolder(data: {
   isSystemFolder?: boolean;
   createdBy?: string;
 }) {
+  const actor = String(data.createdBy || '').trim();
+  if (!actor) throw new Error('Authenticated folder creator identity is required.');
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
   let folderPath = '/' + data.folderName;
@@ -118,8 +126,8 @@ export async function createFolder(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy,
-    updatedBy: createdBy,
+    createdBy: actor,
+    updatedBy: actor,
     isDeleted: false,
   };
 

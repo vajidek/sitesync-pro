@@ -18,7 +18,7 @@ export const createProjectSchema = z.object({
   workOrderNumber: z.string().optional(),
   tenderNumber: z.string().optional(),
   agreementNumber: z.string().optional(),
-  companyId: z.string().trim().min(1, 'Company context is required'),
+  companyId: z.string().trim().min(1, 'Company context must be valid').optional(),
   businessUnitId: z.string().optional(),
   regionId: z.string().optional(),
   branchId: z.string().optional(),

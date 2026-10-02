@@ -64,6 +64,7 @@ import {
   procurementRaBillsTable,
   materials,
   stockTransactions,
+  warehouses,
 } from '../../db/schema';
 import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';
@@ -674,6 +675,17 @@ export class ProcurementRepository {
     await ensureProcurementSeeded();
 
     return await db.transaction(async (tx) => {
+      const [warehouse] = await tx.select().from(warehouses).where(eq(warehouses.id, warehouseId)).limit(1);
+      if (!warehouse || !warehouse.isActive) throw new Error('Selected warehouse was not found or is inactive.');
+      if (newGrn.projectId && warehouse.siteId) {
+        const sitesForProject = await tx.select({ id: sites.id }).from(sites).where(eq(sites.projectId, newGrn.projectId));
+        if (sitesForProject.length > 0 && !sitesForProject.some((s: any) => s.id === warehouse.siteId)) {
+          throw new Error('Selected warehouse does not belong to the selected project site.');
+        }
+      }
+      if (['PENDING_INSPECTION', 'Failed Quality Audit'].includes(newGrn.qualityStatus) && (newGrn.items || []).some((item: any) => Number(item.acceptedQty || 0) > 0)) {
+        throw new Error('Accepted quantity cannot be posted to stock while the GRN is pending inspection or failed quality audit.');
+      }
       const rows = await tx.select().from(procurementRequisitionsTable).where(eq(procurementRequisitionsTable.id, id)).limit(1);
       if (rows.length === 0) return null;
 
@@ -952,10 +964,11 @@ export class ProcurementRepository {
     const vendorName = String(data.vendorName || '').trim();
     const poIdInput = String(data.poId || '').trim();
     const poNumberInput = String(data.poNumber || '').trim();
+    const warehouseId = String((data as any).warehouseId || '').trim();
     const warehouseName = String(data.warehouseName || '').trim();
     const items = Array.isArray(data.items) ? data.items : [];
 
-    if ((!poIdInput && !poNumberInput) || !vendorId || !vendorName || !projectId || !projectName || !warehouseName || items.length === 0) {
+    if ((!poIdInput && !poNumberInput) || !vendorId || !vendorName || !projectId || !projectName || !warehouseId || !warehouseName || items.length === 0) {
       throw new Error('Linked PO, vendor, project, warehouse and receipt items are required for a GRN.');
     }
 
@@ -982,6 +995,7 @@ export class ProcurementRepository {
       vendorName,
       projectId,
       projectName,
+      warehouseId,
       warehouseName,
       receivedDate: data.receivedDate || now,
       challanNo: data.challanNo || '',
@@ -1065,7 +1079,7 @@ export class ProcurementRepository {
         inspectedByName: newGrn.inspectedByName,
         qualityStatus: newGrn.qualityStatus,
         items: newGrn.items,
-        stockUpdated: true,
+        stockUpdated: newGrn.qualityStatus === 'Passed' || newGrn.qualityStatus === 'Passed with Partial Rejection',
         remarks: newGrn.remarks,
         createdAt: now,
       } as any);
@@ -1100,7 +1114,7 @@ export class ProcurementRepository {
               materialId: mat.id,
               materialName: mat.name,
               materialCode: mat.itemCode,
-              warehouseId: 'wh-001',
+              warehouseId: newGrn.warehouseId,
               warehouseName: newGrn.warehouseName,
               quantity: acceptedQty,
               unitPrice: mat.unitPrice || 0,
@@ -1109,7 +1123,7 @@ export class ProcurementRepository {
               projectName: newGrn.projectName,
               referenceDoc: `${newGrn.poNumber} / ${newGrn.grnNumber}`,
               notes: `GRN Inward: ${newGrn.grnNumber} against PO ${newGrn.poNumber}`,
-              receivedByName: newGrn.inspectedByName || 'Store Manager',
+              receivedByName: newGrn.inspectedByName,
               status: 'COMPLETED',
               transactionDate: newGrn.receivedDate,
               createdAt: new Date().toISOString(),

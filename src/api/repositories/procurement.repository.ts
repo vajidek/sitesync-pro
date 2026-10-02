@@ -678,11 +678,30 @@ export class ProcurementRepository {
       if (rows.length === 0) return null;
 
       const existing = rows[0] as unknown as PurchaseRequisition;
+      const transitions: Record<string, string[]> = {
+        Draft: ['Submitted', 'Cancelled'],
+        Submitted: ['Verified', 'Rejected', 'Cancelled'],
+        Verified: ['Approved', 'Rejected'],
+        Approved: [],
+        Rejected: ['Draft', 'Cancelled'],
+        Cancelled: [],
+      };
+
+      if (!transitions[existing.status]?.includes(updates.status)) {
+        throw new Error(`Invalid purchase requisition status transition: ${existing.status} → ${updates.status}`);
+      }
+
       const vName = updates.verifiedByName || existing.verifiedByName;
       const aName = updates.approvedByName || existing.approvedByName;
 
-      await tx
-        .update(procurementRequisitionsTable)
+      if (updates.status === 'Verified' && !vName) {
+        throw new Error('Verifier identity is required before a purchase requisition can be verified.');
+      }
+      if (updates.status === 'Approved' && !aName) {
+        throw new Error('Approver identity is required before a purchase requisition can be approved.');
+      }
+
+      await tx.update(procurementRequisitionsTable)
         .set({
           status: updates.status,
           verifiedByName: vName || null,
@@ -698,7 +717,6 @@ export class ProcurementRepository {
       };
     });
   }
-
   // --- PURCHASE ORDERS (TRANSACTION WORKFLOW #2) ---
   async getPurchaseOrders(filters: { status?: string; vendorId?: string; projectId?: string; search?: string }): Promise<PurchaseOrder[]> {
     await ensureProcurementSeeded();
@@ -1634,18 +1652,40 @@ export class ProcurementRepository {
     if (rows.length === 0) return null;
 
     const existing = rows[0] as unknown as MeasurementEntry;
+    const transitions: Record<string, string[]> = {
+      Draft: ['Recorded', 'Rejected'],
+      Recorded: ['Verified', 'Verified by Site Incharge', 'Rejected'],
+      Verified: ['Approved', 'Approved by Project Manager', 'Rejected'],
+      'Verified by Site Incharge': ['Approved', 'Approved by Project Manager', 'Rejected'],
+      Approved: [],
+      'Approved by Project Manager': [],
+      Rejected: ['Draft'],
+    };
+
+    if (!transitions[existing.status]?.includes(updates.status)) {
+      throw new Error(`Invalid measurement status transition: ${existing.status} → ${updates.status}`);
+    }
+
     const vName = updates.verifiedByName || existing.verifiedByName;
     const aName = updates.approvedByName || existing.approvedByName;
 
-    await db
-      .update(procurementMeasurementEntriesTable)
+    if (['Verified', 'Verified by Site Incharge'].includes(updates.status) && !vName) {
+      throw new Error('Verifier identity is required before a measurement can be verified.');
+    }
+    if (['Approved', 'Approved by Project Manager'].includes(updates.status) && !aName) {
+      throw new Error('Approver identity is required before a measurement can be approved.');
+    }
+
+    const updated = await db.update(procurementMeasurementEntriesTable)
       .set({
         status: updates.status,
         verifiedByName: vName || null,
         approvedByName: aName || null,
       } as any)
-      .where(eq(procurementMeasurementEntriesTable.id, id));
+      .where(eq(procurementMeasurementEntriesTable.id, id))
+      .returning();
 
+    if (updated.length === 0) return null;
     return {
       ...existing,
       status: updates.status as any,
@@ -1653,7 +1693,6 @@ export class ProcurementRepository {
       approvedByName: aName,
     };
   }
-
   // --- TENDERS ---
   async getTenders(filters: { tenderStatus?: string; search?: string }): Promise<TenderRecord[]> {
     await ensureProcurementSeeded();

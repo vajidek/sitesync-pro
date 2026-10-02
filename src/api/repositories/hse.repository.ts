@@ -1,6 +1,6 @@
 import { db } from '../../db/index';
 import { isDemoSeedAllowed } from '../config/env';
-import { sql } from 'drizzle-orm';
+import { sql, eq, and } from 'drizzle-orm';
 import {
   phase63Incidents,
   phase63NearMiss,
@@ -20,6 +20,7 @@ import {
   phase63HseApprovals,
   phase63HseNotifications,
   phase63HseLogs,
+  projects,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -423,42 +424,72 @@ export class HSERepository {
   }
 
   // Create Operations
+    // ERP-TRACE: HSE-P1 — incident creation is actor-bound, project-validated, collision-safe and audit-atomic.
   public async createIncident(data: any) {
-    requireFields(data, ['title','incidentType','severity','location','incidentDate','description','reportedBy'], 'Incident');
+    requireFields(data, ['title','incidentType','severity','location','incidentDate','description','reportedBy','createdBy'], 'Incident');
     await this.ensureHSETablesExist();
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const count = (await db.select().from(phase63Incidents)).length + 1;
-    const num = `INC-2026-${String(count).padStart(4, '0')}`;
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+    const projectId = String(data.projectId || '').trim();
+    const incidentType = String(data.incidentType).trim().toUpperCase();
+    const severity = String(data.severity).trim().toUpperCase();
 
-    const newRec = {
-      id,
-      incidentNumber: data.incidentNumber || num,
-      title: data.title,
-      incidentType: data.incidentType || 'FIRST_AID',
-      severity: data.severity || 'LOW',
-      location: data.location,
-      projectId: data.projectId || null,
-      projectName: data.projectName || null,
-      incidentDate: data.incidentDate || now.split('T')[0],
-      injuredPersonName: data.injuredPersonName || null,
-      injuredPersonRole: data.injuredPersonRole || null,
-      description: data.description,
-      immediateAction: data.immediateAction || null,
-      rootCause: data.rootCause || null,
-      correctiveAction: data.correctiveAction || null,
-      preventiveAction: data.preventiveAction || null,
-      status: data.status || 'REPORTED',
-      investigatorName: data.investigatorName || null,
-      reportedBy: data.reportedBy || null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(phase63Incidents).values(newRec);
-    return newRec;
+    if (!['FIRST_AID','MEDICAL_TREATMENT','LOST_TIME','FATALITY','PROPERTY_DAMAGE','ENVIRONMENTAL'].includes(incidentType)) throw new Error('Unsupported incident type.');
+    if (!['LOW','MEDIUM','HIGH','CRITICAL'].includes(severity)) throw new Error('Unsupported incident severity.');
+
+    let projectName: string | null = null;
+    if (projectId) {
+      const [project] = await db.select({ id: projects.id, projectName: projects.projectName, isActive: projects.isActive })
+        .from(projects).where(eq(projects.id, projectId)).limit(1);
+      if (!project || !project.isActive) throw new Error('Incident project not found or inactive.');
+      projectName = project.projectName;
+    }
+
+    const incidentNumber = String(data.incidentNumber || `INC-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
+
+    return await db.transaction(async (tx) => {
+      const [duplicate] = await tx.select({ id: phase63Incidents.id })
+        .from(phase63Incidents)
+        .where(and(eq(phase63Incidents.incidentNumber, incidentNumber), eq(phase63Incidents.isDeleted, false)))
+        .limit(1);
+      if (duplicate) throw new Error(`Incident number ${incidentNumber} already exists.`);
+
+      const [record] = await tx.insert(phase63Incidents).values({
+        id, incidentNumber, title: String(data.title).trim(), incidentType, severity,
+        location: String(data.location).trim(), projectId: projectId || null,
+        projectName: projectName || String(data.projectName || '').trim() || null,
+        incidentDate: String(data.incidentDate).trim(),
+        injuredPersonName: data.injuredPersonName || null,
+        injuredPersonRole: data.injuredPersonRole || null,
+        description: String(data.description).trim(),
+        immediateAction: data.immediateAction || null,
+        rootCause: data.rootCause || null,
+        correctiveAction: data.correctiveAction || null,
+        preventiveAction: data.preventiveAction || null,
+        status: 'REPORTED',
+        investigatorName: null,
+        reportedBy: creator,
+        createdAt: now, updatedAt: now, createdBy: creator, updatedBy: updater,
+        deletedAt: null, isDeleted: false,
+      }).returning();
+
+      if (!record) throw new Error('Incident creation failed.');
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(), actionType: 'INCIDENT_REPORTED', module: 'HSE', entityId: id,
+        performedBy: creator, details: `Reported incident ${incidentNumber}.`,
+        ipAddress: null, createdAt: now, updatedAt: now,
+        createdBy: creator, updatedBy: updater, deletedAt: null, isDeleted: false,
+      });
+
+      return { id, incidentNumber, ...data, projectId: projectId || undefined, projectName: projectName || undefined, status: 'REPORTED', createdBy: creator, updatedBy: updater };
+    });
   }
 
-  public async createNearMiss(data: any) {
+public async createNearMiss(data: any) {
     requireFields(data, ['title','category','location','reportedDate','potentialSeverity','description','reportedBy'], 'Near miss');
     await this.ensureHSETablesExist();
     const id = uuidv4();
@@ -586,37 +617,114 @@ export class HSERepository {
     return newRec;
   }
 
+    // ERP-TRACE: HSE-P1 — PTW creation is fail-closed and approval-ready.
   public async createWorkPermit(data: any) {
-    requireFields(data, ['permitType','location','description','contractorName','supervisorName','issueDateTime','expiryDateTime'], 'Work permit');
+    requireFields(data, ['permitType','location','description','contractorName','supervisorName','issueDateTime','expiryDateTime','createdBy'], 'Work permit');
     await this.ensureHSETablesExist();
-    const id = uuidv4();
-    const now = new Date().toISOString();
-    const count = (await db.select().from(phase63WorkPermits)).length + 1;
-    const num = `PTW-2026-${String(count).padStart(4, '0')}`;
 
-    const newRec = {
-      id,
-      permitNumber: data.permitNumber || num,
-      permitType: data.permitType || null,
-      location: data.location,
-      description: data.description,
-      contractorName: data.contractorName || null,
-      supervisorName: data.supervisorName,
-      issueDateTime: data.issueDateTime || now,
-      expiryDateTime: data.expiryDateTime || null,
-      safetyChecklist: data.safetyChecklist || null,
-      isolationStatus: data.isolationStatus || 'NOT_APPLICABLE',
-      gasTestResult: data.gasTestResult || null,
-      status: 'PENDING_APPROVAL',
-      approvedBy: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(phase63WorkPermits).values(newRec);
-    return newRec;
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+    const permitType = String(data.permitType).trim().toUpperCase();
+    const safetyChecklist = String(data.safetyChecklist || '').trim();
+    const gasTestResult = String(data.gasTestResult || '').trim();
+    const issueDateTime = String(data.issueDateTime).trim();
+    const expiryDateTime = String(data.expiryDateTime).trim();
+
+    const issueMs = Date.parse(issueDateTime);
+    const expiryMs = Date.parse(expiryDateTime);
+    if (!Number.isFinite(issueMs) || !Number.isFinite(expiryMs) || expiryMs <= issueMs) throw new Error('Work permit expiry must be later than its issue time.');
+
+    const permitTypes = ['HOT_WORK','CONFINED_SPACE','HEIGHT_WORK','ELECTRICAL','EXCAVATION','RADIOGRAPHY'];
+    if (!permitTypes.includes(permitType)) throw new Error('Unsupported work permit type.');
+    if (!safetyChecklist) throw new Error('Safety checklist is mandatory for controlled work permits.');
+    if (['HOT_WORK','CONFINED_SPACE','RADIOGRAPHY'].includes(permitType) && !gasTestResult) throw new Error('Gas test result is mandatory for this permit type.');
+
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const permitNumber = String(data.permitNumber || `PTW-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
+
+    return await db.transaction(async (tx) => {
+      const [duplicate] = await tx.select({ id: phase63WorkPermits.id })
+        .from(phase63WorkPermits)
+        .where(and(eq(phase63WorkPermits.permitNumber, permitNumber), eq(phase63WorkPermits.isDeleted, false)))
+        .limit(1);
+      if (duplicate) throw new Error(`Work permit number ${permitNumber} already exists.`);
+
+      const [record] = await tx.insert(phase63WorkPermits).values({
+        id, permitNumber, permitType, location: String(data.location).trim(),
+        description: String(data.description).trim(), contractorName: String(data.contractorName).trim(),
+        supervisorName: String(data.supervisorName).trim(), issueDateTime, expiryDateTime, safetyChecklist,
+        isolationStatus: String(data.isolationStatus || 'NOT_APPLICABLE').trim().toUpperCase(),
+        gasTestResult: gasTestResult || null, status: 'PENDING_APPROVAL', approvedBy: null,
+        createdAt: now, updatedAt: now, createdBy: creator, updatedBy: updater,
+        deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Work permit creation failed.');
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(), actionType: 'PERMIT_REQUESTED', module: 'HSE', entityId: id,
+        performedBy: creator, details: `Submitted work permit ${permitNumber} for approval.`,
+        ipAddress: null, createdAt: now, updatedAt: now,
+        createdBy: creator, updatedBy: updater, deletedAt: null, isDeleted: false,
+      });
+
+      return { id, permitNumber, ...data, permitType, status: 'PENDING_APPROVAL', createdBy: creator, updatedBy: updater };
+    });
   }
 
-  public async createPpeIssuance(data: any) {
+  // ERP-TRACE: HSE-P1 — permit approval uses server-side maker-checker and approval history.
+  public async reviewWorkPermit(
+    id: string,
+    decision: 'APPROVED' | 'SUSPENDED' | 'CLOSED',
+    actor: { userId: string; userName: string }
+  ): Promise<any | null> {
+    await this.ensureHSETablesExist();
+
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated permit approver identity is required.');
+
+    return await db.transaction(async (tx) => {
+      const [permit] = await tx.select().from(phase63WorkPermits)
+        .where(and(eq(phase63WorkPermits.id, id), eq(phase63WorkPermits.isDeleted, false)))
+        .limit(1);
+      if (!permit) return null;
+
+      const canApprove = decision === 'APPROVED' && permit.status === 'PENDING_APPROVAL';
+      const canControl = ['SUSPENDED','CLOSED'].includes(decision) && ['APPROVED','ACTIVE','SUSPENDED'].includes(permit.status);
+      if (!canApprove && !canControl) throw new Error(`Work permit cannot transition from ${permit.status} to ${decision}.`);
+      if (decision === 'APPROVED' && permit.createdBy.trim().toLowerCase() === actorName.toLowerCase()) {
+        throw new Error('Maker-checker violation: permit creator cannot approve the same permit.');
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(phase63WorkPermits).set({
+        status: decision, approvedBy: decision === 'APPROVED' ? actorName : permit.approvedBy,
+        updatedAt: now, updatedBy: actorName,
+      }).where(eq(phase63WorkPermits.id, id)).returning();
+      if (!updated) return null;
+
+      await tx.insert(phase63HseApprovals).values({
+        id: uuidv4(), referenceType: 'PERMIT', referenceId: id, approvalStage: 'HSE_APPROVER',
+        approverUser: actorName, decision,
+        comments: decision === 'APPROVED' ? 'Work permit approved.' : `Work permit status changed to ${decision}.`,
+        signedAt: now, digitalStampRef: null, createdAt: now, updatedAt: now,
+        createdBy: actorName, updatedBy: actorName, deletedAt: null, isDeleted: false,
+      });
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(), actionType: decision === 'APPROVED' ? 'PERMIT_APPROVED' : `PERMIT_${decision}`,
+        module: 'HSE', entityId: id, performedBy: actorName,
+        details: `Work permit transitioned to ${decision}.`, ipAddress: null,
+        createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName,
+        deletedAt: null, isDeleted: false,
+      });
+
+      return updated;
+    });
+  }
+
+public async createPpeIssuance(data: any) {
     requireFields(data, ['employeeId','employeeName','department','ppeItem','quantity','issuedBy'], 'PPE issuance');
     await this.ensureHSETablesExist();
     const id = uuidv4();

@@ -558,6 +558,10 @@ export class HrmsRepository {
       .limit(1);
     if (duplicate.length) throw new Error('Employee email or phone is already registered.');
 
+    if (!data?.companyId && !isDemoSeedAllowed()) {
+      throw new Error('Company context is required for employee master numbering outside DEMO mode.');
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
     const code = String(data.employeeCode || '').trim() || await numberingService.generateEmployeeNumber({

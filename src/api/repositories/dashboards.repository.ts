@@ -95,7 +95,7 @@ export class DashboardsRepository {
           widgetType: 'KPI_CARD',
           reportId: 'rpt-prj-master-summary',
           dataSource: 'PROJECTS',
-          configJson: { metricKey: 'contractValue', format: 'CURRENCY', changeLabel: '+12.5% vs Q1' },
+          configJson: { metricKey: 'contractValue', format: 'CURRENCY' },
           positionJson: { x: 0, y: 0, w: 3, h: 2 },
           refreshIntervalSec: 60,
           createdAt: now,
@@ -108,7 +108,7 @@ export class DashboardsRepository {
           widgetType: 'KPI_CARD',
           reportId: 'rpt-proc-po-spend',
           dataSource: 'PROCUREMENT',
-          configJson: { metricKey: 'totalAmount', format: 'CURRENCY', changeLabel: '98.4% Budget On-Track' },
+          configJson: { metricKey: 'totalAmount', format: 'CURRENCY' },
           positionJson: { x: 3, y: 0, w: 3, h: 2 },
           refreshIntervalSec: 60,
           createdAt: now,
@@ -319,6 +319,7 @@ export class DashboardsRepository {
   }
 
   async resolveWidgetData(widgetId: string, globalFilters?: any, userContext?: any) {
+    const executionStartedAt = Date.now();
     const [widget] = await db.select().from(dashboardWidgets).where(eq(dashboardWidgets.id, widgetId));
     if (!widget) throw new Error('Widget not found');
 
@@ -378,7 +379,7 @@ export class DashboardsRepository {
       default: {
         const allPrjs = await projectRepository.findAllProjects({});
         resolvedData = [
-          { metric: 'Total Active Projects', value: allPrjs.pagination.total, trend: '+100%' },
+          { metric: 'Total Active Projects', value: allPrjs.pagination.total },
         ];
       }
     }

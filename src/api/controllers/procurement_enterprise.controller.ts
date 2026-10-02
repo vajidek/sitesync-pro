@@ -1,5 +1,11 @@
 import { Request, Response } from 'express';
 import { ProcurementEnterpriseService } from '../services/procurement_enterprise.service';
+import {
+  createRfqSchema,
+  createPurchaseRequisitionSchema,
+  createPurchaseOrderSchema,
+  createGoodsReceiptSchema,
+} from '../validators/procurement_enterprise.validator';
 function requireActor(req: Request, res: Response): { id?: string; name: string } | null {
   const user = (req as any).user;
   const name = String(user?.fullName || user?.name || user?.email || '').trim();
@@ -23,7 +29,7 @@ export class ProcurementEnterpriseController {
       const stats = await this.service.getDashboardStats();
       res.status(200).json({ success: true, data: stats });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(error?.name === 'ZodError' ? 400 : 500).json({ success: false, message: error.message });
     }
   };
 
@@ -93,7 +99,8 @@ export class ProcurementEnterpriseController {
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
-      const rfq = await this.service.createRfq(req.body, createdBy);
+      const payload = createRfqSchema.parse(req.body);
+      const rfq = await this.service.createRfq(payload, createdBy);
       res.status(201).json({ success: true, data: rfq, message: 'RFQ issued successfully' });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -137,7 +144,8 @@ export class ProcurementEnterpriseController {
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
-      const pr = await this.service.createPurchaseRequisition(req.body, createdBy);
+      const payload = createPurchaseRequisitionSchema.parse(req.body);
+      const pr = await this.service.createPurchaseRequisition(payload, createdBy);
       res.status(201).json({ success: true, data: pr, message: 'Purchase requisition created successfully' });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -184,7 +192,8 @@ export class ProcurementEnterpriseController {
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
-      const po = await this.service.issuePurchaseOrder(req.body, createdBy);
+      const payload = createPurchaseOrderSchema.parse(req.body);
+      const po = await this.service.issuePurchaseOrder(payload, createdBy);
       res.status(201).json({ success: true, data: po, message: 'Purchase order issued successfully' });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -240,7 +249,8 @@ export class ProcurementEnterpriseController {
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
-      const grn = await this.service.createGoodsReceipt(req.body, createdBy);
+      const payload = createGoodsReceiptSchema.parse(req.body);
+      const grn = await this.service.createGoodsReceipt(payload, createdBy);
       res.status(201).json({ success: true, data: grn, message: 'Goods receipt note (GRN) created successfully' });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });

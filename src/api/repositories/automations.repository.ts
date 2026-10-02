@@ -8,6 +8,7 @@ import {
   scheduledJobs,
 } from '../../db/schema';
 import { eq, and, desc, like, or } from 'drizzle-orm';
+import { isDemoSeedAllowed } from '../config/env';
 
 export interface CreateTemplateDto {
   code: string;
@@ -42,7 +43,7 @@ export interface CreateRuleDto {
 export class AutomationsRepository {
   async ensureAutomationsSeeded() {
     const existingRules = await db.select().from(automationRules);
-    if (existingRules.length === 0) {
+    if (existingRules.length === 0 && isDemoSeedAllowed()) {
       const now = new Date().toISOString();
 
       // Seed Notification Templates
@@ -192,7 +193,7 @@ export class AutomationsRepository {
       const seedNotifications = [
         {
           id: 'ntf-001',
-          recipientUserId: 'usr-admin',
+          recipientUserId: 'SYSTEM_DEMO_RECIPIENT',
           templateId: 'tpl-po-approval',
           title: 'Approval Required: PO-2026-8891 ($125,000)',
           message: 'Purchase Order PO-2026-8891 created by Metro Civil Lead requires your executive sign-off.',
@@ -340,7 +341,7 @@ export class AutomationsRepository {
           const ntfId = `ntf-${Date.now()}`;
           await db.insert(notifications).values({
             id: ntfId,
-            recipientUserId: userContext?.id || 'usr-admin',
+            recipientUserId: userContext?.id || 'SYSTEM_WORKFLOW',
             templateId: action.templateId || null,
             title: `Automated ${action.actionType}: ${rule.name}`,
             message: `Event ${eventSource}.${triggerType} triggered automation rule ${rule.code}.`,

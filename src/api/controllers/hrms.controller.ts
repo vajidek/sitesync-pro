@@ -447,10 +447,19 @@ export class HrmsController {
 
   public createLoan = async (req: Request, res: Response): Promise<void> => {
     try {
-      const loan = await this.service.applyLoan(req.body);
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+
+      const loan = await this.service.applyLoan({
+        ...req.body,
+        employeeId: req.body?.employeeId || actor.userId,
+        employeeName: req.body?.employeeName || actor.userName,
+        userId: actor.userId,
+        userName: actor.userName,
+      });
       res.status(201).json({ success: true, data: loan });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 

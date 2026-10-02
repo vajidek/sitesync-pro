@@ -3864,7 +3864,24 @@ export class ProcurementRepository {
     });
 
     const grossCurrent = Math.round(items.reduce((sum, it) => sum + it.currentAmountUSD, 0) * 100) / 100;
-    const prevGross = Number(data.financials?.previousCertifiedGrossUSD || 0);
+
+    // Previous certified gross is authoritative DB state, never client-supplied.
+    const eligiblePriorBillStatuses = new Set<RABillStatus>([
+      'Submitted',
+      'Under Technical Scrutiny',
+      'Certified by QS',
+      'Approved by Incharge',
+      'Approved by Project Director',
+      'Disbursed / Paid',
+    ]);
+    const priorGrossBills = allBills.filter((bill) =>
+      bill.id !== newId &&
+      bill.workOrderId === workOrderId &&
+      eligiblePriorBillStatuses.has(bill.status)
+    );
+    const prevGross = Math.round(
+      priorGrossBills.reduce((sum, bill) => sum + Number(bill.financials?.grossWorkDoneCurrentUSD || 0), 0) * 100
+    ) / 100;
     const grossCumulative = Math.round((prevGross + grossCurrent) * 100) / 100;
 
     const advRate = Math.max(0, Number(data.financials?.mobilizationAdvanceRecoveryRatePercent ?? 0));
@@ -3891,8 +3908,11 @@ export class ProcurementRepository {
       throw new Error('RA Bill deductions cannot exceed the current gross certified work value.');
     }
     const netCurrent = Math.round((grossCurrent - totalDeductions) * 100) / 100;
-    const prevNet = Number(data.financials?.netPayableCumulativeUSD || 0);
-    const netCumulative = Math.round((prevNet + netCurrent) * 100) / 100;
+    const priorNet = priorGrossBills.reduce(
+      (sum, bill) => sum + Number(bill.financials?.netPayableCurrentUSD || 0),
+      0
+    );
+    const netCumulative = Math.round((priorNet + netCurrent) * 100) / 100;
 
     const initialAudit = {
       id: `audit_${Date.now()}_1`,

@@ -232,6 +232,9 @@ export class UniversalWorkflowBindingService {
       .limit(1);
 
     const instance = instRows[0];
+    if (!instance) {
+      throw new Error('Workflow instance not found. Submit the transaction to workflow before requesting a transition.');
+    }
     let parsedContext: any = {};
     if (instance?.dataContextJson) {
       try {

@@ -1,6 +1,16 @@
 import { Request, Response } from 'express';
 import { HrmsService } from '../services/hrms.service';
 
+function getAuthenticatedActor(req: Request, res: Response): { userId: string; userName: string } | null {
+  const user = (req as any).user;
+  const userId = String(user?.id || user?.userId || '').trim();
+  const userName = String(user?.name || user?.fullName || user?.email || '').trim();
+  if (!userId || !userName) {
+    res.status(401).json({ success: false, message: 'Authenticated user context is required.' });
+    return null;
+  }
+  return { userId, userName };
+}
 export class HrmsController {
   private service: HrmsService;
 
@@ -335,17 +345,11 @@ export class HrmsController {
 
   public approvePayrollRun = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
       const { remarks } = req.body;
-      const user = (req as any).user || { id: 'usr-checker-01', name: 'Finance Controller / Checker' };
-      const updated = await this.service.approvePayrollRun(
-        id,
-        {
-          userId: user.id || user.userId || 'usr-checker-01',
-          userName: user.name || user.fullName || 'Finance Controller / Checker',
-        },
-        remarks
-      );
+      const updated = await this.service.approvePayrollRun(id, actor, remarks);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -354,17 +358,11 @@ export class HrmsController {
 
   public rejectPayrollRun = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
       const { remarks } = req.body;
-      const user = (req as any).user || { id: 'usr-checker-01', name: 'Finance Controller / Checker' };
-      const updated = await this.service.rejectPayrollRun(
-        id,
-        {
-          userId: user.id || user.userId || 'usr-checker-01',
-          userName: user.name || user.fullName || 'Finance Controller / Checker',
-        },
-        remarks || 'Rejected by QA Checker for revision'
-      );
+      const updated = await this.service.rejectPayrollRun(id, actor, remarks || 'Rejected for payroll revision');
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -373,17 +371,11 @@ export class HrmsController {
 
   public disbursePayrollRun = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
       const { neftBatchReference } = req.body;
-      const user = (req as any).user || { id: 'usr-disburse-01', name: 'Treasury Officer' };
-      const updated = await this.service.disbursePayrollRun(
-        id,
-        {
-          userId: user.id || user.userId || 'usr-disburse-01',
-          userName: user.name || user.fullName || 'Treasury Officer',
-        },
-        neftBatchReference
-      );
+      const updated = await this.service.disbursePayrollRun(id, actor, neftBatchReference);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -394,19 +386,13 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-      if (!reason) {
-        res.status(400).json({ success: false, message: 'A mandatory reason is required to place an employee payroll on hold' });
+      if (!String(reason || '').trim()) {
+        res.status(400).json({ success: false, message: 'A mandatory reason is required to place an employee payroll on hold.' });
         return;
       }
-      const user = (req as any).user || { id: 'usr-hr-01', name: 'HR Payroll Specialist' };
-      const updated = await this.service.holdPayslip(
-        id,
-        {
-          userId: user.id || user.userId || 'usr-hr-01',
-          userName: user.name || user.fullName || 'HR Payroll Specialist',
-        },
-        reason
-      );
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const updated = await this.service.holdPayslip(id, actor, String(reason).trim());
       res.status(200).json({ success: true, data: updated, message: 'Employee payroll placed on hold successfully' });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -417,15 +403,13 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-      const user = (req as any).user || { id: 'usr-hr-01', name: 'HR Payroll Specialist' };
-      const updated = await this.service.unholdPayslip(
-        id,
-        {
-          userId: user.id || user.userId || 'usr-hr-01',
-          userName: user.name || user.fullName || 'HR Payroll Specialist',
-        },
-        reason
-      );
+      if (!String(reason || '').trim()) {
+        res.status(400).json({ success: false, message: 'A mandatory reason is required to release a payroll hold.' });
+        return;
+      }
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const updated = await this.service.unholdPayslip(id, actor, String(reason).trim());
       res.status(200).json({ success: true, data: updated, message: 'Employee payroll hold released successfully' });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
@@ -434,18 +418,22 @@ export class HrmsController {
 
   public getRawBiometricPunches = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { deviceId, biometricId, employeeId, limit } = req.query;
       const punches = await this.service.getRawBiometricPunches({
         deviceId: deviceId as string,
         biometricId: biometricId as string,
         employeeId: employeeId as string,
-        limit: limit ? Number(limit) : 200,
+        limit: limit ? Math.min(Math.max(Number(limit), 1), 500) : 200,
       });
       res.status(200).json({ success: true, count: punches.length, data: punches });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   };
+
+  // Loans
 
   // Loans
   public getLoans = async (req: Request, res: Response): Promise<void> => {
@@ -468,17 +456,14 @@ export class HrmsController {
 
   public approveLoan = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
       const { remarks } = req.body;
-      const user = (req as any).user || { id: 'usr-admin-01', name: 'HR/Finance Director' };
-      const loan = await this.service.approveLoan(
-        id,
-        { userId: user.id || 'usr-admin-01', userName: user.name || 'HR/Finance Director' },
-        remarks
-      );
+      const loan = await this.service.approveLoan(id, actor, remarks);
       res.status(200).json({ success: true, data: loan });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
@@ -526,35 +511,47 @@ export class HrmsController {
 
   public finalizeAttendance = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { periodId, monthYear, records, remarks } = req.body;
-      const user = (req as any).user || { name: 'HR Operations Supervisor' };
+      if (!periodId || !monthYear || !Array.isArray(records)) {
+        res.status(400).json({ success: false, message: 'Payroll period, month and attendance records are required.' });
+        return;
+      }
       const result = await this.service.finalizeAttendance({
         periodId,
         monthYear,
-        finalizedBy: user.name || user.fullName || 'HR Operations Supervisor',
+        finalizedBy: actor.userName,
         records,
         remarks,
       });
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
   public unlockAttendanceFinalization = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { periodId, reason } = req.body;
-      const user = (req as any).user || { id: 'usr-admin-01', name: 'HR Operations Supervisor' };
+      if (!periodId || !String(reason || '').trim()) {
+        res.status(400).json({ success: false, message: 'Payroll period and a mandatory unlock reason are required.' });
+        return;
+      }
       const result = await this.service.unlockAttendanceFinalization(
         periodId,
-        { userId: user.id || 'usr-admin-01', userName: user.name || 'HR Operations Supervisor' },
-        reason || 'Correction requested prior to payroll recalculation'
+        actor,
+        String(reason).trim()
       );
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
+
+  // Performance Reviews
 
   // Performance Reviews
   public getPerformanceReviews = async (req: Request, res: Response): Promise<void> => {

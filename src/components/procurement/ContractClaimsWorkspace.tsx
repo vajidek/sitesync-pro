@@ -189,7 +189,7 @@ export const ContractClaimsWorkspace: React.FC<ContractClaimsWorkspaceProps> = (
                   </td>
                   <td className="px-5 py-4 text-xs font-semibold">{claim.claimType.replaceAll('_', ' ')}</td>
                   <td className="px-5 py-4">
-                    <div className="font-semibold">{currency || contract?.currency || ''} {Number(claim.claimedAmount || 0).toLocaleString()}</div>
+                    <div className="font-semibold">{contract?.currency || ''} {Number(claim.claimedAmount || 0).toLocaleString()}</div>
                     <div className="text-xs text-slate-500">{claim.claimedDays} day(s)</div>
                   </td>
                   <td className="px-5 py-4">

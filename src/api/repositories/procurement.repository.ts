@@ -1707,15 +1707,18 @@ export class ProcurementRepository {
       throw new Error('A positive measured quantity or sufficient dimensions are required.');
     }
 
-    const valuation = Number(data.valuationUSD);
-    if (!Number.isFinite(valuation) || valuation < 0) {
-      throw new Error('Measurement valuation must be explicitly supplied and valid.');
-    }
-
     const [boqRow] = await db.select().from(procurementBoqItemsTable)
       .where(eq(procurementBoqItemsTable.id, boqItemId)).limit(1);
     if (!boqRow) throw new Error('Linked BOQ item was not found.');
     if (boqRow.projectId !== projectId) throw new Error('Linked BOQ item does not belong to the selected project.');
+
+    const storedRate = Number(boqRow.rateUSD || 0);
+    if (!Number.isFinite(storedRate) || storedRate < 0) throw new Error('Linked BOQ rate is invalid.');
+    const valuation = Math.round(calculatedQuantity * storedRate * 100) / 100;
+    const boqUnit = String(boqRow.unit || boqRow.uom || '').trim();
+    if (boqUnit && boqUnit.toLowerCase() !== unit.toLowerCase()) {
+      throw new Error(`Measurement unit '${unit}' does not match BOQ unit '${boqUnit}'.`);
+    }
 
     const allMBs = await db.select({ id: procurementMeasurementEntriesTable.id })
       .from(procurementMeasurementEntriesTable);

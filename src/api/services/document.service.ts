@@ -72,6 +72,9 @@ export class DocumentService {
   async checkoutDocument(documentId: string, user: string, notes?: string, expectedDate?: string) {
     return documentRepo.checkoutDocument(documentId, user, notes, expectedDate);
   }
+  async checkinDocument(documentId: string, user: string, newVersionName?: string, fileUrl?: string, changeSummary?: string) {
+    return documentRepo.checkinDocument(documentId, user, newVersionName, fileUrl, changeSummary);
+  }
 
   async reviewDocument(data: any) {
     return documentRepo.reviewDocument(data);

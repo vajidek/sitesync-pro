@@ -31,7 +31,9 @@ export class DashboardsController {
 
   async createDashboard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const dashboard = await dashboardsService.createDashboard(req.body);
+      const actor = String(req.user?.fullName || req.user?.name || req.user?.email || '').trim();
+      if (!actor) return res.status(401).json({ success: false, message: 'Authenticated dashboard actor identity is required.' });
+      const dashboard = await dashboardsService.createDashboard({ ...req.body, createdBy: actor });
       res.status(201).json({ success: true, data: dashboard, message: 'Dashboard created successfully' });
     } catch (err) {
       next(err);
@@ -52,7 +54,8 @@ export class DashboardsController {
   async toggleFavorite(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const userId = req.user?.id || 'usr-admin';
+      const userId = String(req.user?.id || '').trim();
+      if (!userId) return res.status(401).json({ success: false, message: 'Authenticated user identity is required.' });
       const result = await dashboardsService.toggleFavorite(id, userId);
       res.json({ success: true, data: result });
     } catch (err) {

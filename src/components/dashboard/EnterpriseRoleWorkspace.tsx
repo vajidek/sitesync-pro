@@ -112,6 +112,35 @@ const ROLE_TO_WORKSPACE_MAP: Record<UserRole, WorkspaceId> = {
 };
 
 // Role-specific operational summary cards helper
+
+const getLiveMetricForKpi = (label: string, live?: any): string | null => {
+  if (!live) return null;
+  const normalized = label.toLowerCase();
+  if (normalized.includes('actual cost')) return live.totalPrjSpentUSD !== undefined ? '$' + (Number(live.totalPrjSpentUSD) / 1000000).toFixed(2) + 'M' : null;
+  if (normalized.includes('budget') || normalized.includes('capex')) return live.totalPrjBudgetUSD !== undefined ? '$' + (Number(live.totalPrjBudgetUSD) / 1000000).toFixed(2) + 'M' : null;
+  if (normalized.includes('progress') || normalized.includes('completion')) return live.avgProgressPercent !== undefined ? Number(live.avgProgressPercent) + '%' : null;
+  if (normalized.includes('vendor')) return live.activeVendorsCount !== undefined ? Number(live.activeVendorsCount) + ' Active' : null;
+  if (normalized.includes('project')) return live.totalProjects !== undefined ? Number(live.totalProjects) + ' Projects' : null;
+  if (normalized.includes('availability')) return null;
+  if (normalized.includes('fleet') || normalized.includes('machinery')) return live.totalFleetCount !== undefined ? Number(live.totalFleetCount) + ' Assets' : null;
+  if (normalized.includes('requisition') || /\bpr\b/.test(normalized)) return live.pendingPRsCount !== undefined ? Number(live.pendingPRsCount) + ' Pending' : null;
+  if (normalized.includes('workforce') || normalized.includes('employee') || normalized.includes('labour') || normalized.includes('labor')) return live.activeEmployeesCount !== undefined ? Number(live.activeEmployeesCount) + ' Employees' : null;
+  if (normalized.includes('low stock')) return live.lowStockItemsCount !== undefined ? Number(live.lowStockItemsCount) + ' SKUs' : null;
+  if (normalized.includes('active po')) return live.activePOsCount !== undefined ? Number(live.activePOsCount) + ' POs' : null;
+  return null;
+};
+
+const sanitizeProductionKpis = (kpis: WorkspaceConfig['kpis'], live?: any): WorkspaceConfig['kpis'] =>
+  kpis.map((kpi) => {
+    const liveValue = getLiveMetricForKpi(kpi.label, live);
+    return { ...kpi, value: liveValue ?? '—', change: liveValue ? 'Live repository data' : 'No live metric mapped', isPositive: Boolean(liveValue) };
+  });
+
+const sanitizeProductionSummaryCards = (cards: Array<{ label: string; val: string; desc: string; color: string }>, live?: any) =>
+  cards.map((card) => {
+    const liveValue = getLiveMetricForKpi(card.label, live);
+    return { ...card, val: liveValue ?? '—', desc: liveValue ? 'Live repository data' : 'No live metric mapped' };
+  });
 const getRoleSummaryCards = (ws: WorkspaceConfig, live?: any, isDemo: boolean = true) => {
   switch (ws.id) {
     case 'MANAGING_DIRECTOR':
@@ -269,39 +298,42 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
   const [actionAlert, setActionAlert] = useState<{ type: 'success' | 'info'; msg: string } | null>(null);
   const [liveMetrics, setLiveMetrics] = useState<any>(null);
   const [liveProjects, setLiveProjects] = useState<any[]>([]);
+  const [liveMetricsStatus, setLiveMetricsStatus] = useState<'LOADING' | 'LIVE' | 'UNAVAILABLE'>('LOADING');
   const { isDemo } = useShell();
 
   useEffect(() => {
     const token = getActiveStoredToken();
+    setLiveMetricsStatus('LOADING');
     fetch(`/api/dashboards/workspace/${selectedWorkspaceId}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then((res) => safeJson(res))
       .then((data) => {
         if (data?.success && data.data) {
-          setLiveMetrics(data.data.summaryMetrics);
-          if (Array.isArray(data.data.projects)) {
-            setLiveProjects(data.data.projects);
-          }
+          setLiveMetrics(data.data.summaryMetrics || {});
+          if (Array.isArray(data.data.projects)) setLiveProjects(data.data.projects);
+          else setLiveProjects([]);
+          setLiveMetricsStatus('LIVE');
+        } else {
+          setLiveMetricsStatus('UNAVAILABLE');
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setLiveMetricsStatus('UNAVAILABLE');
+        setLiveMetrics(null);
+        setLiveProjects([]);
+      });
   }, [selectedWorkspaceId]);
 
   const baseWorkspace: WorkspaceConfig = getWorkspaceConfig(selectedWorkspaceId, user, isDemo) || WORKSPACE_CONFIGS.EXECUTIVE;
-  const activeWorkspace: WorkspaceConfig = {
-    ...baseWorkspace,
-    kpis: baseWorkspace.kpis.map((kpi, idx) => {
-      if (!liveMetrics) return kpi;
-      if (idx === 0 && liveMetrics.totalPrjBudgetUSD) {
-        return { ...kpi, value: `$${(liveMetrics.totalPrjBudgetUSD / 1000000).toFixed(1)}M` };
-      }
-      if (idx === 1 && liveMetrics.avgProgressPercent !== undefined) {
-        return { ...kpi, value: `${liveMetrics.avgProgressPercent}%` };
-      }
-      return kpi;
-    }),
-  };
+
+  const activeWorkspace: WorkspaceConfig = isDemo
+    ? {
+        ...baseWorkspace,
+        kpis: baseWorkspace.kpis.map((kpi, idx) => {
+          if (!liveMetrics) return kpi;
+          if (idx === 0 && liveMetrics.totalPrjBudgetUSD !== undefined) {
+            return { ...kpi, value: '
 
   const toggleTaskComplete = (taskId: string, title: string) => {
     setCompletedTaskIds((prev) => {
@@ -359,7 +391,7 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                SiteSync Infrastructure & Engineering Ltd.
+                SiteSync Pro — Construction & Infrastructure Project Management Platform
               </span>
               <span className="text-slate-400">•</span>
               <span className="text-slate-300 font-medium flex items-center gap-1 text-[11px]">
@@ -367,9 +399,17 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
                 {todayFormatted}
               </span>
               <span className="text-slate-400">•</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live Operational Mode
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                liveMetricsStatus === 'LIVE'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : liveMetricsStatus === 'LOADING'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  : 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  liveMetricsStatus === 'LIVE' ? 'bg-emerald-400 animate-pulse' : liveMetricsStatus === 'LOADING' ? 'bg-amber-400' : 'bg-slate-400'
+                }`} />
+                {liveMetricsStatus === 'LIVE' ? 'Live Data Connected' : liveMetricsStatus === 'LOADING' ? 'Syncing Workspace Data' : 'Live Data Unavailable'}
               </span>
             </div>
             <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2 pt-0.5">
@@ -412,77 +452,90 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 4: SEGMENTED WORKSPACE ROLE SELECTOR                             */}
+      {/* SECTION 4: WORKSPACE CONTEXT SELECTOR                                     */}
       {/* ========================================================================= */}
-      <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-          <div className="flex items-center space-x-2">
-            <LayoutDashboard className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
-              Role Workspaces (13 Role Modules)
-            </span>
-          </div>
+      <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        {(isDemo || activeRole === 'ADMIN') ? (
+          <>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-3">
+              <div className="flex items-center space-x-2">
+                <LayoutDashboard className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Workspace Context
+                </span>
+              </div>
 
-          {/* Category Segment Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
-            {[
-              { id: 'ALL', label: 'All Roles (13)' },
-              { id: 'EXECUTIVE', label: 'Executive' },
-              { id: 'MANAGEMENT', label: 'Management' },
-              { id: 'ENGINEERING', label: 'Engineering' },
-              { id: 'PROJECTS', label: 'Projects' },
-              { id: 'OPERATIONS', label: 'Operations' },
-              { id: 'ADMIN', label: 'Admin' },
-            ].map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition cursor-pointer ${
-                  selectedCategory === cat.id
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        </div>
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+                {[
+                  { id: 'ALL', label: 'All' },
+                  { id: 'EXECUTIVE', label: 'Executive' },
+                  { id: 'MANAGEMENT', label: 'Management' },
+                  { id: 'ENGINEERING', label: 'Engineering' },
+                  { id: 'PROJECTS', label: 'Projects' },
+                  { id: 'OPERATIONS', label: 'Operations' },
+                  { id: 'ADMIN', label: 'Admin' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition cursor-pointer ${
+                      selectedCategory === cat.id
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* Role Workspace Grid Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 pt-0.5">
-          {allWorkspaceList
-            .filter((ws) => {
-              if (selectedCategory === 'ALL') return true;
-              if (selectedCategory === 'EXECUTIVE') return ['EXECUTIVE', 'MANAGING_DIRECTOR'].includes(ws.id);
-              if (selectedCategory === 'MANAGEMENT') return ['GENERAL_MANAGER', 'PROCUREMENT', 'HR'].includes(ws.id);
-              if (selectedCategory === 'ENGINEERING') return ['PROJECT_ENGINEER', 'QA_QC', 'SAFETY'].includes(ws.id);
-              if (selectedCategory === 'PROJECTS') return ['PROJECT_MANAGER'].includes(ws.id);
-              if (selectedCategory === 'OPERATIONS') return ['SITE_ENGINEER', 'STORE_OPERATIONS', 'FLEET'].includes(ws.id);
-              if (selectedCategory === 'ADMIN') return ['ADMINISTRATION'].includes(ws.id);
-              return true;
-            })
-            .map((ws) => {
-              const isSelected = selectedWorkspaceId === ws.id;
-              return (
-                <button
-                  key={ws.id}
-                  onClick={() => {
-                    setSelectedWorkspaceId(ws.id);
-                    setActionAlert(null);
-                  }}
-                  className={`flex items-center space-x-2 p-2 rounded-xl text-xs font-bold text-left transition-all duration-150 cursor-pointer ${
-                    isSelected
-                      ? 'bg-slate-900 dark:bg-indigo-600 text-white shadow-md ring-2 ring-indigo-500'
-                      : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <span className="shrink-0 p-1 rounded-lg bg-white/10">{ICON_MAP[ws.icon] || <Building2 className="w-3.5 h-3.5" />}</span>
-                  <span className="truncate text-[11px] font-semibold">{ws.label}</span>
-                </button>
-              );
-            })}
-        </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              {allWorkspaceList
+                .filter((ws) => {
+                  if (selectedCategory === 'ALL') return true;
+                  if (selectedCategory === 'EXECUTIVE') return ['EXECUTIVE', 'MANAGING_DIRECTOR'].includes(ws.id);
+                  if (selectedCategory === 'MANAGEMENT') return ['GENERAL_MANAGER', 'PROCUREMENT', 'HR'].includes(ws.id);
+                  if (selectedCategory === 'ENGINEERING') return ['PROJECT_ENGINEER', 'QA_QC', 'SAFETY'].includes(ws.id);
+                  if (selectedCategory === 'PROJECTS') return ['PROJECT_MANAGER'].includes(ws.id);
+                  if (selectedCategory === 'OPERATIONS') return ['SITE_ENGINEER', 'STORE_OPERATIONS', 'FLEET'].includes(ws.id);
+                  if (selectedCategory === 'ADMIN') return ['ADMINISTRATION'].includes(ws.id);
+                  return true;
+                })
+                .map((ws) => {
+                  const isSelected = selectedWorkspaceId === ws.id;
+                  return (
+                    <button
+                      key={ws.id}
+                      onClick={() => {
+                        setSelectedWorkspaceId(ws.id);
+                        setActionAlert(null);
+                      }}
+                      className={`flex items-center space-x-2 p-2 rounded-xl text-xs font-bold text-left transition-all duration-150 cursor-pointer ${
+                        isSelected
+                          ? 'bg-slate-900 dark:bg-indigo-600 text-white shadow-md ring-2 ring-indigo-500'
+                          : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      <span className="shrink-0 p-1 rounded-lg bg-white/10">{ICON_MAP[ws.icon] || <Building2 className="w-3.5 h-3.5" />}</span>
+                      <span className="truncate text-[11px] font-semibold">{ws.label}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider font-black text-slate-400">Authorized Workspace</div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900 dark:text-white">{baseWorkspace.name}</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{baseWorkspace.description}</div>
+            </div>
+            <div className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+              {activeRole || 'Assigned Role'}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Action Feedback Banner */}
@@ -530,13 +583,13 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
               <div className="flex items-center space-x-2 text-xs">
                 <span className="text-slate-400">System Mode:</span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  REAL-TIME SYNC ACTIVE
+                  {liveMetricsStatus === 'LIVE' ? 'LIVE DATA CONNECTED' : liveMetricsStatus === 'LOADING' ? 'SYNCING WORKSPACE DATA' : 'LIVE DATA UNAVAILABLE'}
                 </span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
-              {getRoleSummaryCards(activeWorkspace, liveMetrics, isDemo).map((card, idx) => (
+              {isDemo ? getRoleSummaryCards(activeWorkspace, liveMetrics, true) : sanitizeProductionSummaryCards(getRoleSummaryCards(activeWorkspace, liveMetrics, false), liveMetrics).map((card, idx) => (
                 <div key={idx} className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 flex flex-col justify-between">
                   <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">{card.label}</div>
                   <div className={`text-lg font-black font-mono mt-1 ${card.color}`}>{card.val}</div>
@@ -1078,55 +1131,38 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
                 </div>
 
                 <div className="relative pl-4 border-l-2 border-slate-200 dark:border-slate-800 space-y-3 py-1">
-                  
-                  {/* Activity Item 1 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Material Requisition Approved
+                  {isDemo ? (
+                    <>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Material Requisition Approved</div>
+                        <div className="text-[11px] text-slate-500">Req #REQ-4091 ($14,500) approved by Senior Manager</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Stores & PO</div>
+                      </div>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">{liveProjects[0]?.name ? liveProjects[0].name + ' Milestone Complete' : 'Project Milestone Complete'}</div>
+                        <div className="text-[11px] text-slate-500">Pier 12 concrete pour signed off by QA Incharge</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Engineering</div>
+                      </div>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Inventory Fastener Issue Pass</div>
+                        <div className="text-[11px] text-slate-500">M24 Bolts issued to Grid A-4 Assembly</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Store Keeper</div>
+                      </div>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Day Shift Safety Clearance</div>
+                        <div className="text-[11px] text-slate-500">Site Safety Audit passed with 0 incidents</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Safety</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-5 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                      Live activity and audit events will appear here once the activity feed is connected.
                     </div>
-                    <div className="text-[11px] text-slate-500">
-                      Req #REQ-4091 ($14,500) approved by Senior Manager
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">10 mins ago • Stores & PO</div>
-                  </div>
-
-                  {/* Activity Item 2 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      {liveProjects[0]?.name ? `${liveProjects[0].name} Milestone Complete` : (isDemo ? 'Peruvannamuzhi WTP Milestone Complete' : 'Project Structural Milestone Complete')}
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Pier 12 concrete pour signed off by QA Incharge
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">42 mins ago • Engineering</div>
-                  </div>
-
-                  {/* Activity Item 3 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Inventory Fastener Issue Pass
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      M24 Bolts issued to Grid A-4 Assembly
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">1 hour ago • Store Keeper</div>
-                  </div>
-
-                  {/* Activity Item 4 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Day Shift Safety Clearance
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Site Safety Audit passed with 0 incidents
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">2 hours ago • Safety HSE</div>
-                  </div>
-
+                  )}
                 </div>
               </DSCard>
 
@@ -1141,8 +1177,8 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
                   {activeWorkspace.notifications.length === 0 ? (
                     <div className="p-4 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 space-y-1">
                       <CheckSquare className="w-5 h-5 text-emerald-500 mx-auto opacity-80" />
-                      <div className="font-semibold text-xs text-slate-700 dark:text-slate-300">No Active System Alerts</div>
-                      <p className="text-[11px] text-slate-400">All system events are operating within normal parameters.</p>
+                      <div className="font-semibold text-xs text-slate-700 dark:text-slate-300">No live system alerts available</div>
+                      <p className="text-[11px] text-slate-400">An empty feed does not imply that all systems are clear.</p>
                     </div>
                   ) : (
                     activeWorkspace.notifications.map((notif) => (
@@ -1193,9 +1229,9 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
             {activeWorkspace.tasks.length === 0 ? (
               <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 space-y-2">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto opacity-80" />
-                <div className="font-bold text-sm text-slate-900 dark:text-white">No Assigned Tasks Outstanding</div>
+                <div className="font-bold text-sm text-slate-900 dark:text-white">No live tasks available</div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                  All assigned operational tasks for {activeWorkspace.name} are up to date and verified.
+                  No transactional task records are currently available for {activeWorkspace.name}.
                 </p>
               </div>
             ) : (

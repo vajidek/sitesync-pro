@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, doublePrecision, real, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, boolean, integer, doublePrecision, real, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 
 // 1. Roles
 export const roles = pgTable('roles', {
@@ -11775,9 +11775,12 @@ export const hrBiometricRawPunches = pgTable('hr_biometric_raw_punches', {
   punchType: text('punch_type').notNull().default('CHECK_IN'),
   verificationMode: text('verification_mode').notNull().default('FINGERPRINT'),
   rawPayload: text('raw_payload'),
+  sourceFingerprint: text('source_fingerprint').notNull(),
   isProcessed: boolean('is_processed').notNull().default(false),
   createdAt: text('created_at').notNull(),
-});
+}, (table) => ({
+  sourceFingerprintUnique: uniqueIndex('uq_hr_biometric_raw_source_fingerprint').on(table.sourceFingerprint),
+}));
 
 
 // ==========================================

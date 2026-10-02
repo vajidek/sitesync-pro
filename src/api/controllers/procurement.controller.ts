@@ -1245,11 +1245,25 @@ export class ProcurementController {
 
   createRABill = async (req: Request, res: Response) => {
     try {
-      const bill = await this.service.createRABill(req.body);
-      logger.info(`[Procurement Controller] Created Contractor RA Bill ${bill.billNumber} for ${bill.contractorName}`);
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      const companyId = String(user?.companyId || '').trim();
+      if (!actorId || !actorName || !companyId) {
+        return res.status(401).json({ success: false, message: 'Authenticated billing actor and company context are required.' });
+      }
+
+      const bill = await this.service.createRABill({
+        ...req.body,
+        companyId,
+        createdByName: actorName,
+        status: 'Draft',
+      });
+
+      logger.info(`[Procurement Controller] Created draft RA Bill ${bill.billNumber} by ${actorName}`);
       res.status(201).json({
         success: true,
-        message: `RA Bill ${bill.billNumber} created & submitted for technical scrutiny.`,
+        message: `RA Bill ${bill.billNumber} recorded and awaiting submission.`,
         data: bill,
       });
     } catch (err: any) {
@@ -1261,12 +1275,34 @@ export class ProcurementController {
   updateRABillStatus = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const updated = await this.service.updateRABillStatus(id, req.body);
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      const actorRole = String(user?.role || '').trim();
+      const status = String(req.body?.status || '').trim();
+
+      if (!actorId || !actorName || !actorRole) {
+        return res.status(401).json({ success: false, message: 'Authenticated billing workflow actor is required.' });
+      }
+      if (!status) {
+        return res.status(400).json({ success: false, message: 'RA Bill target status is required.' });
+      }
+
+      const updated = await this.service.updateRABillStatus(id, {
+        status,
+        actorId,
+        actorName,
+        actorRole,
+        paymentReferenceNumber: req.body?.paymentReferenceNumber,
+        paymentDisbursedDate: req.body?.paymentDisbursedDate,
+        remarks: req.body?.remarks,
+      });
+
       if (!updated) {
         return res.status(404).json({ success: false, message: 'RA Bill not found' });
       }
 
-      logger.info(`[Procurement Controller] Updated status of RA Bill ${updated.billNumber} to ${updated.status}`);
+      logger.info(`[Procurement Controller] Updated status of RA Bill ${updated.billNumber} to ${updated.status} by ${actorName}`);
       res.json({
         success: true,
         message: `RA Bill status updated to ${updated.status}`,

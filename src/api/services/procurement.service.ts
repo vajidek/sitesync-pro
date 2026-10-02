@@ -384,10 +384,9 @@ export class ProcurementService {
     id: string,
     updates: {
       status: string;
-      qsVerifier?: string;
-      siteEngineer?: string;
-      projectDirector?: string;
-      financeApprover?: string;
+      actorId: string;
+      actorName: string;
+      actorRole: string;
       paymentReferenceNumber?: string;
       paymentDisbursedDate?: string;
       remarks?: string;

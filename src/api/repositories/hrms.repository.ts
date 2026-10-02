@@ -1797,8 +1797,7 @@ export class HrmsRepository {
   public async getLoans(): Promise<any[]> {
     await this.ensureHrmsTablesExist();
     const loans = await db.select().from(phase70Loans).where(eq(phase70Loans.isDeleted, false));
-    if (loans.length === 0) {
-      // Seed default initial loan for demo and verification
+    if (loans.length === 0 && isDemoSeedAllowed()) {      // Seed default initial loan for demo and verification
       const now = new Date().toISOString();
       const initialLoans = [
         {
@@ -1866,66 +1865,89 @@ export class HrmsRepository {
 
   public async createLoan(data: any): Promise<any> {
     await this.ensureHrmsTablesExist();
+
+    const employeeId = String(data?.employeeId || '').trim();
+    const employeeName = String(data?.employeeName || '').trim();
+    const employeeCode = String(data?.employeeCode || '').trim();
+    const principal = Number(data?.principalAmountAed);
+    const tenureMonths = Number(data?.tenureMonths);
+    const interestRate = Number(data?.interestRate || 0);
+    const repaymentMethod = String(data?.repaymentMethod || '').trim();
+    const repaymentFrequency = String(data?.repaymentFrequency || repaymentMethod).trim();
+    const repaymentRateInput = data?.repaymentRate;
+
+    if (!employeeId || !employeeName || !employeeCode) throw new Error('Authenticated employee identity is required for a loan request.');
+    if (!Number.isFinite(principal) || principal <= 0) throw new Error('Loan principal must be greater than zero.');
+    if (!Number.isFinite(tenureMonths) || tenureMonths <= 0) throw new Error('Loan tenure must be greater than zero.');
+    if (!Number.isFinite(interestRate) || interestRate < 0) throw new Error('Interest rate must be a valid non-negative number.');
+    if (!repaymentMethod) throw new Error('Repayment method is required.');
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const loanCode = `LOAN-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const interest = (data.principalAmountAed * (data.interestRate || 0)) / 100;
-    const totalRepayable = data.principalAmountAed + interest;
-    const emi = parseFloat((totalRepayable / (data.tenureMonths || 12)).toFixed(2));
-    const repaymentMethod = data.repaymentMethod || 'PER_DUTY_DAY';
-    const repaymentRate = data.repaymentRate || (repaymentMethod === 'PER_DUTY_DAY' ? 1000 : emi);
+    const interest = (principal * interestRate) / 100;
+    const totalRepayable = principal + interest;
+    const emi = parseFloat((totalRepayable / tenureMonths).toFixed(2));
+    const repaymentRate = repaymentRateInput == null
+      ? emi
+      : Number(repaymentRateInput);
+    if (!Number.isFinite(repaymentRate) || repaymentRate <= 0) throw new Error('Repayment rate must be greater than zero.');
 
-    // Dynamic Governance Policy: Check whether Approval is required
     const policy = await workflowPolicyEngine.getWorkflowConfig('LOAN');
     const initialStatus = policy.approvalRequired ? 'PENDING' : 'ACTIVE';
 
+    const loanCode = `LOAN-${new Date().getFullYear()}-${uuidv4().slice(0, 8).toUpperCase()}`;
     const [loan] = await db.insert(phase70Loans).values({
       id,
       loanCode,
-      ...data,
-      requestedAmountAed: data.principalAmountAed,
+      employeeId,
+      employeeCode,
+      employeeName,
+      loanType: data.loanType,
+      principalAmountAed: principal,
+      requestedAmountAed: principal,
       openingBalanceAed: totalRepayable,
-      repaymentMethod,
-      repaymentRate,
-      repaymentFrequency: repaymentMethod,
-      monthlyEmiAed: emi,
+      interestRate,
       totalRepayableAed: totalRepayable,
+      monthlyEmiAed: emi,
       balanceOutstandingAed: totalRepayable,
       totalRecoveredAed: 0,
+      repaymentMethod,
+      repaymentRate,
+      repaymentFrequency,
+      tenureMonths,
+      purpose: String(data.purpose || '').trim(),
+      disbursementDate: data.disbursementDate || null,
       status: initialStatus,
-      disbursementDate: data.disbursementDate || now.split('T')[0],
       createdAt: now,
       updatedAt: now,
     }).returning();
 
-    // Log Workflow History
     await db.insert(workflowHistory).values({
-      id: `hist-loan-${Date.now()}`,
+      id: `hist-loan-${Date.now()}-${uuidv4().slice(0, 6)}`,
       workflowCode: policy.workflowCode,
       entityType: 'LOAN',
       entityId: id,
       fromState: 'DRAFT',
       toState: initialStatus,
       actionTaken: 'SUBMIT',
-      performedByUserId: data.userId || 'usr-applicant',
-      performedByUserName: data.employeeName || 'Loan Applicant',
+      performedByUserId: employeeId,
+      performedByUserName: employeeName,
       performedByUserRole: 'EMPLOYEE',
-      comments: `Loan request created for ₹${data.principalAmountAed.toLocaleString()} under Workflow Version ${policy.version}. Repayment: ₹${repaymentRate}/duty day.`,
+      comments: `Loan request created under Workflow Policy Version ${policy.version}.`,
       timestamp: now,
     });
 
     await this.recordAuditLog({
-      actionType: 'LOAN_ISSUED',
+      actionType: 'LOAN_REQUEST_CREATED',
       entityType: 'LOAN',
       entityId: id,
       referenceNumber: loanCode,
-      performedBy: data.approvedBy || data.employeeName || 'HR Finance Officer',
-      detailsJson: JSON.stringify({ principal: data.principalAmountAed, repaymentMethod, repaymentRate, totalRepayable, status: initialStatus }),
+      performedBy: employeeName,
+      detailsJson: JSON.stringify({ principal, repaymentMethod, repaymentRate, repaymentFrequency, totalRepayable, status: initialStatus }),
     });
 
     return loan;
   }
-
   public async approveLoan(loanId: string, actor: { userId: string; userName: string; role?: string }, remarks?: string): Promise<any> {
     await this.ensureHrmsTablesExist();
     const now = new Date().toISOString();

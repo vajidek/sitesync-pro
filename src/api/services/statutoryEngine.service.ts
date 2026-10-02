@@ -675,15 +675,19 @@ export class StatutoryEngineService {
     } = {}
   ): Promise<StatutoryCalculationResult> {
     const jurisdiction = (profile.statutoryJurisdiction || 'INDIA') as 'INDIA' | 'UAE' | 'GLOBAL';
-    const payrollCurrency = options.transactionCurrency || (jurisdiction === 'INDIA' ? 'INR' : jurisdiction === 'UAE' ? 'AED' : 'USD');
-    const exchangeRateToInr = options.exchangeRateToInr || (payrollCurrency === 'INR' ? 1.0 : payrollCurrency === 'AED' ? 22.70 : 84.20);
-    const payrollMonth = options.payrollMonth || '2026-08';
+    const payrollCurrency = String(options.transactionCurrency || (jurisdiction === 'INDIA' ? 'INR' : jurisdiction === 'UAE' ? 'AED' : 'USD')).trim().toUpperCase();
+    const payrollMonth = String(options.payrollMonth || '').trim();
+    if (!payrollMonth) throw new Error('Payroll month is required for statutory calculation.');
+    const exchangeRateToInr = payrollCurrency === 'INR' ? 1 : Number(options.exchangeRateToInr);
+    if (!Number.isFinite(exchangeRateToInr) || exchangeRateToInr <= 0) throw new Error(`A valid ${payrollCurrency}/INR exchange rate is required for statutory calculation.`);
     const isFebruary = payrollMonth.endsWith('-02');
 
     // Determine Base Salary Components
     const s = employee.salaryStructure || {};
-    const baseInr = employee.salaryINR || (employee.baseSalary ? employee.baseSalary * (payrollCurrency === 'INR' ? 1 : exchangeRateToInr) : 75000);
-    const wageType = options.wageType || employee.wageType || (employee.dailyWageRate || employee.dailyWageRateUSD ? 'DAILY_WAGE' : 'MONTHLY');
+    const baseInrCandidate = employee.salaryINR ?? (employee.baseSalary != null ? Number(employee.baseSalary) * (payrollCurrency === 'INR' ? 1 : exchangeRateToInr) : null);
+    const baseInr = Number(baseInrCandidate);
+    if (!Number.isFinite(baseInr) || baseInr <= 0) throw new Error(`Salary master data is missing for employee ${employee.employeeCode || employee.id}.`);
+    const wageType = options.wageType || employee.wageType || (employee.dailyWageRate != null || employee.dailyWageRateUSD != null ? 'DAILY_WAGE' : 'MONTHLY');
     
     // Scale components based on currency
     let basic = 0;
@@ -693,14 +697,16 @@ export class StatutoryEngineService {
     let siteAllowance = 0;
     let conveyance = 0;
 
-    const stdDays = options.totalDaysInMonth || 26;
+    const stdDays = Number(options.totalDaysInMonth);
+    if (!Number.isFinite(stdDays) || stdDays <= 0) throw new Error('Configured payroll working-day basis is required.');
     const payableDutyDays = options.payableDutyDays !== undefined 
       ? options.payableDutyDays 
       : (options.lopDays !== undefined ? Math.max(0, stdDays - options.lopDays) : stdDays);
 
     if (wageType === 'DAILY_WAGE' || wageType === 'DUTY_BASED') {
       // Direct duty-driven daily wage calculation: payable_duty_days * dailyWageRate
-      const dailyRate = options.dailyWageRate || employee.dailyWageRate || (employee.dailyWageRateUSD ? employee.dailyWageRateUSD * (payrollCurrency === 'INR' ? exchangeRateToInr : 1) : Math.round(baseInr / stdDays));
+      const dailyRate = Number(options.dailyWageRate ?? employee.dailyWageRate ?? (employee.dailyWageRateUSD != null ? Number(employee.dailyWageRateUSD) * (payrollCurrency === 'INR' ? exchangeRateToInr : 1) : NaN));
+      if (!Number.isFinite(dailyRate) || dailyRate < 0) throw new Error(`Daily wage rate is not configured for employee ${employee.employeeCode || employee.id}.`);
       basic = Math.round(payableDutyDays * dailyRate);
       hra = 0;
       da = 0;
@@ -709,15 +715,16 @@ export class StatutoryEngineService {
       conveyance = 0;
     } else {
       // Monthly salaried structure with attendance-driven LOP / payable duty days proration
-      const prorationFactor = stdDays > 0 ? Math.min(1.0, Math.max(0, payableDutyDays / stdDays)) : 1.0;
+      const prorationFactor = Math.min(1.0, Math.max(0, payableDutyDays / stdDays));
 
       if (payrollCurrency === 'INR') {
-        const fullBasic = s.basicUSD ? s.basicUSD * 84.20 : baseInr * 0.45;
-        const fullHra = s.hraUSD ? s.hraUSD * 84.20 : baseInr * 0.20;
-        const fullDa = s.daUSD ? s.daUSD * 84.20 : baseInr * 0.10;
-        const fullSpecial = s.specialAllowanceUSD ? s.specialAllowanceUSD * 84.20 : baseInr * 0.15;
-        const fullSite = baseInr * 0.05;
-        const fullConveyance = s.travelAllowanceUSD ? s.travelAllowanceUSD * 84.20 : baseInr * 0.05;
+        const fullBasic = s.basicUSD != null ? Number(s.basicUSD) * exchangeRateToInr : NaN;
+        const fullHra = s.hraUSD != null ? Number(s.hraUSD) * exchangeRateToInr : 0;
+        const fullDa = s.daUSD != null ? Number(s.daUSD) * exchangeRateToInr : 0;
+        const fullSpecial = s.specialAllowanceUSD != null ? Number(s.specialAllowanceUSD) * exchangeRateToInr : 0;
+        const fullSite = (s.siteAllowanceUSD != null ? Number(s.siteAllowanceUSD) : 0) * exchangeRateToInr;
+        const fullConveyance = s.travelAllowanceUSD != null ? Number(s.travelAllowanceUSD) * exchangeRateToInr : 0;
+        if (!Number.isFinite(fullBasic) || fullBasic <= 0) throw new Error(`Basic salary component is not configured for employee ${employee.employeeCode || employee.id}.`);
 
         basic = Math.round(fullBasic * prorationFactor);
         hra = Math.round(fullHra * prorationFactor);
@@ -726,12 +733,13 @@ export class StatutoryEngineService {
         siteAllowance = Math.round(fullSite * prorationFactor);
         conveyance = Math.round(fullConveyance * prorationFactor);
       } else {
-        const fullBasic = s.basicUSD || (employee.grade === 'L6' ? 22000 : employee.grade === 'L3' ? 8500 : 12000);
-        const fullHra = s.hraUSD || (employee.grade === 'L6' ? 8000 : employee.grade === 'L3' ? 3000 : 4000);
-        const fullDa = s.daUSD || 0;
-        const fullSpecial = s.specialAllowanceUSD || (employee.grade === 'L6' ? 3000 : employee.grade === 'L3' ? 1000 : 1500);
-        const fullSite = employee.grade === 'L6' ? 2000 : employee.grade === 'L3' ? 1500 : 1000;
-        const fullConveyance = s.travelAllowanceUSD || (employee.grade === 'L6' ? 3000 : employee.grade === 'L3' ? 1500 : 1500);
+        const fullBasic = s.basicUSD != null ? Number(s.basicUSD) : NaN;
+        const fullHra = s.hraUSD != null ? Number(s.hraUSD) : 0;
+        const fullDa = s.daUSD != null ? Number(s.daUSD) : 0;
+        const fullSpecial = s.specialAllowanceUSD != null ? Number(s.specialAllowanceUSD) : 0;
+        const fullSite = s.siteAllowanceUSD != null ? Number(s.siteAllowanceUSD) : 0;
+        const fullConveyance = s.travelAllowanceUSD != null ? Number(s.travelAllowanceUSD) : 0;
+        if (!Number.isFinite(fullBasic) || fullBasic <= 0) throw new Error(`Basic salary component is not configured for employee ${employee.employeeCode || employee.id}.`);
 
         basic = Math.round(fullBasic * prorationFactor);
         hra = Math.round(fullHra * prorationFactor);
@@ -742,9 +750,12 @@ export class StatutoryEngineService {
       }
     }
 
-    const overtimeHourlyRate = s.overtimeHourlyRateUSD ? s.overtimeHourlyRateUSD * (payrollCurrency === 'INR' ? 84.20 : 1) : 20;
-    const overtimeAmount = (options.overtimeHours || 0) * overtimeHourlyRate;
-    const bonusAmount = options.bonusUSD ? options.bonusUSD * (payrollCurrency === 'INR' ? 84.20 : 1) : 0;
+    const overtimeHours = Number(options.overtimeHours || 0);
+    const overtimeRateConfigured = s.overtimeHourlyRateUSD != null ? Number(s.overtimeHourlyRateUSD) : Number(options.hourlyWageRate || 0);
+    if (overtimeHours > 0 && (!Number.isFinite(overtimeRateConfigured) || overtimeRateConfigured <= 0)) throw new Error(`Overtime hourly rate is not configured for employee ${employee.employeeCode || employee.id}.`);
+    const overtimeHourlyRate = overtimeRateConfigured * (payrollCurrency === 'INR' ? exchangeRateToInr : 1);
+    const overtimeAmount = overtimeHours * overtimeHourlyRate;
+    const bonusAmount = Number(options.bonusUSD || 0) * (payrollCurrency === 'INR' ? exchangeRateToInr : 1);
 
     const grossEarnings = Math.round(basic + hra + da + specialAllowance + siteAllowance + conveyance + overtimeAmount + bonusAmount);
     const grossEarningsINR = Math.round(grossEarnings * (payrollCurrency === 'INR' ? 1 : exchangeRateToInr));

@@ -2191,22 +2191,19 @@ export class InventoryRepository {
         tx
       );
 
-      return { ...issueRecord, items: itemsToInsert };
-    });
 
-    // Cross-Module Integration: Post balanced double-entry Material Issue Voucher to Finance GL
-    // Dr. 5010 Direct Site Materials & Consumables
-    // Cr. 1030 Raw Materials & Inventory Control
-    try {
-      const issueItems = await this.getMaterialIssueById(issueId);
-      const totalIssueCost = issueItems?.items?.reduce((sum, it) => sum + (it.issuedQty * (it.unitPrice || 0)), 0) || 0;
+      // Cross-module accounting is part of the same DB transaction as stock,
+      // material-issue and project-cost updates. Any GL failure rolls back the issue.
       if (totalIssueCost > 0) {
         await financeRepository.createJournalEntry(
           {
             voucherType: 'MATERIAL_ISSUE_JOURNAL',
             postingDate: (data.issueDate || now).slice(0, 10),
-            referenceNumber: createdResult.issueNumber,
-            narration: `Material issue voucher ${createdResult.issueNumber} for ${data.issuedTo || 'Site'} (${data.projectName || data.projectId || 'PRJ'})`,
+            referenceNumber: issueNum,
+            narration: `Material issue voucher ${issueNum} for ${data.issuedTo}`,
+            postedBy: issuedBy,
+            createdBy: issuedBy,
+            updatedBy: issuedBy,
           },
           [
             {
@@ -2215,7 +2212,7 @@ export class InventoryRepository {
               debitAmount: totalIssueCost,
               creditAmount: 0,
               costCenterId: data.projectId,
-              lineDescription: `Material consumption on site (${issueItems?.items?.length || 1} items)`,
+              lineDescription: `Material consumption on site (${itemsToInsert.length} items)`,
             },
             {
               accountCode: '1030',
@@ -2225,12 +2222,13 @@ export class InventoryRepository {
               costCenterId: data.warehouseId,
               lineDescription: `Stock release from warehouse ${whName}`,
             },
-          ]
+          ],
+          tx
         );
       }
-    } catch (fErr) {
-      console.warn('[Inventory->Finance] Material issue JV notice:', fErr);
-    }
+
+      return { ...issueRecord, items: itemsToInsert };
+    });
 
     return createdResult;
   }

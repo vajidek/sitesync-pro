@@ -3,8 +3,8 @@ import { z } from 'zod';
 export const CreateIncidentSchema = z.object({
   incidentNumber: z.string().optional(),
   title: z.string().min(3, 'Incident title is required'),
-  incidentType: z.string().default('FIRST_AID'),
-  severity: z.string().default('LOW'),
+  incidentType: z.string().min(1, 'Incident type is required'),
+  severity: z.string().min(1, 'Incident severity is required'),
   location: z.string().min(2, 'Location is required'),
   projectId: z.string().min(1, 'Project is required'),
   projectName: z.string().min(1, 'Project name is required'),
@@ -16,7 +16,7 @@ export const CreateIncidentSchema = z.object({
   rootCause: z.string().optional(),
   correctiveAction: z.string().optional(),
   preventiveAction: z.string().optional(),
-  status: z.string().default('REPORTED'),
+  status: z.literal('REPORTED').optional(),
   investigatorName: z.string().optional(),
   reportedBy: z.string().min(2, 'Reporter is required'),
 });
@@ -90,22 +90,28 @@ export const CreateToolboxTalkSchema = z.object({
 
 export const CreateWorkPermitSchema = z.object({
   permitNumber: z.string().optional(),
-  permitType: z.string().default('HOT_WORK'),
+  permitType: z.string().min(1, 'Permit type is required'),
   location: z.string().min(2, 'Location is required'),
   description: z.string().min(5, 'Description is required'),
-  contractorName: z.string().default('SiteSync Operations Team'),
+  contractorName: z.string().min(2, 'Contractor name is required'),
   supervisorName: z.string().min(2, 'Supervisor name is required'),
-  issueDateTime: z.string().default(() => new Date().toISOString()),
-  expiryDateTime: z.string().default(() => {
-    const d = new Date();
-    d.setHours(d.getHours() + 12);
-    return d.toISOString();
-  }),
-  safetyChecklist: z.string().optional(),
-  isolationStatus: z.string().default('NOT_APPLICABLE'),
+  issueDateTime: z.string().min(1, 'Issue date/time is required'),
+  expiryDateTime: z.string().min(1, 'Expiry date/time is required'),
+  safetyChecklist: z.string().min(1, 'Safety checklist is required'),
+  isolationStatus: z.string().min(1, 'Isolation status is required'),
   gasTestResult: z.string().optional(),
-  status: z.string().default('PENDING_APPROVAL'),
-  approvedBy: z.string().optional(),
+  status: z.literal('PENDING_APPROVAL').optional(),
+  approvedBy: z.undefined().optional(),
+}).superRefine((value, ctx) => {
+  const issueMs = Date.parse(value.issueDateTime);
+  const expiryMs = Date.parse(value.expiryDateTime);
+  if (!Number.isFinite(issueMs) || !Number.isFinite(expiryMs) || expiryMs <= issueMs) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['expiryDateTime'], message: 'Expiry must be later than issue time.' });
+  }
+  const permitType = value.permitType.trim().toUpperCase();
+  if (['HOT_WORK', 'CONFINED_SPACE', 'RADIOGRAPHY'].includes(permitType) && !value.gasTestResult?.trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['gasTestResult'], message: 'Gas test result is required for this permit type.' });
+  }
 });
 
 export const CreateSafetyInspectionSchema = z.object({

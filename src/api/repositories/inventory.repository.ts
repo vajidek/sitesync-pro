@@ -438,6 +438,10 @@ let isInventorySeeded = false;
 
 async function ensureInventorySeeded() {
   if (isInventorySeeded) return;
+  if (!isDemoSeedAllowed()) {
+    isInventorySeeded = true;
+    return;
+  }
   try {
     const existingCategories = await db.select().from(materialCategories).limit(1);
     if (existingCategories.length === 0) {

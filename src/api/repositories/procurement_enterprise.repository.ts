@@ -1053,6 +1053,52 @@ export class ProcurementEnterpriseRepository {
     return prs.map((pr) => ({ ...pr, items: items.filter((item) => item.prId === pr.id) }));
   }
 
+  public async updatePurchaseRequisitionStatus(
+    id: string,
+    status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'PO_ISSUED' | 'REJECTED',
+    actorName: string,
+    remarks?: string
+  ): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    if (!actorName?.trim()) throw new Error('Authenticated workflow actor is required.');
+
+    const [existing] = await db.select().from(phase69PurchaseRequisitions)
+      .where(and(eq(phase69PurchaseRequisitions.id, id), eq(phase69PurchaseRequisitions.isDeleted, false)))
+      .limit(1);
+    if (!existing) return null;
+
+    const transitions: Record<string, string[]> = {
+      DRAFT: ['SUBMITTED', 'REJECTED'],
+      SUBMITTED: ['HOD_APPROVED', 'REJECTED'],
+      HOD_APPROVED: ['FINANCE_APPROVED', 'REJECTED'],
+      FINANCE_APPROVED: ['PO_ISSUED', 'REJECTED'],
+      PO_ISSUED: [],
+      REJECTED: ['DRAFT'],
+    };
+
+    if (!transitions[existing.status]?.includes(status)) {
+      throw new Error(`Invalid purchase requisition transition: ${existing.status} → ${status}`);
+    }
+
+    const workflowStepByStatus: Record<string, string> = {
+      SUBMITTED: 'HOD_REVIEW',
+      HOD_APPROVED: 'FINANCE_REVIEW',
+      FINANCE_APPROVED: 'PROCUREMENT_SOURCING',
+      PO_ISSUED: 'PO_ISSUED',
+      REJECTED: 'REQUESTOR_CORRECTION',
+    };
+
+    const next = await db.update(phase69PurchaseRequisitions).set({
+      status,
+      workflowStep: workflowStepByStatus[status] || status,
+      notes: remarks ? String(remarks) : existing.notes,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorName.trim(),
+    } as any).where(eq(phase69PurchaseRequisitions.id, id)).returning();
+
+    return next[0] || null;
+  }
+
   // --- Purchase Orders ---
   public async getPurchaseOrders(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

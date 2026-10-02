@@ -25,6 +25,7 @@ import {
   phase69RetentionMoney,
   phase69DeliverySchedules,
   phase69GoodsReceipts,
+  phase69GoodsReceiptItems,
   phase69InvoiceMatching,
   phase69ThreeWayMatching,
   phase69VendorPerformance,
@@ -1326,50 +1327,145 @@ export class ProcurementEnterpriseRepository {
   // --- Goods Receipts (GRN) ---
   public async getGoodsReceipts(): Promise<any[]> {
     await this.ensureProcurementTablesExist();
-    return db.select().from(phase69GoodsReceipts).where(eq(phase69GoodsReceipts.isDeleted, false)).orderBy(desc(phase69GoodsReceipts.createdAt));
+    const grns = await db.select().from(phase69GoodsReceipts)
+      .where(eq(phase69GoodsReceipts.isDeleted, false))
+      .orderBy(desc(phase69GoodsReceipts.createdAt));
+    const items = await db.select().from(phase69GoodsReceiptItems)
+      .where(eq(phase69GoodsReceiptItems.isDeleted, false));
+    return grns.map((grn) => ({
+      ...grn,
+      items: items.filter((item) => item.grnId === grn.id),
+    }));
   }
 
-  public async createGoodsReceipt(data: any, createdBy: string = 'Store Keeper'): Promise<any> {
+  public async createGoodsReceipt(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
-    const now = new Date().toISOString();
-    const id = uuidv4();
-    const grnNumber = data.grnNumber || (await numberingService.generateGoodsReceiptNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
-      date: data.receiptDate || now,
-    }));
+    if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required.');
 
-    const newGrn = {
-      id,
+    const poNumber = String(data?.poNumber || '').trim();
+    if (!poNumber) throw new Error('Purchase order is required for a goods receipt.');
+
+    const [po] = await db.select().from(phase69PurchaseOrders)
+      .where(and(eq(phase69PurchaseOrders.poNumber, poNumber), eq(phase69PurchaseOrders.isDeleted, false)))
+      .limit(1);
+    if (!po) throw new Error('Referenced purchase order was not found.');
+    if (!['ISSUED', 'PARTIALLY_DELIVERED', 'DELIVERED'].includes(po.status)) {
+      throw new Error(`Goods receipt cannot be recorded against PO status ${po.status}.`);
+    }
+
+    const itemsInput = Array.isArray(data?.items) ? data.items : [];
+    if (!itemsInput.length) throw new Error('At least one PO item is required for a goods receipt.');
+
+    const poItems = await db.select().from(phase69PoItems)
+      .where(and(eq(phase69PoItems.poId, po.id), eq(phase69PoItems.isDeleted, false)));
+
+    const resolvedItems = [];
+    for (const [index, input] of itemsInput.entries()) {
+      const poItem = poItems.find((item) => item.id === input.poItemId);
+      if (!poItem) throw new Error(`GRN line ${index + 1} is not linked to a valid PO item.`);
+      if (input.boqItemId !== poItem.boqItemId) throw new Error(`GRN line ${index + 1} must retain its PO BOQ reference.`);
+
+      const received = Number(input.receivedQuantity);
+      const accepted = Number(input.acceptedQuantity);
+      const rejected = Number(input.rejectedQuantity);
+
+      if (!Number.isFinite(received) || received <= 0 || !Number.isFinite(accepted) || accepted < 0 || !Number.isFinite(rejected) || rejected < 0) {
+        throw new Error(`GRN quantities for ${poItem.boqItemCode} are invalid.`);
+      }
+      if (accepted + rejected > received) throw new Error(`Accepted + rejected quantity cannot exceed received quantity for ${poItem.boqItemCode}.`);
+      if (received > Number(poItem.balanceQuantity || 0)) throw new Error(`Received quantity for ${poItem.boqItemCode} exceeds PO balance ${poItem.balanceQuantity}.`);
+
+      resolvedItems.push({
+        poItemId: poItem.id,
+        poNumber: po.poNumber,
+        boqItemId: poItem.boqItemId,
+        wbsId: poItem.wbsId,
+        boqItemCode: poItem.boqItemCode,
+        wbsCode: poItem.wbsCode,
+        itemCode: poItem.itemCode,
+        description: poItem.description,
+        receivedQuantity: received,
+        acceptedQuantity: accepted,
+        rejectedQuantity: rejected,
+        uom: poItem.uom,
+        remarks: input.remarks || null,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const grnNumber = data.grnNumber
+      ? String(data.grnNumber).trim()
+      : await numberingService.generateGoodsReceiptNumber({
+          companyId: data.companyId || null,
+          projectId: po.projectId,
+          date: data.receiptDate || now,
+          allocatedBy: createdBy,
+        });
+
+    if (!grnNumber) throw new Error('GRN number could not be generated.');
+
+    const mirNumber = data.mirNumber
+      ? String(data.mirNumber).trim()
+      : await numberingService.generateMaterialInspectionNumber({
+          companyId: data.companyId || null,
+          projectId: po.projectId,
+          date: data.receiptDate || now,
+          allocatedBy: createdBy,
+        });
+
+    const grnId = uuidv4();
+    const record = {
+      id: grnId,
       grnNumber,
-      poNumber: data.poNumber,
-      vendorId: data.vendorId,
-      vendorName: data.vendorName,
-      deliveryNoteNumber: data.deliveryNoteNumber,
-      receiptDate: data.receiptDate || now.split('T')[0],
-      siteLocation: data.siteLocation || 'Main Project Laydown Yard',
-      receivedBy: data.receivedBy || createdBy,
-      inspectedBy: data.inspectedBy || 'QA/QC Material Inspector',
-      inspectionResult: data.inspectionResult || 'ACCEPTED',
-      itemsReceivedCount: data.itemsReceivedCount || 1,
+      poNumber: po.poNumber,
+      vendorId: po.vendorId,
+      vendorName: po.vendorName,
+      deliveryNoteNumber: String(data.deliveryNoteNumber || '').trim(),
+      receiptDate: String(data.receiptDate || now.split('T')[0]),
+      siteLocation: String(data.siteLocation || po.deliveryLocation || '').trim(),
+      receivedBy: String(data.receivedBy || createdBy).trim(),
+      inspectedBy: String(data.inspectedBy || '').trim(),
+      inspectionResult: data.inspectionResult || 'CONDITIONALLY_ACCEPTED',
+      itemsReceivedCount: resolvedItems.length,
       rejectionReason: data.rejectionReason || null,
-      mirNumber: data.mirNumber || (await numberingService.generateMaterialInspectionNumber({
-        companyId: data.companyId || 'cmp-101',
-        projectId: data.projectId || 'PRJ-WATER-001',
-        date: data.receiptDate || now,
-      })),
-      status: 'APPROVED',
+      mirNumber: mirNumber || null,
+      status: data.status || 'UNDER_INSPECTION',
       createdAt: now,
       updatedAt: now,
-      createdBy,
-      updatedBy: createdBy,
+      createdBy: createdBy.trim(),
+      updatedBy: createdBy.trim(),
       isDeleted: false,
     };
 
-    await db.insert(phase69GoodsReceipts).values(newGrn);
-    return newGrn;
-  }
+    if (!record.deliveryNoteNumber || !record.receiptDate || !record.siteLocation || !record.receivedBy || !record.inspectedBy) {
+      throw new Error('Delivery note, receipt date, site location, receiver and inspector are required.');
+    }
 
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase69GoodsReceipts.id })
+        .from(phase69GoodsReceipts)
+        .where(eq(phase69GoodsReceipts.grnNumber, grnNumber))
+        .limit(1);
+      if (duplicate.length) throw new Error(`GRN ${grnNumber} already exists.`);
+
+      await tx.insert(phase69GoodsReceipts).values(record as any);
+      await tx.insert(phase69GoodsReceiptItems).values(
+        resolvedItems.map((item) => ({
+          id: uuidv4(),
+          grnId,
+          grnNumber,
+          ...item,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: createdBy.trim(),
+          updatedBy: createdBy.trim(),
+          isDeleted: false,
+        })) as any
+      );
+
+      return { ...record, items: resolvedItems };
+    });
+  }
   // --- Three-Way Matching & Invoices ---
   public async getThreeWayMatches(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

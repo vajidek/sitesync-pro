@@ -6,6 +6,13 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: sitesync-pro-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   typecheck-build-test:
     runs-on: ubuntu-latest
@@ -46,6 +53,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

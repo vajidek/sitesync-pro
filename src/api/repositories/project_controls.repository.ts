@@ -1318,6 +1318,104 @@ export class ProjectControlsRepository {
     const projectActualCost = realMaterialsCost + realSubcontractActual + realEmployeeExpenses + realPettyCashExpenses + realFleetFuelCost;
     const projectCommittedCost = realPOCommitments + realSubcontractCommitments;
 
+    // Build a real source-document ledger for management drill-down.
+    // No synthetic transactions are created here; every row originates from a persisted operational record.
+    const transactions: any[] = [];
+
+    for (const po of poRows as any[]) {
+      if (String(po.status || '').toUpperCase() === 'CANCELLED') continue;
+      const amount = Number(po.totalAmount || 0);
+      if (amount <= 0) continue;
+      transactions.push({
+        id: `TX-PO-${po.id}`, type: 'COMMITTED', category: 'PURCHASE_ORDER', categoryLabel: 'Purchase Order',
+        sourceDocType: 'PURCHASE_ORDER', sourceDocNumber: po.poNumber, sourceDocId: po.id, date: po.poDate || po.createdAt?.slice(0, 10) || '',
+        description: `PO for ${po.vendorName}`, vendorOrPayee: po.vendorName, amount, originalAmount: amount,
+        currency: po.currency || project.currency || '', originalCurrency: po.currency || project.currency || '', status: po.status || '',
+        authorizedBy: po.approvedBy || po.createdBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const issue of issueRows as any[]) {
+      const rows = (await db.select().from(materialIssueItems).where(eq(materialIssueItems.issueId, issue.id))) as any[];
+      const amount = rows.reduce((sum, item) => sum + Number(item.issuedQty || 0) * Number(item.unitPrice || 0), 0);
+      if (amount <= 0) continue;
+      transactions.push({
+        id: `TX-ISS-${issue.id}`, type: 'ACTUAL', category: 'DIRECT_MATERIAL', categoryLabel: 'Material Issue',
+        sourceDocType: 'MATERIAL_ISSUE', sourceDocNumber: issue.issueNumber, sourceDocId: issue.id, date: issue.issueDate || issue.createdAt?.slice(0, 10) || '',
+        description: rows.map((item) => item.materialName || item.description).filter(Boolean).join(', ') || 'Material issue',
+        vendorOrPayee: issue.issuedTo || issue.warehouseName || 'Site', amount, originalAmount: amount,
+        currency: project.currency || '', originalCurrency: project.currency || '', status: issue.status || '', authorizedBy: issue.issuedBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const subcontract of projectSubcontracts as any[]) {
+      const amount = Number(subcontract.contractValue || 0);
+      if (amount <= 0) continue;
+      transactions.push({
+        id: `TX-SUB-${subcontract.id}`, type: 'COMMITTED', category: 'SUBCONTRACT', categoryLabel: 'Subcontract Agreement',
+        sourceDocType: 'WORK_ORDER', sourceDocNumber: subcontract.agreementNumber, sourceDocId: subcontract.id,
+        date: subcontract.startDate || subcontract.createdAt?.slice(0, 10) || '', description: subcontract.packageTitle,
+        vendorOrPayee: subcontract.subcontractorName, amount, originalAmount: amount, currency: subcontract.currency || project.currency || '',
+        originalCurrency: subcontract.currency || project.currency || '', status: subcontract.status || '', authorizedBy: subcontract.createdBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const bill of projectSubcontractBills as any[]) {
+      const amount = Number(bill.certifiedAmount || 0);
+      if (amount <= 0 || !['CERTIFIED', 'PAID'].includes(String(bill.status || '').toUpperCase())) continue;
+      transactions.push({
+        id: `TX-SUBBILL-${bill.id}`, type: 'ACTUAL', category: 'SUBCONTRACT_BILL', categoryLabel: 'Subcontract Bill',
+        sourceDocType: 'SUBCONTRACT_BILL', sourceDocNumber: bill.billNumber, sourceDocId: bill.id, date: bill.submissionDate || bill.createdAt?.slice(0, 10) || '',
+        description: `Certified subcontract bill ${bill.billNumber}`, vendorOrPayee: bill.subcontractorName, amount, originalAmount: amount,
+        currency: bill.currency || project.currency || '', originalCurrency: bill.currency || project.currency || '', status: bill.status || '', authorizedBy: bill.certifiedBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const claim of claims as any[]) {
+      if (!['APPROVED_FOR_PAYMENT', 'PAID', 'FINANCE_VERIFIED'].includes(claim.status) || Number(claim.amount || 0) <= 0) continue;
+      const amount = Number(claim.amount);
+      transactions.push({
+        id: `TX-EXP-${claim.id}`, type: 'ACTUAL', category: 'EMPLOYEE_EXPENSE', categoryLabel: 'Employee Expense',
+        sourceDocType: 'EMPLOYEE_EXPENSE', sourceDocNumber: claim.claimNumber || claim.id, sourceDocId: claim.id, date: claim.expenseDate || claim.createdAt?.slice(0, 10) || '',
+        description: claim.description || 'Employee expense', vendorOrPayee: claim.employeeName || claim.employeeId, amount, originalAmount: amount,
+        currency: claim.currency || project.currency || '', originalCurrency: claim.currency || project.currency || '', status: claim.status || '', authorizedBy: claim.approvedBy?.name || claim.financeVerification?.verifiedBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const voucher of vouchers as any[]) {
+      if (!['POSTED', 'DISBURSED'].includes(voucher.status) || Number(voucher.totalAmount || 0) <= 0) continue;
+      const amount = Number(voucher.totalAmount);
+      transactions.push({
+        id: `TX-PC-${voucher.id}`, type: 'ACTUAL', category: 'PETTY_CASH', categoryLabel: 'Project Petty Cash',
+        sourceDocType: 'CASH_VOUCHER', sourceDocNumber: voucher.voucherNumber || voucher.id, sourceDocId: voucher.id, date: voucher.voucherDate || voucher.createdAt?.slice(0, 10) || '',
+        description: voucher.description || 'Project petty cash', vendorOrPayee: voucher.payeeName || voucher.requestedByName || 'Project Cash', amount, originalAmount: amount,
+        currency: voucher.currency || project.currency || '', originalCurrency: voucher.currency || project.currency || '', status: voucher.status || '', authorizedBy: voucher.approvedByName || voucher.auditedByName || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const fuel of fuelRows as any[]) {
+      const amount = Number(fuel.totalCost || 0);
+      if (amount <= 0) continue;
+      transactions.push({
+        id: `TX-FUEL-${fuel.id}`, type: 'ACTUAL', category: 'EQUIPMENT_FUEL', categoryLabel: 'Equipment & Fuel',
+        sourceDocType: 'FUEL_LOG', sourceDocNumber: fuel.fuelLogCode || fuel.id, sourceDocId: fuel.id, date: fuel.createdAt?.slice(0, 10) || '',
+        description: `Fuel for ${fuel.assetName || fuel.assetCode || 'equipment'}`, vendorOrPayee: fuel.fuelStation || 'Site Fuel', amount, originalAmount: amount,
+        currency: fuel.currency || project.currency || '', originalCurrency: fuel.currency || project.currency || '', status: 'LOGGED', authorizedBy: fuel.createdBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    for (const ipc of ipcs as any[]) {
+      if (!['CERTIFIED', 'PAID'].includes(String(ipc.status || '').toUpperCase()) || Number(ipc.grossWorkDoneCertified || 0) <= 0) continue;
+      const amount = Number(ipc.grossWorkDoneCertified);
+      transactions.push({
+        id: `TX-IPC-${ipc.id}`, type: 'ACTUAL', category: 'CLIENT_IPC', categoryLabel: 'Client IPC Revenue',
+        sourceDocType: 'CLIENT_IPC', sourceDocNumber: ipc.ipcNumber, sourceDocId: ipc.id, date: ipc.certificationDate || ipc.submissionDate || ipc.createdAt?.slice(0, 10) || '',
+        description: `Certified client IPC ${ipc.ipcNumber}`, vendorOrPayee: project.clientName || project.customerName || 'Client', amount, originalAmount: amount,
+        currency: ipc.currency || project.currency || '', originalCurrency: ipc.currency || project.currency || '', status: ipc.status || '', authorizedBy: ipc.certifiedBy || 'SYSTEM_SOURCE',
+      });
+    }
+
+    transactions.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
     const now = new Date();
     const elapsedDays = Math.max(1, Math.ceil((now.getTime() - new Date(project.startDate).getTime()) / 86400000));
     const burnRate = projectActualCost / elapsedDays;
@@ -1396,6 +1494,21 @@ export class ProjectControlsRepository {
 
     return {
       projectId: resolvedProjectId,
+      project: {
+        id: project.id,
+        projectCode: project.projectCode,
+        projectName: project.projectName,
+        clientName: project.clientName || project.customerName || '',
+        consultantName: project.consultantName || '',
+        location: project.location,
+        contractValue: Number(project.contractValue || 0),
+        budget: Number(project.budget || 0),
+        currency: project.currency || '',
+        status: project.status,
+        progressPercentage: Number(project.progressPercentage || 0),
+        startDate: project.startDate,
+        targetCompletionDate: project.targetCompletionDate,
+      },
       summary: {
         totalBudget,
         totalCommitted: projectCommittedCost,
@@ -1417,9 +1530,11 @@ export class ProjectControlsRepository {
         burnRatePerElapsedDay: Number(burnRate.toFixed(2)),
         realTimeMargin: realBilledRevenue - projectActualCost,
         realTimeMarginPercent: realBilledRevenue > 0 ? Number((((realBilledRevenue - projectActualCost) / realBilledRevenue) * 100).toFixed(1)) : 0,
-        costBreakdown: { realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realBilledRevenue },
+        costBreakdown: { realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realBilledRevenue }, 
+        transactionCount: transactions.length,
       },
       wbsBreakdown: items,
+      transactions,
     };
   }
 }

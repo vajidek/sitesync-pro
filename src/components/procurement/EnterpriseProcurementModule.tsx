@@ -27,12 +27,13 @@ import {
   Eye,
   SlidersHorizontal,
   FilePlus,
+  ClipboardList,
   Scale
 } from 'lucide-react';
 
 export const EnterpriseProcurementModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'vendors' | 'rfqs' | 'pos' | 'contracts' | 'grn' | 'matching' | 'scorecards'
+    'overview' | 'vendors' | 'prs' | 'rfqs' | 'pos' | 'contracts' | 'grn' | 'matching' | 'scorecards'
   >('overview');
 
   const [isLoading, setIsLoading] = useState(true);

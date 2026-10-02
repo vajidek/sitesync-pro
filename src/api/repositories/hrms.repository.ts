@@ -1763,111 +1763,188 @@ export class HrmsRepository {
     const monthYear = String(data.monthYear || '').trim();
     const finalizedBy = String(data.finalizedBy || '').trim();
 
-    if (!periodId || !monthYear || !finalizedBy) {
-      throw new Error('Attendance period, month and authenticated finalizer identity are required.');
+    if (!periodId || !/^\d{4}-\d{2}$/.test(monthYear) || !finalizedBy) {
+      throw new Error('Attendance period, valid YYYY-MM month and authenticated finalizer identity are required.');
     }
 
-    let employeeSnapshots = data.records;
-    if (!employeeSnapshots || employeeSnapshots.length === 0) {
-      if (!isDemoSeedAllowed()) {
-        throw new Error('Attendance finalization requires the verified employee snapshot. Synthetic finalization is disabled outside DEMO mode.');
-      }
+    const existingFinalized = await db.execute(sql`
+      SELECT COUNT(*)::int AS count FROM hr_attendance_finalizations
+      WHERE period_id = ${periodId} AND status = 'FINALIZED'
+    `);
+    if (Number((existingFinalized.rows?.[0] as any)?.count || 0) > 0) {
+      throw new Error(`Attendance period ${monthYear} is already finalized. Unlock it through the controlled revision workflow before re-finalizing.`);
+    }
+
+    let employeeSnapshots: any[] | undefined;
+    if (isDemoSeedAllowed() && Array.isArray(data.records) && data.records.length > 0) {
+      // DEMO compatibility only: supplied fixture snapshots are accepted in DEMO mode.
+      employeeSnapshots = data.records;
+    } else if (isDemoSeedAllowed() && (!data.records || data.records.length === 0)) {
       const employees = await this.getEmployees();
-      employeeSnapshots = employees.map((emp) => {
-        const isSite = emp.id === 'emp-002' || emp.id === 'emp-003';
-        const presentDays = isSite ? 22 : 24;
-        const halfDays = isSite ? 2 : 0;
-        const paidLeaves = 2;
-        const weeklyOffs = 4;
-        const holidays = 1;
-        const payableDutyDays = presentDays + paidLeaves + (halfDays * 0.5) + weeklyOffs + holidays;
-        const otHours = emp.id === 'emp-002' ? 12 : emp.id === 'emp-003' ? 8 : 0;
-        return {
+      employeeSnapshots = employees.map((emp) => ({
+        employeeId: emp.id, employeeCode: emp.employeeCode, employeeName: `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+        department: emp.departmentId, wageType: emp.wageType || 'MONTHLY', dailyWageRate: Number(emp.dailyWageRate || 0), hourlyWageRate: Number(emp.hourlyWageRate || 0),
+        totalDaysInMonth: 31, presentDays: 0, halfDays: 0, paidLeaveDays: 0, unpaidLeaveDays: 0, weeklyOffs: 0, holidays: 0, payableDutyDays: 0, absentDays: 0, overtimeHours: 0, totalDutyHours: 0,
+        remarks: data.remarks || 'DEMO attendance finalization',
+      }));
+    } else {
+      // PRODUCTION / UAT: derive the payroll snapshot exclusively from verified attendance and approved leave records.
+      const employees = (await this.getEmployees()).filter((emp: any) => {
+        const type = String(emp.employmentType || '').toUpperCase();
+        const status = String(emp.employmentStatus || '').toUpperCase();
+        const subcontract = ['SUBCONTRACT_LABOUR', 'SUBCONTRACTOR_WORKER', 'LABOUR_SUPPLIER', 'THIRD_PARTY_LABOUR'].includes(type);
+        return !subcontract && !['TERMINATED', 'RESIGNED', 'INACTIVE'].includes(status);
+      });
+
+      const verifiedRows = await db.select().from(phase70Attendance);
+      const monthRows = verifiedRows.filter((row: any) => String(row.attendanceDate || '').startsWith(monthYear) && row.isVerified === true && String(row.status || '').toUpperCase() !== 'REJECTED');
+      const approvedLeaves = await db.select().from(phase70LeaveRequests).where(and(eq(phase70LeaveRequests.status, 'APPROVED'), eq(phase70LeaveRequests.isDeleted, false)));
+
+      const year = Number(monthYear.slice(0, 4));
+      const monthIndex = Number(monthYear.slice(5, 7)) - 1;
+      const totalDaysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+      const monthStart = new Date(Date.UTC(year, monthIndex, 1));
+      const monthEndExclusive = new Date(Date.UTC(year, monthIndex + 1, 1));
+
+      const overlapDays = (startDate: string, endDate: string): number => {
+        const start = new Date(`${startDate}T00:00:00Z`);
+        const end = new Date(`${endDate}T00:00:00Z`);
+        const from = new Date(Math.max(start.getTime(), monthStart.getTime()));
+        const to = new Date(Math.min(end.getTime(), monthEndExclusive.getTime() - 86400000));
+        if (to < from) return 0;
+        return Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
+      };
+
+      employeeSnapshots = [];
+      const missing: string[] = [];
+
+      for (const emp of employees as any[]) {
+        const rows = monthRows.filter((row: any) => row.employeeId === emp.id);
+        const byDate = new Map<string, any[]>();
+        for (const row of rows) {
+          const key = String(row.attendanceDate);
+          const list = byDate.get(key) || [];
+          list.push(row);
+          byDate.set(key, list);
+        }
+
+        let presentDays = 0;
+        let halfDays = 0;
+        let absentDays = 0;
+        let weeklyOffs = 0;
+        let holidays = 0;
+        let overtimeHours = 0;
+        let totalDutyHours = 0;
+
+        for (const dayRows of byDate.values()) {
+          const row = dayRows.sort((a, b) => Number(b.totalHours || 0) - Number(a.totalHours || 0))[0];
+          const status = String(row.status || '').toUpperCase();
+          if (status === 'HALF_DAY' || status === 'HALFDAY') halfDays += 1;
+          else if (status === 'ABSENT') absentDays += 1;
+          else if (status === 'WEEK_OFF' || status === 'WEEKLY_OFF') weeklyOffs += 1;
+          else if (status === 'HOLIDAY') holidays += 1;
+          else if (status === 'PRESENT' || status === 'VERIFIED' || status === 'WORKED') presentDays += 1;
+
+          overtimeHours += Number(dayRows.reduce((sum, item) => sum + Number(item.overtimeHours || 0), 0));
+          totalDutyHours += Number(dayRows.reduce((sum, item) => sum + Number(item.totalHours || 0), 0));
+        }
+
+        const paidLeaveDays = approvedLeaves
+          .filter((leave: any) => leave.employeeId === emp.id)
+          .reduce((sum: number, leave: any) => sum + overlapDays(String(leave.startDate), String(leave.endDate)), 0);
+
+        const verifiedCoverage = presentDays + halfDays + absentDays + weeklyOffs + holidays;
+        if (verifiedCoverage === 0 && paidLeaveDays === 0) {
+          missing.push(emp.employeeCode || emp.id);
+          continue;
+        }
+
+        const payableDutyDays = presentDays + (halfDays * 0.5) + paidLeaveDays + weeklyOffs + holidays;
+        employeeSnapshots.push({
           employeeId: emp.id,
           employeeCode: emp.employeeCode,
           employeeName: `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
           department: emp.departmentId,
-          wageType: 'MONTHLY',
-          dailyWageRate: 0,
-          hourlyWageRate: 0,
-          totalDaysInMonth: 31,
+          wageType: emp.wageType || ((String(emp.employmentType || '').toUpperCase() === 'DAILY_WAGE') ? 'DAILY_WAGE' : 'MONTHLY'),
+          dailyWageRate: Number(emp.dailyWageRate || 0),
+          hourlyWageRate: Number(emp.hourlyWageRate || 0),
+          totalDaysInMonth,
           presentDays,
           halfDays,
-          paidLeaveDays: paidLeaves,
-          unpaidLeaveDays: 0,
+          paidLeaveDays,
+          unpaidLeaveDays: absentDays,
           weeklyOffs,
           holidays,
           payableDutyDays,
-          absentDays: 0,
-          overtimeHours: otHours,
-          totalDutyHours: payableDutyDays * 8 + otHours,
-          remarks: data.remarks || 'Biometric terminal records verified & locked',
-        };
-      });
+          absentDays,
+          overtimeHours: Number(overtimeHours.toFixed(2)),
+          totalDutyHours: Number(totalDutyHours.toFixed(2)),
+          remarks: data.remarks || 'Server-derived from verified attendance and approved leave records',
+        });
+      }
+
+      if (missing.length > 0) {
+        throw new Error(`Attendance finalization blocked. No verified attendance/approved leave coverage exists for employee(s): ${missing.slice(0, 20).join(', ')}`);
+      }
+      if (employeeSnapshots.length === 0) throw new Error('No eligible employee attendance records are available for finalization.');
     }
 
-    const savedRecords = [];
-    for (const rec of employeeSnapshots) {
-      const id = `fin-${periodId}-${rec.employeeId}`;
-      const payableDutyDays = rec.payableDutyDays ?? (rec.presentDays + (rec.paidLeaveDays || 0) + (rec.weeklyOffs || 4) + (rec.holidays || 1));
-      const lockHash = statutoryEngineService.generateLockHash(`att-${periodId}`, monthYear, [rec]);
+    const savedRecords: any[] = [];
+    await db.transaction(async (tx) => {
+      for (const rec of employeeSnapshots || []) {
+        const employeeId = String(rec.employeeId || '').trim();
+        if (!employeeId) throw new Error('Finalization snapshot contains an employee without a valid employeeId.');
 
-      await db.execute(sql`
-        INSERT INTO hr_attendance_finalizations (
-          id, period_id, month_year, employee_id, employee_code, employee_name, department,
-          wage_type, daily_wage_rate, hourly_wage_rate, total_days_in_month, present_days, half_days,
-          paid_leave_days, unpaid_leave_days, weekly_offs, holidays, payable_duty_days, absent_days,
-          overtime_hours, total_duty_hours, status, finalized_by, finalized_at, lock_hash, remarks,
-          created_at, updated_at
-        ) VALUES (
-          ${id}, ${periodId}, ${monthYear}, ${rec.employeeId}, ${rec.employeeCode || `EMP-${rec.employeeId}`},
-          ${rec.employeeName}, ${rec.department || 'Operations'}, ${rec.wageType || 'MONTHLY'},
-          ${rec.dailyWageRate || 0}, ${rec.hourlyWageRate || 0}, ${rec.totalDaysInMonth || 31},
-          ${rec.presentDays || 0}, ${rec.halfDays || 0}, ${rec.paidLeaveDays || 0}, ${rec.unpaidLeaveDays || 0},
-          ${rec.weeklyOffs || 4}, ${rec.holidays || 0}, ${payableDutyDays}, ${rec.absentDays || 0},
-          ${rec.overtimeHours || 0}, ${rec.totalDutyHours || payableDutyDays * 8}, 'FINALIZED',
-          ${finalizedBy}, ${now}, ${lockHash}, ${rec.remarks || data.remarks || 'Finalized attendance locked for payroll'},
-          ${now}, ${now}
-        ) ON CONFLICT (id) DO UPDATE SET
-          payable_duty_days = ${payableDutyDays},
-          present_days = ${rec.presentDays || 0},
-          overtime_hours = ${rec.overtimeHours || 0},
-          status = 'FINALIZED',
-          finalized_by = ${finalizedBy},
-          finalized_at = ${now},
-          lock_hash = ${lockHash},
-          updated_at = ${now}
-      `);
+        const id = `fin-${periodId}-${employeeId}`;
+        const payableDutyDays = Number(rec.payableDutyDays || 0);
+        const overtimeHours = Number(rec.overtimeHours || 0);
+        const totalDutyHours = Number(rec.totalDutyHours || 0);
+        if (!Number.isFinite(payableDutyDays) || payableDutyDays < 0 || !Number.isFinite(overtimeHours) || overtimeHours < 0 || !Number.isFinite(totalDutyHours) || totalDutyHours < 0) {
+          throw new Error(`Invalid finalized attendance values for employee ${employeeId}.`);
+        }
 
-      savedRecords.push({
-        id,
-        period_id: periodId,
-        month_year: monthYear,
-        employee_id: rec.employeeId,
-        employee_code: rec.employeeCode,
-        employee_name: rec.employeeName,
-        department: rec.department,
-        payable_duty_days: payableDutyDays,
-        overtime_hours: rec.overtimeHours || 0,
-        status: 'FINALIZED',
-        finalized_by: finalizedBy,
-        finalized_at: now,
-        lock_hash: lockHash,
-      });
-    }
+        const lockHash = statutoryEngineService.generateLockHash(`att-${periodId}`, monthYear, [rec]);
+        await tx.execute(sql`
+          INSERT INTO hr_attendance_finalizations (
+            id, period_id, month_year, employee_id, employee_code, employee_name, department, wage_type, daily_wage_rate, hourly_wage_rate,
+            total_days_in_month, present_days, half_days, paid_leave_days, unpaid_leave_days, weekly_offs, holidays, payable_duty_days, absent_days,
+            overtime_hours, total_duty_hours, status, finalized_by, finalized_at, lock_hash, remarks, created_at, updated_at
+          ) VALUES (
+            ${id}, ${periodId}, ${monthYear}, ${employeeId}, ${rec.employeeCode}, ${rec.employeeName}, ${rec.department || null}, ${rec.wageType || 'MONTHLY'},
+            ${Number(rec.dailyWageRate || 0)}, ${Number(rec.hourlyWageRate || 0)}, ${Number(rec.totalDaysInMonth || 0)}, ${Number(rec.presentDays || 0)},
+            ${Number(rec.halfDays || 0)}, ${Number(rec.paidLeaveDays || 0)}, ${Number(rec.unpaidLeaveDays || 0)}, ${Number(rec.weeklyOffs || 0)}, ${Number(rec.holidays || 0)},
+            ${payableDutyDays}, ${Number(rec.absentDays || 0)}, ${overtimeHours}, ${totalDutyHours}, 'FINALIZED', ${finalizedBy}, ${now}, ${lockHash},
+            ${String(rec.remarks || data.remarks || 'Finalized attendance locked for payroll')}, ${now}, ${now}
+          ) ON CONFLICT (id) DO UPDATE SET
+            present_days = EXCLUDED.present_days, half_days = EXCLUDED.half_days, paid_leave_days = EXCLUDED.paid_leave_days,
+            unpaid_leave_days = EXCLUDED.unpaid_leave_days, weekly_offs = EXCLUDED.weekly_offs, holidays = EXCLUDED.holidays,
+            payable_duty_days = EXCLUDED.payable_duty_days, absent_days = EXCLUDED.absent_days, overtime_hours = EXCLUDED.overtime_hours,
+            total_duty_hours = EXCLUDED.total_duty_hours, status = 'FINALIZED', finalized_by = EXCLUDED.finalized_by, finalized_at = EXCLUDED.finalized_at,
+            lock_hash = EXCLUDED.lock_hash, remarks = EXCLUDED.remarks, updated_at = EXCLUDED.updated_at
+        `);
 
-    await this.recordAuditLog({
-      actionType: 'ATTENDANCE_FINALIZED_AND_LOCKED',
-      entityType: 'ATTENDANCE_PERIOD',
-      entityId: periodId,
-      referenceNumber: `ATT-FIN-${monthYear}`,
-      performedBy: finalizedBy,
-      detailsJson: JSON.stringify({ monthYear, employeeCount: savedRecords.length, status: 'FINALIZED' }),
+        savedRecords.push({
+          id, period_id: periodId, month_year: monthYear, employee_id: employeeId, employee_code: rec.employeeCode, employee_name: rec.employeeName,
+          department: rec.department, wage_type: rec.wageType || 'MONTHLY', daily_wage_rate: Number(rec.dailyWageRate || 0), hourly_wage_rate: Number(rec.hourlyWageRate || 0),
+          total_days_in_month: Number(rec.totalDaysInMonth || 0), present_days: Number(rec.presentDays || 0), half_days: Number(rec.halfDays || 0),
+          paid_leave_days: Number(rec.paidLeaveDays || 0), unpaid_leave_days: Number(rec.unpaidLeaveDays || 0), weekly_offs: Number(rec.weeklyOffs || 0),
+          holidays: Number(rec.holidays || 0), payable_duty_days: payableDutyDays, absent_days: Number(rec.absentDays || 0), overtime_hours: overtimeHours,
+          total_duty_hours: totalDutyHours, status: 'FINALIZED', finalized_by: finalizedBy, finalized_at: now, lock_hash: lockHash, remarks: rec.remarks || data.remarks || '',
+        });
+      }
+
+      await this.recordAuditLog({
+        actionType: 'ATTENDANCE_FINALIZED_AND_LOCKED',
+        entityType: 'ATTENDANCE_PERIOD',
+        entityId: periodId,
+        referenceNumber: `ATT-FIN-${monthYear}`,
+        performedBy: finalizedBy,
+        detailsJson: JSON.stringify({ monthYear, employeeCount: savedRecords.length, source: isDemoSeedAllowed() && Array.isArray(data.records) && data.records.length ? 'DEMO_SNAPSHOT' : 'SERVER_VERIFIED_ATTENDANCE', status: 'FINALIZED' }),
+      }, tx);
     });
 
     return savedRecords;
   }
-
   public async unlockAttendanceFinalization(periodId: string, actor: { userId: string; userName: string }, reason: string): Promise<any> {
     await this.ensureHrmsTablesExist();
     const now = new Date().toISOString();

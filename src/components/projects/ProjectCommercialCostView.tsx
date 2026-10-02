@@ -126,7 +126,7 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
   const fetchCommercialData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('sitesync_access_token');
+      const token = getAuthToken();
       const res = await fetch(`/api/projects/${projectId}/commercial-control`, {
         headers: { Authorization: `Bearer ${token}` },
       });

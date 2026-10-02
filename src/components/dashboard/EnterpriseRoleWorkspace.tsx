@@ -435,77 +435,90 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 4: SEGMENTED WORKSPACE ROLE SELECTOR                             */}
+      {/* SECTION 4: WORKSPACE CONTEXT SELECTOR                                     */}
       {/* ========================================================================= */}
-      <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-          <div className="flex items-center space-x-2">
-            <LayoutDashboard className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
-              Role Workspaces (13 Role Modules)
-            </span>
-          </div>
+      <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+        {(isDemo || activeRole === 'ADMIN') ? (
+          <>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-3">
+              <div className="flex items-center space-x-2">
+                <LayoutDashboard className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Workspace Context
+                </span>
+              </div>
 
-          {/* Category Segment Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
-            {[
-              { id: 'ALL', label: 'All Roles (13)' },
-              { id: 'EXECUTIVE', label: 'Executive' },
-              { id: 'MANAGEMENT', label: 'Management' },
-              { id: 'ENGINEERING', label: 'Engineering' },
-              { id: 'PROJECTS', label: 'Projects' },
-              { id: 'OPERATIONS', label: 'Operations' },
-              { id: 'ADMIN', label: 'Admin' },
-            ].map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition cursor-pointer ${
-                  selectedCategory === cat.id
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        </div>
+              <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+                {[
+                  { id: 'ALL', label: 'All' },
+                  { id: 'EXECUTIVE', label: 'Executive' },
+                  { id: 'MANAGEMENT', label: 'Management' },
+                  { id: 'ENGINEERING', label: 'Engineering' },
+                  { id: 'PROJECTS', label: 'Projects' },
+                  { id: 'OPERATIONS', label: 'Operations' },
+                  { id: 'ADMIN', label: 'Admin' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold whitespace-nowrap transition cursor-pointer ${
+                      selectedCategory === cat.id
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* Role Workspace Grid Buttons */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 pt-0.5">
-          {allWorkspaceList
-            .filter((ws) => {
-              if (selectedCategory === 'ALL') return true;
-              if (selectedCategory === 'EXECUTIVE') return ['EXECUTIVE', 'MANAGING_DIRECTOR'].includes(ws.id);
-              if (selectedCategory === 'MANAGEMENT') return ['GENERAL_MANAGER', 'PROCUREMENT', 'HR'].includes(ws.id);
-              if (selectedCategory === 'ENGINEERING') return ['PROJECT_ENGINEER', 'QA_QC', 'SAFETY'].includes(ws.id);
-              if (selectedCategory === 'PROJECTS') return ['PROJECT_MANAGER'].includes(ws.id);
-              if (selectedCategory === 'OPERATIONS') return ['SITE_ENGINEER', 'STORE_OPERATIONS', 'FLEET'].includes(ws.id);
-              if (selectedCategory === 'ADMIN') return ['ADMINISTRATION'].includes(ws.id);
-              return true;
-            })
-            .map((ws) => {
-              const isSelected = selectedWorkspaceId === ws.id;
-              return (
-                <button
-                  key={ws.id}
-                  onClick={() => {
-                    setSelectedWorkspaceId(ws.id);
-                    setActionAlert(null);
-                  }}
-                  className={`flex items-center space-x-2 p-2 rounded-xl text-xs font-bold text-left transition-all duration-150 cursor-pointer ${
-                    isSelected
-                      ? 'bg-slate-900 dark:bg-indigo-600 text-white shadow-md ring-2 ring-indigo-500'
-                      : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  <span className="shrink-0 p-1 rounded-lg bg-white/10">{ICON_MAP[ws.icon] || <Building2 className="w-3.5 h-3.5" />}</span>
-                  <span className="truncate text-[11px] font-semibold">{ws.label}</span>
-                </button>
-              );
-            })}
-        </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              {allWorkspaceList
+                .filter((ws) => {
+                  if (selectedCategory === 'ALL') return true;
+                  if (selectedCategory === 'EXECUTIVE') return ['EXECUTIVE', 'MANAGING_DIRECTOR'].includes(ws.id);
+                  if (selectedCategory === 'MANAGEMENT') return ['GENERAL_MANAGER', 'PROCUREMENT', 'HR'].includes(ws.id);
+                  if (selectedCategory === 'ENGINEERING') return ['PROJECT_ENGINEER', 'QA_QC', 'SAFETY'].includes(ws.id);
+                  if (selectedCategory === 'PROJECTS') return ['PROJECT_MANAGER'].includes(ws.id);
+                  if (selectedCategory === 'OPERATIONS') return ['SITE_ENGINEER', 'STORE_OPERATIONS', 'FLEET'].includes(ws.id);
+                  if (selectedCategory === 'ADMIN') return ['ADMINISTRATION'].includes(ws.id);
+                  return true;
+                })
+                .map((ws) => {
+                  const isSelected = selectedWorkspaceId === ws.id;
+                  return (
+                    <button
+                      key={ws.id}
+                      onClick={() => {
+                        setSelectedWorkspaceId(ws.id);
+                        setActionAlert(null);
+                      }}
+                      className={`flex items-center space-x-2 p-2 rounded-xl text-xs font-bold text-left transition-all duration-150 cursor-pointer ${
+                        isSelected
+                          ? 'bg-slate-900 dark:bg-indigo-600 text-white shadow-md ring-2 ring-indigo-500'
+                          : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      <span className="shrink-0 p-1 rounded-lg bg-white/10">{ICON_MAP[ws.icon] || <Building2 className="w-3.5 h-3.5" />}</span>
+                      <span className="truncate text-[11px] font-semibold">{ws.label}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider font-black text-slate-400">Authorized Workspace</div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900 dark:text-white">{baseWorkspace.name}</div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{baseWorkspace.description}</div>
+            </div>
+            <div className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+              {activeRole || 'Assigned Role'}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Action Feedback Banner */}

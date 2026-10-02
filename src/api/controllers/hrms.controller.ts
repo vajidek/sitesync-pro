@@ -187,11 +187,12 @@ export class HrmsController {
       const { status, remarks } = req.body;
       const user = (req as any).user;
       const approver = String(user?.name || user?.email || '').trim();
-      if (!approver) {
+      const approverId = String(user?.id || '').trim();
+      if (!approver || !approverId) {
         res.status(401).json({ success: false, message: 'Authenticated leave reviewer identity is required.' });
         return;
       }
-      const updated = await this.service.reviewLeave(id, status, remarks, approver);
+      const updated = await this.service.reviewLeave(id, status, remarks, approver, approverId);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });

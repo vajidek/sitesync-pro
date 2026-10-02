@@ -30,6 +30,7 @@ import {
   hrLabourAllocations,
   materialReturns,
   materialReturnItems,
+  stockTransactions,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 import { employeeExpenseRepository } from './employee_expense.repository';
@@ -1474,11 +1475,46 @@ export class ProjectControlsRepository {
       0
     );
 
+    // ERP-TRACE: COST-STOCK-P1 — central stock ledger carries the canonical material allocation.
+    const stockLedgerRows = await db.select().from(stockTransactions)
+      .where(eq(stockTransactions.projectId, resolvedProjectId));
+
     const materialCostByWbs = new Map<string, number>();
-    for (const item of issueItems as any[]) {
-      if (!item.wbsId) continue;
-      const amount = Number(item.issuedQty || 0) * Number(item.unitPrice || 0);
-      materialCostByWbs.set(item.wbsId, (materialCostByWbs.get(item.wbsId) || 0) + amount);
+    const materialCostByBoq = new Map<string, number>();
+    const materialCostByCostCode = new Map<string, number>();
+    let unallocatedStockMaterialActual = 0;
+
+    for (const row of stockLedgerRows as any[]) {
+      const transactionType = String(row.transactionType || '').toUpperCase();
+      if (!['GOODS_ISSUE', 'RETURN'].includes(transactionType)) continue;
+
+      const amount = Number(row.totalValue || 0);
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      const signedAmount = transactionType === 'RETURN' ? -amount : amount;
+
+      if (row.wbsId) {
+        materialCostByWbs.set(row.wbsId, (materialCostByWbs.get(row.wbsId) || 0) + signedAmount);
+      } else if (row.boqItemId) {
+        materialCostByBoq.set(row.boqItemId, (materialCostByBoq.get(row.boqItemId) || 0) + signedAmount);
+      } else if (row.costCodeId) {
+        materialCostByCostCode.set(row.costCodeId, (materialCostByCostCode.get(row.costCodeId) || 0) + signedAmount);
+      } else {
+        unallocatedStockMaterialActual += signedAmount;
+      }
+    }
+
+    // Historical MIV rows may contain allocation context only on material_issue_items.
+    // Use that data only when the central stock ledger has no allocation records.
+    if (materialCostByWbs.size === 0 && materialCostByBoq.size === 0 && materialCostByCostCode.size === 0) {
+      for (const item of issueItems as any[]) {
+        const amount = Number(item.issuedQty || 0) * Number(item.unitPrice || 0);
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+
+        if (item.wbsId) materialCostByWbs.set(item.wbsId, (materialCostByWbs.get(item.wbsId) || 0) + amount);
+        else if (item.boqItemId) materialCostByBoq.set(item.boqItemId, (materialCostByBoq.get(item.boqItemId) || 0) + amount);
+        else if (item.costCodeId) materialCostByCostCode.set(item.costCodeId, (materialCostByCostCode.get(item.costCodeId) || 0) + amount);
+        else unallocatedStockMaterialActual += amount;
+      }
     }
 
     const labourCostByWbs = new Map<string, number>();
@@ -1681,7 +1717,9 @@ export class ProjectControlsRepository {
 
       const plannedActivityCost = wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.plannedCost || 0), 0);
       const actualActivityCost = wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.actualCost || 0), 0);
-      const actualMaterialCost = materialCostByWbs.get(wbs.id) || 0;
+      const actualMaterialCost =
+        Number(materialCostByWbs.get(wbs.id) || 0) +
+        wbsBoq.reduce((sum: number, item: any) => sum + Number(materialCostByBoq.get(item.id) || 0), 0);
       const actualLaborCost = labourCostByWbs.get(wbs.id) || 0;
       const actualAllocatedCost = actualActivityCost + actualMaterialCost + actualLaborCost;
       const weightedProgress = plannedActivityCost > 0
@@ -1763,6 +1801,12 @@ export class ProjectControlsRepository {
         totalPlannedValue,
         totalWbsAllocatedActualCost: totalActualWbs,
         unallocatedProjectActualCost: Math.max(0, projectActualCost - totalActualWbs),
+        unallocatedStockMaterialActual,
+        materialAllocation: {
+          wbs: [...materialCostByWbs.entries()].map(([wbsId, amount]) => ({ wbsId, amount })),
+          boqItem: [...materialCostByBoq.entries()].map(([boqItemId, amount]) => ({ boqItemId, amount })),
+          costCode: [...materialCostByCostCode.entries()].map(([costCodeId, amount]) => ({ costCodeId, amount })),
+        },
         totalCostVariance: totalEarnedValue - projectActualCost,
         totalEAC,
         totalCTC,

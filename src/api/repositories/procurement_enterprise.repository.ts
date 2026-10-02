@@ -13,6 +13,7 @@ import {
   phase69VendorQuotations,
   phase69QuoteComparison,
   phase69PurchaseRequisitions,
+  phase69PurchaseRequisitionItems,
   phase69PurchaseOrders,
   phase69PoItems,
   phase69Contracts,
@@ -33,6 +34,8 @@ import {
   procurementPurchaseOrdersTable,
   procurementGrnsTable,
   procurementRequisitionsTable,
+  boqItems,
+  projectWbs,
 } from '../../db/schema';
 import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
 import { v4 as uuidv4 } from 'uuid';
@@ -758,50 +761,103 @@ export class ProcurementEnterpriseRepository {
   }
 
   // --- Purchase Requisitions ---
+  private async resolveBoqProcurementItem(
+    projectId: string,
+    item: any
+  ): Promise<{
+    boqItemId: string;
+    wbsId: string;
+    boqItemCode: string;
+    wbsCode: string;
+    materialCode: string;
+    materialName: string;
+    description: string;
+    specification: string | null;
+    quantity: number;
+    uom: string;
+    estimatedUnitPrice: number;
+    estimatedTotalPrice: number;
+    requiredDate: string | null;
+    remarks: string | null;
+  }> {
+    const boqItemId = String(item?.boqItemId || '').trim();
+    if (!boqItemId) throw new Error('Every procurement line must be linked to a BOQ item.');
+
+    const [boq] = await db
+      .select()
+      .from(boqItems)
+      .where(and(eq(boqItems.id, boqItemId), eq(boqItems.projectId, projectId), eq(boqItems.isActive, true)))
+      .limit(1);
+
+    if (!boq) throw new Error(`BOQ item ${boqItemId} was not found in project ${projectId}.`);
+
+    const [wbs] = await db
+      .select()
+      .from(projectWbs)
+      .where(and(eq(projectWbs.id, boq.wbsId), eq(projectWbs.projectId, projectId), eq(projectWbs.isActive, true)))
+      .limit(1);
+
+    if (!wbs) throw new Error(`WBS context for BOQ item ${boq.itemCode} could not be resolved.`);
+
+    const quantity = Number(item?.quantity);
+    const availableQty = Number(boq.balanceQty ?? boq.revisedQty ?? boq.quantity ?? 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error(`Requested quantity for BOQ item ${boq.itemCode} must be greater than zero.`);
+    }
+    if (availableQty >= 0 && quantity > availableQty && !boq.isVariation) {
+      throw new Error(`Requested quantity ${quantity} for BOQ item ${boq.itemCode} exceeds the available BOQ balance ${availableQty}.`);
+    }
+
+    const estimatedUnitPrice = item?.estimatedUnitPrice == null ? Number(boq.rate || 0) : Number(item.estimatedUnitPrice);
+    if (!Number.isFinite(estimatedUnitPrice) || estimatedUnitPrice < 0) {
+      throw new Error(`Estimated rate for BOQ item ${boq.itemCode} is invalid.`);
+    }
+
+    const materialCode = String(item?.materialCode || boq.itemCode).trim();
+    const description = String(item?.description || boq.description).trim();
+    const materialName = String(item?.materialName || boq.description).trim();
+    const uom = String(item?.uom || boq.unit).trim();
+
+    if (!materialCode || !description || !materialName || !uom) {
+      throw new Error(`Procurement line for BOQ item ${boq.itemCode} is missing required item details.`);
+    }
+
+    return {
+      boqItemId: boq.id,
+      wbsId: wbs.id,
+      boqItemCode: boq.itemCode,
+      wbsCode: wbs.code,
+      materialCode,
+      materialName,
+      description,
+      specification: item?.specification || null,
+      quantity,
+      uom,
+      estimatedUnitPrice,
+      estimatedTotalPrice: Math.round(quantity * estimatedUnitPrice * 100) / 100,
+      requiredDate: item?.requiredDate || null,
+      remarks: item?.remarks || null,
+    };
+  }
+
   public async getPurchaseRequisitions(): Promise<any[]> {
     await this.ensureProcurementTablesExist();
-    return db.select().from(phase69PurchaseRequisitions).where(eq(phase69PurchaseRequisitions.isDeleted, false)).orderBy(desc(phase69PurchaseRequisitions.createdAt));
-  }
+    const prs = await db
+      .select()
+      .from(phase69PurchaseRequisitions)
+      .where(eq(phase69PurchaseRequisitions.isDeleted, false))
+      .orderBy(desc(phase69PurchaseRequisitions.createdAt));
 
-  public async createPurchaseRequisition(data: any, createdBy: string = 'Project Engineer'): Promise<any> {
-    await this.ensureProcurementTablesExist();
-    const now = new Date().toISOString();
-    const id = uuidv4();
-    const prNumber = data.prNumber || (await numberingService.generatePurchaseRequisitionNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
-      date: data.requiredDate || now,
+    const items = await db
+      .select()
+      .from(phase69PurchaseRequisitionItems)
+      .where(eq(phase69PurchaseRequisitionItems.isDeleted, false));
+
+    return prs.map((pr) => ({
+      ...pr,
+      items: items.filter((item) => item.prId === pr.id),
     }));
-
-    const newPr = {
-      id,
-      prNumber,
-      title: data.title,
-      projectId: data.projectId || 'PRJ-WATER-001',
-      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
-      department: data.department || 'Civil & Mechanical Construction',
-      requestedBy: data.requestedBy || createdBy,
-      requiredDate: data.requiredDate,
-      priority: data.priority || 'MEDIUM',
-      estimatedCostAed: data.estimatedCostAed || 0,
-      budgetCode: data.budgetCode || 'WBS-PIPE-MAIN-04',
-      budgetAvailableAed: data.budgetAvailableAed || 5000000,
-      isBudgetApproved: data.isBudgetApproved ?? true,
-      stockCheckCompleted: data.stockCheckCompleted ?? true,
-      status: 'APPROVED',
-      workflowStep: 'PROCUREMENT_SOURCING',
-      notes: data.notes || '',
-      createdAt: now,
-      updatedAt: now,
-      createdBy,
-      updatedBy: createdBy,
-      isDeleted: false,
-    };
-
-    await db.insert(phase69PurchaseRequisitions).values(newPr);
-    return newPr;
   }
-
   // --- Purchase Orders ---
   public async getPurchaseOrders(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

@@ -297,23 +297,31 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
   const [actionAlert, setActionAlert] = useState<{ type: 'success' | 'info'; msg: string } | null>(null);
   const [liveMetrics, setLiveMetrics] = useState<any>(null);
   const [liveProjects, setLiveProjects] = useState<any[]>([]);
+  const [liveMetricsStatus, setLiveMetricsStatus] = useState<'LOADING' | 'LIVE' | 'UNAVAILABLE'>('LOADING');
   const { isDemo } = useShell();
 
   useEffect(() => {
     const token = getActiveStoredToken();
+    setLiveMetricsStatus('LOADING');
     fetch(`/api/dashboards/workspace/${selectedWorkspaceId}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then((res) => safeJson(res))
       .then((data) => {
         if (data?.success && data.data) {
-          setLiveMetrics(data.data.summaryMetrics);
-          if (Array.isArray(data.data.projects)) {
-            setLiveProjects(data.data.projects);
-          }
+          setLiveMetrics(data.data.summaryMetrics || {});
+          if (Array.isArray(data.data.projects)) setLiveProjects(data.data.projects);
+          else setLiveProjects([]);
+          setLiveMetricsStatus('LIVE');
+        } else {
+          setLiveMetricsStatus('UNAVAILABLE');
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setLiveMetricsStatus('UNAVAILABLE');
+        setLiveMetrics(null);
+        setLiveProjects([]);
+      });
   }, [selectedWorkspaceId]);
 
   const baseWorkspace: WorkspaceConfig = getWorkspaceConfig(selectedWorkspaceId, user, isDemo) || WORKSPACE_CONFIGS.EXECUTIVE;
@@ -382,7 +390,7 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                SiteSync Infrastructure & Engineering Ltd.
+                SiteSync Pro — Construction & Infrastructure Project Management Platform
               </span>
               <span className="text-slate-400">•</span>
               <span className="text-slate-300 font-medium flex items-center gap-1 text-[11px]">
@@ -390,9 +398,17 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
                 {todayFormatted}
               </span>
               <span className="text-slate-400">•</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live Operational Mode
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                liveMetricsStatus === 'LIVE'
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                  : liveMetricsStatus === 'LOADING'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  : 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  liveMetricsStatus === 'LIVE' ? 'bg-emerald-400 animate-pulse' : liveMetricsStatus === 'LOADING' ? 'bg-amber-400' : 'bg-slate-400'
+                }`} />
+                {liveMetricsStatus === 'LIVE' ? 'Live Data Connected' : liveMetricsStatus === 'LOADING' ? 'Syncing Workspace Data' : 'Live Data Unavailable'}
               </span>
             </div>
             <h1 className="text-xl md:text-2xl font-black tracking-tight text-white flex items-center gap-2 pt-0.5">
@@ -566,7 +582,7 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
               <div className="flex items-center space-x-2 text-xs">
                 <span className="text-slate-400">System Mode:</span>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  REAL-TIME SYNC ACTIVE
+                  {liveMetricsStatus === 'LIVE' ? 'LIVE DATA CONNECTED' : liveMetricsStatus === 'LOADING' ? 'SYNCING WORKSPACE DATA' : 'LIVE DATA UNAVAILABLE'}
                 </span>
               </div>
             </div>

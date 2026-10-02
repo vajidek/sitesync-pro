@@ -1064,36 +1064,33 @@ export class InventoryRepository {
   async createWarehouse(data: Partial<DbWarehouse>): Promise<DbWarehouse> {
     await ensureInventorySeeded();
     const now = new Date().toISOString();
-    let managerName = data.managerName || 'Store Keeper';
+    const name = String(data.name || '').trim();
+    const code = String(data.code || '').trim();
+    const type = String(data.type || '').trim();
+    const location = String(data.location || '').trim();
+    if (!name || !code || !type || !location) throw new Error('Warehouse code, name, type and location are required.');
+
+    let managerName = data.managerName?.trim() || undefined;
     if (data.managerId) {
-      const userRows = await db.select().from(users).where(eq(users.id, data.managerId));
-      if (userRows[0]) {
-        managerName = userRows[0].name;
-      } else {
-        const empRows = await db.select().from(employees).where(eq(employees.id, data.managerId));
+      const userRows = await db.select().from(users).where(eq(users.id, data.managerId)).limit(1);
+      if (userRows[0]) managerName = userRows[0].name;
+      if (!managerName) {
+        const empRows = await db.select().from(employees).where(eq(employees.id, data.managerId)).limit(1);
         if (empRows[0]) managerName = empRows[0].name;
       }
+      if (!managerName) throw new Error('Selected warehouse manager was not found.');
     }
 
-    const newWh: DbWarehouse = {
-      id: genId('wh'),
-      code: data.code || `WH-${Math.floor(100 + Math.random() * 900)}`,
-      name: data.name || 'New Warehouse Yard',
-      type: data.type || 'PROJECT',
-      location: data.location || 'Site Yard Compound',
-      siteId: data.siteId,
-      managerId: data.managerId,
-      managerName,
-      capacity: data.capacity || 10000,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const duplicate = await db.select({ id: warehouses.id }).from(warehouses).where(eq(warehouses.code, code)).limit(1);
+    if (duplicate.length) throw new Error('Warehouse code already exists: ' + code);
 
+    const newWh: DbWarehouse = {
+      id: genId('wh'), code, name, type, location, siteId: data.siteId, managerId: data.managerId, managerName, capacity: data.capacity,
+      isActive: true, createdAt: now, updatedAt: now,
+    };
     await db.insert(warehouses).values(newWh);
     return newWh;
   }
-
   async updateWarehouse(id: string, data: Partial<DbWarehouse>): Promise<DbWarehouse | null> {
     await ensureInventorySeeded();
     const existing = await this.getWarehouseById(id);
@@ -1233,7 +1230,7 @@ export class InventoryRepository {
     const transactionType = String(data.transactionType || '').trim().toUpperCase();
     const qty = Number(data.quantity);
 
-    const allowedTypes = ['GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER', 'RETURN', 'ADJUSTMENT', 'OPENING_STOCK', 'PHYSICAL_VERIFICATION', 'DAMAGE', 'SCRAP'];
+    const allowedTypes = ['GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER', 'RETURN', 'OPENING_STOCK', 'DAMAGE', 'SCRAP'];
     if (!materialId || !warehouseId || !allowedTypes.includes(transactionType)) {
       throw new Error('Material, warehouse and a valid stock transaction type are required.');
     }
@@ -1349,7 +1346,7 @@ export class InventoryRepository {
     } else {
       if (stockEntry) {
         await client.update(stocks).set({ quantity: sql`${stocks.quantity} + ${qty}`, updatedAt: now }).where(eq(stocks.id, stockEntry.id));
-      } else {
+      } else if (['GOODS_RECEIPT', 'RETURN', 'OPENING_STOCK'].includes(transactionType)) {
         await client.insert(stocks).values({ id: genId('stk'), warehouseId: wh.id, materialId: mat.id, quantity: qty, reservedQuantity: 0, batchNumber: null, rackLocation: null, updatedAt: now });
       }
       const [materialUpdated] = await client.update(materials).set({ currentStock: sql`${materials.currentStock} + ${qty}`, updatedAt: now }).where(eq(materials.id, mat.id)).returning();

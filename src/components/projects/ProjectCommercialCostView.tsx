@@ -71,7 +71,7 @@ interface CommercialData {
     actualEquipmentFuelCost: number;
     actualCertifiedRaBillCost: number;
     actualImprestExpenseCost: number;
-    actualLaborCost: number | null;
+    actualLaborCost: number;
   };
   wbsBreakdown: Array<{
     id: string;
@@ -89,7 +89,7 @@ interface CommercialData {
   }>;
   categoryBreakdown: Array<{
     category: string;
-    budget: number;
+    budget: number | null;
     committed: number;
     actual: number;
     color?: string;
@@ -99,7 +99,7 @@ interface CommercialData {
     type: 'COMMITTED' | 'ACTUAL';
     category: string;
     categoryLabel: string;
-    sourceDocType: 'PURCHASE_ORDER' | 'WORK_ORDER' | 'MATERIAL_ISSUE' | 'FUEL_LOG' | 'RA_BILL' | 'CASH_VOUCHER' | 'SUBCONTRACT_BILL' | 'EMPLOYEE_EXPENSE' | 'CLIENT_IPC';
+    sourceDocType: 'PURCHASE_ORDER' | 'WORK_ORDER' | 'MATERIAL_ISSUE' | 'FUEL_LOG' | 'RA_BILL' | 'CASH_VOUCHER' | 'SUBCONTRACT_BILL' | 'EMPLOYEE_EXPENSE' | 'CLIENT_IPC' | 'LABOUR_ALLOCATION';
     sourceDocNumber: string;
     sourceDocId: string;
     date: string;

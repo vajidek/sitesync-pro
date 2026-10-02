@@ -27,6 +27,7 @@ import {
   fleetFuelLogs,
   projects,
   boqItems,
+  hrLabourAllocations,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 import { employeeExpenseRepository } from './employee_expense.repository';
@@ -1449,6 +1450,17 @@ export class ProjectControlsRepository {
     const fuelRows = await db.select().from(fleetFuelLogs).where(eq(fleetFuelLogs.projectId, resolvedProjectId));
     const realFleetFuelCost = fuelRows.reduce((sum, row: any) => sum + Number(row.totalCost || 0), 0);
 
+    // Labour cost is allocated only from persisted project-linked labour allocation records.
+    // Payroll runs without a project allocation are intentionally excluded rather than guessed.
+    const labourRows = await db
+      .select()
+      .from(hrLabourAllocations)
+      .where(eq(hrLabourAllocations.projectId, resolvedProjectId));
+    const realLaborCost = labourRows.reduce(
+      (sum, row: any) => sum + Number(row.totalLaborCostUsd || 0),
+      0
+    );
+
     const ipcs = await commercialRepository.getClientIPCs(resolvedProjectId);
     const realBilledRevenue = ipcs.filter((ipc: any) => ['CERTIFIED', 'PAID'].includes(ipc.status)).reduce((sum: number, ipc: any) => sum + Number(ipc.grossWorkDoneCertified || 0), 0);
     const executedBoqValue = (boqRows as any[]).reduce((sum, item) => sum + Number(item.executedQty || 0) * Number(item.rate || 0), 0);
@@ -1459,7 +1471,7 @@ export class ProjectControlsRepository {
 
     // Project-level actual cost from real operational postings. This is intentionally kept
     // separate from WBS actuals when source records do not carry a WBS ID, avoiding false allocation.
-    const projectActualCost = realMaterialsCost + realSubcontractActual + realEmployeeExpenses + realPettyCashExpenses + realFleetFuelCost;
+    const projectActualCost = realMaterialsCost + realSubcontractActual + realEmployeeExpenses + realPettyCashExpenses + realFleetFuelCost + realLaborCost;
     const projectCommittedCost = realPOCommitments + realSubcontractCommitments;
 
     // Build a real source-document ledger for management drill-down.
@@ -1534,6 +1546,32 @@ export class ProjectControlsRepository {
         sourceDocType: 'CASH_VOUCHER', sourceDocNumber: voucher.voucherNumber || voucher.id, sourceDocId: voucher.id, date: voucher.voucherDate || voucher.createdAt?.slice(0, 10) || '',
         description: voucher.description || 'Project petty cash', vendorOrPayee: voucher.payeeName || voucher.requestedByName || 'Project Cash', amount, originalAmount: amount,
         currency: voucher.currency || project.currency || '', originalCurrency: voucher.currency || project.currency || '', status: voucher.status || '', authorizedBy: voucher.approvedByName || voucher.auditedByName || 'SYSTEM_SOURCE',
+      });
+    }
+
+
+    for (const labour of labourRows as any[]) {
+      const amount = Number(labour.totalLaborCostUsd || 0);
+      if (amount <= 0) continue;
+      transactions.push({
+        id: `TX-LAB-${labour.id}`,
+        type: 'ACTUAL',
+        category: 'LABOUR',
+        categoryLabel: 'Site Labour',
+        sourceDocType: 'LABOUR_ALLOCATION',
+        sourceDocNumber: labour.id,
+        sourceDocId: labour.id,
+        date: labour.date || labour.createdAt?.slice(0, 10) || '',
+        description: labour.contractorName
+          ? `Labour allocation - ${labour.contractorName}`
+          : 'Project labour allocation',
+        vendorOrPayee: labour.contractorName || labour.supervisorIncharge || 'Labour',
+        amount,
+        originalAmount: amount,
+        currency: project.currency || '',
+        originalCurrency: project.currency || '',
+        status: 'ALLOCATED',
+        authorizedBy: labour.supervisorIncharge || 'SYSTEM_SOURCE',
       });
     }
 
@@ -1677,7 +1715,7 @@ export class ProjectControlsRepository {
         burnRatePerElapsedDay: Number(burnRate.toFixed(2)),
         realTimeMargin: realBilledRevenue - projectActualCost,
         realTimeMarginPercent: realBilledRevenue > 0 ? Number((((realBilledRevenue - projectActualCost) / realBilledRevenue) * 100).toFixed(1)) : 0,
-        costBreakdown: { realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realBilledRevenue }, 
+        costBreakdown: { realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realLaborCost, realBilledRevenue }, 
         transactionCount: transactions.length,
       },
       wbsBreakdown: items,

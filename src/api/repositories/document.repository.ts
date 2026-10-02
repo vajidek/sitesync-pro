@@ -253,28 +253,41 @@ export async function createDocument(data: {
   await ensureDocumentTablesExist();
   const createdBy = String(data.createdBy || '').trim();
   const fileUrl = String(data.fileUrl || '').trim();
+  const title = String(data.title || '').trim();
+  const folderId = String(data.folderId || '').trim();
+
   if (!createdBy) throw new Error('Authenticated document creator identity is required.');
+  if (!title) throw new Error('Document title is required.');
+  if (!folderId) throw new Error('Document folder is required.');
   if (!fileUrl) throw new Error('A real file reference is required to create an EDMS document.');
+
+  const folder = await getFolderById(folderId);
+  if (!folder) throw new Error('Document folder not found.');
+  if (data.projectId && folder.projectId && data.projectId !== folder.projectId) {
+    throw new Error('Document project context does not match its folder.');
+  }
+
+  const fileSizeBytes = Number(data.fileSizeBytes || 0);
+  if (!Number.isFinite(fileSizeBytes) || fileSizeBytes < 0) throw new Error('Document file size must be a valid non-negative number.');
+
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-
-  // Generate document number e.g. DOC-2026-XXXXX
   const documentNumber = `DOC-${new Date().getFullYear()}-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
 
   const docRecord = {
     id,
     documentNumber,
-    title: data.title,
+    title,
     description: data.description || null,
-    folderId: data.folderId,
+    folderId,
     categoryId: data.categoryId || null,
     fileType: data.fileType || 'PDF',
     mimeType: data.mimeType || 'application/pdf',
-    fileSizeBytes: Number(data.fileSizeBytes || 0),
+    fileSizeBytes,
     fileUrl,
     currentVersion: 'v1.0',
     revisionNumber: 1,
-    projectId: data.projectId || null,
+    projectId: data.projectId || folder.projectId || null,
     vendorId: data.vendorId || null,
     contractId: data.contractId || null,
     poId: data.poId || null,
@@ -297,68 +310,84 @@ export async function createDocument(data: {
     isDeleted: false,
   };
 
-  await db.insert(phase61DocumentFiles).values(docRecord);
+  return await db.transaction(async (tx) => {
+    const duplicate = await tx.select({ id: phase61DocumentFiles.id })
+      .from(phase61DocumentFiles)
+      .where(and(eq(phase61DocumentFiles.documentNumber, documentNumber), eq(phase61DocumentFiles.isDeleted, false)))
+      .limit(1);
+    if (duplicate.length) throw new Error(`Document number ${documentNumber} already exists.`);
 
-  // Insert Version 1.0
-  const versionId = crypto.randomUUID();
-  await db.insert(phase61DocumentVersions).values({
-    id: versionId,
-    documentId: id,
-    versionName: 'v1.0',
-    revisionNumber: 1,
-    fileUrl: docRecord.fileUrl,
-    fileSizeBytes: docRecord.fileSizeBytes,
-    changeSummary: 'Initial document submission',
-    uploadedBy: docRecord.createdBy,
-    isMajorVersion: true,
-    status: 'ACTIVE',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: docRecord.createdBy,
-    updatedBy: docRecord.createdBy,
-    isDeleted: false,
-  });
+    await tx.insert(phase61DocumentFiles).values(docRecord);
 
-  // Insert Tags if provided
-  if (data.tags && data.tags.length > 0) {
-    for (const tag of data.tags) {
-      await db.insert(phase61DocumentTags).values({
+    await tx.insert(phase61DocumentVersions).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      versionName: 'v1.0',
+      revisionNumber: 1,
+      fileUrl,
+      fileSizeBytes,
+      changeSummary: 'Initial document submission',
+      uploadedBy: createdBy,
+      isMajorVersion: true,
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    });
+
+    for (const tag of data.tags || []) {
+      const tagName = String(tag || '').trim();
+      if (!tagName) continue;
+      await tx.insert(phase61DocumentTags).values({
         id: crypto.randomUUID(),
         documentId: id,
-        tagName: tag,
+        tagName,
         status: 'ACTIVE',
         createdAt: now,
         updatedAt: now,
-        createdBy: docRecord.createdBy,
-        updatedBy: docRecord.createdBy,
+        createdBy,
+        updatedBy: createdBy,
         isDeleted: false,
       });
     }
-  }
 
-  // Insert Metadata if provided
-  if (data.metadata) {
-    for (const [key, value] of Object.entries(data.metadata)) {
-      await db.insert(phase61DocumentMetadata).values({
+    for (const [key, value] of Object.entries(data.metadata || {})) {
+      const metaKey = String(key || '').trim();
+      if (!metaKey) continue;
+      await tx.insert(phase61DocumentMetadata).values({
         id: crypto.randomUUID(),
         documentId: id,
-        metaKey: key,
-        metaValue: value,
+        metaKey,
+        metaValue: String(value ?? ''),
         dataType: 'STRING',
         status: 'ACTIVE',
         createdAt: now,
         updatedAt: now,
-        createdBy: docRecord.createdBy,
-        updatedBy: docRecord.createdBy,
+        createdBy,
+        updatedBy: createdBy,
         isDeleted: false,
       });
     }
-  }
 
-  // Log Audit
-  await logAudit(id, docRecord.createdBy, 'CREATE', { documentNumber, title: data.title });
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      actorName: createdBy,
+      actionExecuted: 'CREATE',
+      detailsJson: JSON.stringify({ documentNumber, title }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    });
 
-  return docRecord;
+    return docRecord;
+  });
 }
 
 export async function updateDocument(id: string, data: any) {
@@ -423,27 +452,56 @@ export async function toggleFavoriteDocument(id: string, user: string) {
 
 export async function archiveDocument(id: string, reason: string, user: string) {
   await ensureDocumentTablesExist();
+  const actor = String(user || '').trim();
+  const archiveReason = String(reason || '').trim();
+  if (!actor) throw new Error('Authenticated document archive actor identity is required.');
+  if (!archiveReason) throw new Error('Archive reason is required.');
+
+  const doc = await getDocumentById(id);
+  if (!doc) throw new Error('Document not found.');
+  if (doc.isDeleted) throw new Error('Deleted documents cannot be archived.');
+  if (doc.isArchived) throw new Error('Document is already archived.');
+
   const now = new Date().toISOString();
-  await db.update(phase61DocumentFiles)
-    .set({ isArchived: true, workflowStatus: 'ARCHIVED', updatedAt: now })
-    .where(eq(phase61DocumentFiles.id, id));
+  return await db.transaction(async (tx) => {
+    await tx.update(phase61DocumentFiles).set({
+      isArchived: true,
+      workflowStatus: 'ARCHIVED',
+      updatedAt: now,
+      updatedBy: actor,
+    }).where(eq(phase61DocumentFiles.id, id));
 
-  await db.insert(phase61DocumentArchive).values({
-    id: crypto.randomUUID(),
-    documentId: id,
-    archiveReason: reason,
-    archivedBy: user,
-    archivedAt: now,
-    status: 'ARCHIVED',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
-    isDeleted: false,
+    await tx.insert(phase61DocumentArchive).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      archiveReason,
+      archivedBy: actor,
+      archivedAt: now,
+      status: 'ARCHIVED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      isDeleted: false,
+    });
+
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      actorName: actor,
+      actionExecuted: 'ARCHIVE',
+      detailsJson: JSON.stringify({ reason: archiveReason }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      isDeleted: false,
+    });
+
+    return true;
   });
-
-  await logAudit(id, user, 'ARCHIVE', { reason });
-  return true;
 }
 
 export async function restoreDocument(id: string, user: string) {

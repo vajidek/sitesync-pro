@@ -42,10 +42,13 @@ router.get('/risk', controller.getRiskAssessments);
 router.get('/risk-assessments', controller.getRiskAssessments);
 router.post('/risk', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createRiskAssessment);
 router.post('/risk-assessments', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createRiskAssessment);
+router.put('/risk/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewRiskAssessment);
+router.put('/risk-assessments/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewRiskAssessment);
 
 // JSA (Job Safety Analysis)
 router.get('/jsa', controller.getJsaList);
 router.post('/jsa', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createJsa);
+router.put('/jsa/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewJsa);
 
 // Toolbox Talks (TBT)
 router.get('/toolbox-talks', controller.getToolboxTalks);
@@ -55,8 +58,6 @@ router.get('/permits', controller.getWorkPermits);
 router.get('/work-permits', controller.getWorkPermits);
 router.post('/permits', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createWorkPermit);
 router.post('/work-permits', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createWorkPermit);
-router.put('/permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
-router.put('/work-permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
 router.put('/permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
 router.put('/work-permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
 

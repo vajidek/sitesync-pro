@@ -63,6 +63,14 @@ export class HSEService {
     });
   }
 
+  public async reviewRiskAssessment(
+    id: string,
+    decision: 'ACTIVE' | 'REJECTED',
+    actor: { userId: string; userName: string }
+  ) {
+    return this.repo.reviewRiskAssessment(id, decision, actor);
+  }
+
   // Job Safety Analysis (JSA)
   public async getJsaList() {
     return this.repo.getJsaList();
@@ -70,6 +78,14 @@ export class HSEService {
 
   public async createJsa(data: any) {
     return this.repo.createJsa(data);
+  }
+
+  public async reviewJsa(
+    id: string,
+    decision: 'APPROVED' | 'REJECTED',
+    actor: { userId: string; userName: string }
+  ) {
+    return this.repo.reviewJsa(id, decision, actor);
   }
 
   // Toolbox Talks

@@ -543,81 +543,290 @@ public async createNearMiss(data: any) {
     return newRec;
   }
 
+    // ERP-TRACE: HSE-P1 — risk assessment is explicitly scored, actor-bound and approval-ready.
   public async createRiskAssessment(data: any) {
-    requireFields(data, ['activityName','departmentOrSite','hazardDescription','severity','likelihood','residualSeverity','residualLikelihood','assessedBy'], 'Risk assessment');
+    requireFields(data, ['activityName','departmentOrSite','hazardDescription','severity','likelihood','residualSeverity','residualLikelihood','assessedBy','createdBy'], 'Risk assessment');
     await this.ensureHSETablesExist();
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const count = (await db.select().from(phase63RiskAssessments)).length + 1;
-    const num = `RA-2026-${String(count).padStart(4, '0')}`;
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+    const assessedBy = String(data.assessedBy).trim();
 
     const sev = Number(data.severity);
     const lik = Number(data.likelihood);
     const residualSeverity = Number(data.residualSeverity);
     const residualLikelihood = Number(data.residualLikelihood);
-    if (!Number.isFinite(sev) || sev < 1 || sev > 5 || !Number.isFinite(lik) || lik < 1 || lik > 5) throw new Error('Risk severity and likelihood (1–5) are required.');
-    if (!Number.isFinite(residualSeverity) || residualSeverity < 1 || residualSeverity > 5 || !Number.isFinite(residualLikelihood) || residualLikelihood < 1 || residualLikelihood > 5) throw new Error('Residual severity and likelihood (1–5) are required.');
+
+    if (!Number.isInteger(sev) || sev < 1 || sev > 5 || !Number.isInteger(lik) || lik < 1 || lik > 5) throw new Error('Risk severity and likelihood (1–5) are required.');
+    if (!Number.isInteger(residualSeverity) || residualSeverity < 1 || residualSeverity > 5 || !Number.isInteger(residualLikelihood) || residualLikelihood < 1 || residualLikelihood > 5) throw new Error('Residual severity and likelihood (1–5) are required.');
+
     const score = sev * lik;
+    let category = 'MODERATE';
+    if (score <= 4) category = 'LOW';
+    else if (score <= 9) category = 'MODERATE';
+    else if (score <= 15) category = 'HIGH';
+    else category = 'CRITICAL';
 
-    let cat = 'MODERATE';
-    if (score <= 4) cat = 'LOW';
-    else if (score <= 9) cat = 'MODERATE';
-    else if (score <= 15) cat = 'HIGH';
-    else cat = 'CRITICAL';
+    const residualScore = residualSeverity * residualLikelihood;
+    const assessmentNumber = String(data.assessmentNumber || `RA-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
 
-    const newRec = {
-      id,
-      assessmentNumber: data.assessmentNumber || num,
-      activityName: data.activityName,
-      departmentOrSite: data.departmentOrSite,
-      hazardDescription: data.hazardDescription,
-      severity: sev,
-      likelihood: lik,
-      riskScore: score,
-      riskCategory: cat,
-      existingControls: data.existingControls || null,
-      additionalControls: data.additionalControls || null,
-      residualSeverity,
-      residualLikelihood,
-      residualRiskScore: residualSeverity * residualLikelihood,
-      assessedBy: data.assessedBy || null,
-      reviewDate: data.reviewDate || now.split('T')[0],
-      status: data.status || 'ACTIVE',
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(phase63RiskAssessments).values(newRec);
-    return newRec;
+    return await db.transaction(async (tx) => {
+      const [duplicate] = await tx.select({ id: phase63RiskAssessments.id })
+        .from(phase63RiskAssessments)
+        .where(and(eq(phase63RiskAssessments.assessmentNumber, assessmentNumber), eq(phase63RiskAssessments.isDeleted, false)))
+        .limit(1);
+      if (duplicate) throw new Error(`Risk assessment number ${assessmentNumber} already exists.`);
+
+      const [record] = await tx.insert(phase63RiskAssessments).values({
+        id,
+        assessmentNumber,
+        activityName: String(data.activityName).trim(),
+        departmentOrSite: String(data.departmentOrSite).trim(),
+        hazardDescription: String(data.hazardDescription).trim(),
+        severity: sev,
+        likelihood: lik,
+        riskScore: score,
+        riskCategory: category,
+        existingControls: data.existingControls || null,
+        additionalControls: data.additionalControls || null,
+        residualSeverity,
+        residualLikelihood,
+        residualRiskScore: residualScore,
+        assessedBy,
+        reviewDate: String(data.reviewDate).trim(),
+        status: 'PENDING_APPROVAL',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      }).returning();
+
+      if (!record) throw new Error('Risk assessment creation failed.');
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(),
+        actionType: 'RISK_ASSESSMENT_CREATED',
+        module: 'HSE',
+        entityId: id,
+        performedBy: creator,
+        details: `Created risk assessment ${assessmentNumber} with initial risk score ${score} and residual score ${residualScore}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return { id, assessmentNumber, ...data, severity: sev, likelihood: lik, riskScore: score, riskCategory: category, residualSeverity, residualLikelihood, residualRiskScore: residualScore, status: 'PENDING_APPROVAL', createdBy: creator, updatedBy: updater };
+    });
   }
 
-  public async createJsa(data: any) {
-    requireFields(data, ['jobTitle','location','supervisorName','jsaDate','jobSteps'], 'JSA');
+  // ERP-TRACE: HSE-P1 — risk assessment approval uses maker-checker and approval history.
+  public async reviewRiskAssessment(
+    id: string,
+    decision: 'ACTIVE' | 'REJECTED',
+    actor: { userId: string; userName: string }
+  ): Promise<any | null> {
     await this.ensureHSETablesExist();
+
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated risk assessment reviewer identity is required.');
+
+    return await db.transaction(async (tx) => {
+      const [assessment] = await tx.select().from(phase63RiskAssessments)
+        .where(and(eq(phase63RiskAssessments.id, id), eq(phase63RiskAssessments.isDeleted, false)))
+        .limit(1);
+
+      if (!assessment) return null;
+      if (assessment.status !== 'PENDING_APPROVAL') {
+        throw new Error(`Risk assessment cannot be reviewed from status ${assessment.status}.`);
+      }
+      if (
+        assessment.createdBy.trim().toLowerCase() === actorName.toLowerCase() ||
+        assessment.assessedBy.trim().toLowerCase() === actorName.toLowerCase()
+      ) {
+        throw new Error('Maker-checker violation: risk assessor/creator cannot approve or reject the same assessment.');
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(phase63RiskAssessments).set({
+        status: decision,
+        updatedAt: now,
+        updatedBy: actorName,
+      }).where(eq(phase63RiskAssessments.id, id)).returning();
+
+      if (!updated) return null;
+
+      await tx.insert(phase63HseApprovals).values({
+        id: uuidv4(),
+        referenceType: 'RISK_ASSESSMENT',
+        referenceId: id,
+        approvalStage: 'HSE_APPROVER',
+        approverUser: actorName,
+        decision: decision === 'ACTIVE' ? 'APPROVED' : 'REJECTED',
+        comments: decision === 'ACTIVE' ? 'Risk assessment approved.' : 'Risk assessment rejected.',
+        signedAt: now,
+        digitalStampRef: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+        updatedBy: actorName,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(),
+        actionType: decision === 'ACTIVE' ? 'RISK_ASSESSMENT_APPROVED' : 'RISK_ASSESSMENT_REJECTED',
+        module: 'HSE',
+        entityId: id,
+        performedBy: actorName,
+        details: `Risk assessment transitioned to ${decision}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+        updatedBy: actorName,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return updated;
+    });
+  }
+
+  // ERP-TRACE: HSE-P1 — JSA creation is actor-bound, collision-safe and approval-ready.
+  public async createJsa(data: any) {
+    requireFields(data, ['jobTitle','location','supervisorName','jsaDate','jobSteps','requiredPpe','createdBy'], 'JSA');
+    await this.ensureHSETablesExist();
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const count = (await db.select().from(phase63Jsa)).length + 1;
-    const num = `JSA-2026-${String(count).padStart(4, '0')}`;
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+    const jsaNumber = String(data.jsaNumber || `JSA-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
+    const requiredPpe = String(data.requiredPpe).trim();
+    if (!requiredPpe) throw new Error('Required PPE must be explicitly specified.');
 
-    const newRec = {
-      id,
-      jsaNumber: data.jsaNumber || num,
-      jobTitle: data.jobTitle,
-      location: data.location,
-      supervisorName: data.supervisorName,
-      jsaDate: data.jsaDate || now.split('T')[0],
-      jobSteps: data.jobSteps,
-      requiredPpe: data.requiredPpe || 'Safety Helmet, Shoes, High-Vis Vest',
-      permitRequired: Boolean(data.permitRequired),
-      status: 'DRAFT',
-      approvedBy: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.insert(phase63Jsa).values(newRec);
-    return newRec;
+    return await db.transaction(async (tx) => {
+      const [duplicate] = await tx.select({ id: phase63Jsa.id })
+        .from(phase63Jsa)
+        .where(and(eq(phase63Jsa.jsaNumber, jsaNumber), eq(phase63Jsa.isDeleted, false)))
+        .limit(1);
+      if (duplicate) throw new Error(`JSA number ${jsaNumber} already exists.`);
+
+      const [record] = await tx.insert(phase63Jsa).values({
+        id,
+        jsaNumber,
+        jobTitle: String(data.jobTitle).trim(),
+        location: String(data.location).trim(),
+        supervisorName: String(data.supervisorName).trim(),
+        jsaDate: String(data.jsaDate).trim(),
+        jobSteps: String(data.jobSteps).trim(),
+        requiredPpe,
+        permitRequired: Boolean(data.permitRequired),
+        status: 'DRAFT',
+        approvedBy: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      }).returning();
+
+      if (!record) throw new Error('JSA creation failed.');
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(),
+        actionType: 'JSA_CREATED',
+        module: 'HSE',
+        entityId: id,
+        performedBy: creator,
+        details: `Created JSA ${jsaNumber}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return { id, jsaNumber, ...data, requiredPpe, status: 'DRAFT', createdBy: creator, updatedBy: updater };
+    });
   }
 
-    // ERP-TRACE: HSE-P1 — PTW creation is fail-closed and approval-ready.
+  // ERP-TRACE: HSE-P1 — JSA approval uses maker-checker and approval history.
+  public async reviewJsa(id: string, decision: 'APPROVED' | 'REJECTED', actor: { userId: string; userName: string }): Promise<any | null> {
+    await this.ensureHSETablesExist();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated JSA reviewer identity is required.');
+
+    return await db.transaction(async (tx) => {
+      const [jsa] = await tx.select().from(phase63Jsa)
+        .where(and(eq(phase63Jsa.id, id), eq(phase63Jsa.isDeleted, false)))
+        .limit(1);
+      if (!jsa) return null;
+      if (jsa.status !== 'DRAFT') throw new Error(`JSA cannot be reviewed from status ${jsa.status}.`);
+      if (jsa.createdBy.trim().toLowerCase() === actorName.toLowerCase()) throw new Error('Maker-checker violation: JSA creator cannot approve or reject the same JSA.');
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(phase63Jsa).set({
+        status: decision,
+        approvedBy: actorName,
+        updatedAt: now,
+        updatedBy: actorName,
+      }).where(eq(phase63Jsa.id, id)).returning();
+      if (!updated) return null;
+
+      await tx.insert(phase63HseApprovals).values({
+        id: uuidv4(),
+        referenceType: 'JSA',
+        referenceId: id,
+        approvalStage: 'HSE_APPROVER',
+        approverUser: actorName,
+        decision,
+        comments: decision === 'APPROVED' ? 'JSA approved.' : 'JSA rejected.',
+        signedAt: now,
+        digitalStampRef: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+        updatedBy: actorName,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(),
+        actionType: decision === 'APPROVED' ? 'JSA_APPROVED' : 'JSA_REJECTED',
+        module: 'HSE',
+        entityId: id,
+        performedBy: actorName,
+        details: `JSA transitioned to ${decision}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+        updatedBy: actorName,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return updated;
+    });
+  }
+
+// ERP-TRACE: HSE-P1 — PTW creation is fail-closed and approval-ready.
   public async createWorkPermit(data: any) {
     requireFields(data, ['permitType','location','description','contractorName','supervisorName','issueDateTime','expiryDateTime','createdBy'], 'Work permit');
     await this.ensureHSETablesExist();

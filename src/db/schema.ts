@@ -530,6 +530,10 @@ export const stockTransactions = pgTable('stock_transactions', {
   totalValue: doublePrecision('total_value').notNull(),
   projectId: text('project_id'),
   projectName: text('project_name'),
+  wbsId: text('wbs_id'),
+  boqItemId: text('boq_item_id'),
+  costCodeId: text('cost_code_id'),
+  costCode: text('cost_code'),
   siteId: text('site_id'),
   siteName: text('site_name'),
   workCategory: text('work_category'),
@@ -2392,8 +2396,12 @@ export const materialIssues = pgTable('material_issues', {
   issueNumber: text('issue_number').notNull(),
   projectId: text('project_id'),
   projectName: text('project_name'),
+  wbsId: text('wbs_id'),
   wbsCode: text('wbs_code'),
+  boqItemId: text('boq_item_id'),
   boqRef: text('boq_ref'),
+  costCodeId: text('cost_code_id'),
+  costCode: text('cost_code'),
   department: text('department'),
   warehouseId: text('warehouse_id').notNull(),
   warehouseName: text('warehouse_name').notNull(),
@@ -7322,6 +7330,10 @@ export const phase69PurchaseOrders = pgTable('phase69_purchase_orders', {
   vendorName: text('vendor_name').notNull(),
   projectId: text('project_id').notNull(),
   projectName: text('project_name').notNull(),
+  wbsId: text('wbs_id'),
+  boqItemId: text('boq_item_id'),
+  costCodeId: text('cost_code_id'),
+  costCode: text('cost_code'),
   poDate: text('po_date').notNull(),
   deliveryDate: text('delivery_date').notNull(),
   deliveryLocation: text('delivery_location').notNull(),
@@ -7382,6 +7394,9 @@ export const phase69Contracts = pgTable('phase69_contracts', {
   vendorName: text('vendor_name').notNull(),
   projectId: text('project_id').notNull(),
   projectName: text('project_name').notNull(),
+  wbsId: text('wbs_id'),
+  costCodeId: text('cost_code_id'),
+  costCode: text('cost_code'),
   effectiveStartDate: text('effective_start_date').notNull(),
   effectiveEndDate: text('effective_end_date').notNull(),
   originalContractValue: doublePrecision('original_contract_value').notNull(),
@@ -10618,6 +10633,10 @@ export const hrLabourAllocations = pgTable('hr_labour_allocations', {
   date: text('date').notNull(),
   projectId: text('project_id'),
   projectName: text('project_name'),
+  wbsId: text('wbs_id'),
+  boqItemId: text('boq_item_id'),
+  costCodeId: text('cost_code_id'),
+  costCode: text('cost_code'),
   siteName: text('site_name'),
   contractorName: text('contractor_name'),
   skilledWorkersCount: integer('skilled_workers_count'),
@@ -12787,6 +12806,32 @@ export const commercialClientIpcs = pgTable('commercial_client_ipcs', {
   submissionDate: text('submission_date').notNull(),
   certificationDate: text('certification_date'),
   dueDate: text('due_date'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+
+/**
+ * Central Cost Code Master
+ * Supports company-wide codes and project/WBS-specific mappings.
+ * Financial and operational transactions reference this entity when a
+ * controllership code is available; unallocated project costs remain explicit.
+ */
+export const costCodes = pgTable('cost_codes', {
+  id: text('id').primaryKey(),
+  companyId: text('company_id').notNull(),
+  projectId: text('project_id'),
+  wbsId: text('wbs_id'),
+  parentId: text('parent_id'),
+  code: text('code').notNull(),
+  name: text('name').notNull(),
+  category: text('category').notNull(),
+  level: integer('level').default(1).notNull(),
+  isBillable: boolean('is_billable').default(true).notNull(),
+  isDirectCost: boolean('is_direct_cost').default(true).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

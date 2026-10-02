@@ -1900,7 +1900,6 @@ export class HrmsRepository {
       id,
       loanCode,
       employeeId,
-      employeeCode,
       employeeName,
       loanType: data.loanType,
       principalAmountAed: principal,

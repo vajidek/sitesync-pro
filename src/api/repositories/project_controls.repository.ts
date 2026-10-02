@@ -1,5 +1,5 @@
 import { db } from '../../db/index';
-import { sql, eq, desc } from 'drizzle-orm';
+import { sql, eq, desc, inArray } from 'drizzle-orm';
 import {
   phase64ProjectsWbs,
   phase64WorkPackages,
@@ -1262,7 +1262,7 @@ export class ProjectControlsRepository {
     const issueIds = issueRows.map((row) => row.id);
     let realMaterialsCost = 0;
     if (issueIds.length > 0) {
-      const issueItems = await db.select().from(materialIssueItems).where(sql`${materialIssueItems.issueId} IN ${issueIds}`);
+      const issueItems = await db.select().from(materialIssueItems).where(inArray(materialIssueItems.issueId, issueIds));
       realMaterialsCost = issueItems.reduce((sum, item) => sum + Number(item.issuedQty || 0) * Number(item.unitPrice || 0), 0);
     }
 

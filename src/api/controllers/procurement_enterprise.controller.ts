@@ -103,7 +103,7 @@ export class ProcurementEnterpriseController {
       const rfq = await this.service.createRfq(payload, createdBy);
       res.status(201).json({ success: true, data: rfq, message: 'RFQ issued successfully' });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(error?.name === 'ZodError' ? 400 : 500).json({ success: false, message: error.message });
     }
   };
 
@@ -148,7 +148,7 @@ export class ProcurementEnterpriseController {
       const pr = await this.service.createPurchaseRequisition(payload, createdBy);
       res.status(201).json({ success: true, data: pr, message: 'Purchase requisition created successfully' });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(error?.name === 'ZodError' ? 400 : 500).json({ success: false, message: error.message });
     }
   };
 
@@ -196,7 +196,7 @@ export class ProcurementEnterpriseController {
       const po = await this.service.issuePurchaseOrder(payload, createdBy);
       res.status(201).json({ success: true, data: po, message: 'Purchase order issued successfully' });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(error?.name === 'ZodError' ? 400 : 500).json({ success: false, message: error.message });
     }
   };
 
@@ -253,7 +253,7 @@ export class ProcurementEnterpriseController {
       const grn = await this.service.createGoodsReceipt(payload, createdBy);
       res.status(201).json({ success: true, data: grn, message: 'Goods receipt note (GRN) created successfully' });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(error?.name === 'ZodError' ? 400 : 500).json({ success: false, message: error.message });
     }
   };
 

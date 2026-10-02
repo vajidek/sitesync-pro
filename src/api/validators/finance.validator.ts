@@ -7,7 +7,7 @@ export const createAccountSchema = z.object({
   accountType: z.string().min(2),
   parentAccountId: z.string().optional(),
   isHeaderAccount: z.boolean().optional().default(false),
-  currency: z.string().optional().default('USD'),
+  currency: z.string().trim().min(3, 'Currency code is required'),
   initialBalance: z.number().optional().default(0),
 });
 
@@ -63,7 +63,7 @@ export const createBankAccountSchema = z.object({
   bankName: z.string().min(2),
   branchName: z.string().min(2),
   swiftCode: z.string().optional(),
-  currency: z.string().optional().default('USD'),
+  currency: z.string().trim().min(3, 'Currency code is required'),
   initialBalance: z.number().optional().default(0),
 });
 

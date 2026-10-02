@@ -4471,8 +4471,8 @@ export const phase62ItpMasters = pgTable('phase62_itp_masters', {
   approvedBy: text('approved_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4506,7 +4506,7 @@ export const phase62Inspections = pgTable('phase62_inspections', {
   title: text('title').notNull(),
   discipline: text('discipline').notNull().default('MECHANICAL'),
   inspectionType: text('inspection_type').notNull().default('SITE_INSPECTION'), // SITE_INSPECTION, MATERIAL_RECEIVING, WELDING, PRESSURE_TEST, HYDRO_TEST, PUNCH_LIST
-  projectId: text('project_id').notNull().default('PRJ-101'),
+  projectId: text('project_id').notNull(),
   location: text('location').notNull(),
   requestedDate: text('requested_date').notNull(),
   inspectionDate: text('inspection_date'),
@@ -4517,8 +4517,8 @@ export const phase62Inspections = pgTable('phase62_inspections', {
   remarks: text('remarks'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4545,7 +4545,7 @@ export const phase62Ncr = pgTable('phase62_ncr', {
   id: text('id').primaryKey(),
   ncrNumber: text('ncr_number').notNull(), // NCR-2026-XXXX
   inspectionId: text('inspection_id'),
-  projectId: text('project_id').notNull().default('PRJ-101'),
+  projectId: text('project_id').notNull(),
   title: text('title').notNull(),
   severity: text('severity').notNull().default('MAJOR'), // MINOR, MAJOR, CRITICAL
   description: text('description').notNull(),
@@ -4561,8 +4561,8 @@ export const phase62Ncr = pgTable('phase62_ncr', {
   remarks: text('remarks'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4947,8 +4947,8 @@ export const phase63Jsa = pgTable('phase63_jsa', {
   approvedBy: text('approved_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4991,8 +4991,8 @@ export const phase63WorkPermits = pgTable('phase63_work_permits', {
   approvedBy: text('approved_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5013,8 +5013,8 @@ export const phase63SafetyInspections = pgTable('phase63_safety_inspections', {
   status: text('status').notNull().default('ACTION_REQUIRED'), // PASSED, PASSED_WITH_OBSERVATIONS, ACTION_REQUIRED, FAILED
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });

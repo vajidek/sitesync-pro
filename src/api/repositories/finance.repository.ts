@@ -775,7 +775,18 @@ export class FinanceRepository {
         totalLiabilities,
       },
       equity: {
-        accounts: equityAccounts.map(a => ({ code: a.a  async getCashFlowStatement() {
+        accounts: equityAccounts.map(a => ({ code: a.accountCode, name: a.accountName, amount: a.currentBalance })),
+        baseEquity,
+        currentYearNetIncome,
+        totalEquity,
+      },
+      totalLiabilitiesAndEquity,
+      variance,
+      isBalanced,
+    };
+  }
+
+  async getCashFlowStatement() {
     await ensureFinanceTablesExist();
     const reportingCurrency = (await this.currencyRepository.getBaseCurrency()).code;
     const bankAccounts = await this.findBankAccounts();

@@ -817,41 +817,48 @@ export class HrmsRepository {
     await this.ensureHrmsTablesExist();
     await statutoryEngineService.ensureStatutoryRulesSeeded();
     const now = new Date().toISOString();
+    const demoMode = isDemoSeedAllowed();
+    const resolvedPeriodId = String(periodId || '').trim();
 
-    let payrollMonth = '2026-08';
-    try {
-      const periodRows = await db.select().from(phase70PayrollPeriods).where(eq(phase70PayrollPeriods.id, periodId)).limit(1);
-      if (periodRows.length > 0) {
-        payrollMonth = periodRows[0].monthYear;
-      } else {
-        await db.insert(phase70PayrollPeriods).values({
-          id: periodId,
-          periodCode: `PAY-${periodId}`,
-          monthYear: '2026-08',
-          startDate: '2026-08-01',
-          endDate: '2026-08-31',
-          totalWorkingDays: 31,
-          cutoffDate: '2026-08-25',
-          status: 'OPEN',
-          createdAt: now,
-          updatedAt: now,
-        } as any).onConflictDoNothing();
-      }
-    } catch (e) {
-      console.warn('Period lookup fallback:', e);
+    if (!resolvedPeriodId) throw new Error('Payroll period ID is required.');
+    if (!demoMode && (!options.makerUserId || !options.makerUserName?.trim())) {
+      throw new Error('Authenticated payroll maker identity is required outside DEMO mode.');
     }
-    const jurisdiction = options.jurisdiction || 'INDIA';
-    const currency = options.currency || (jurisdiction === 'INDIA' ? 'INR' : 'AED');
+
+    let payrollMonth = '';
+    const periodRows = await db
+      .select()
+      .from(phase70PayrollPeriods)
+      .where(eq(phase70PayrollPeriods.id, resolvedPeriodId))
+      .limit(1);
+
+    if (periodRows.length > 0) {
+      payrollMonth = periodRows[0].monthYear;
+    } else if (demoMode) {
+      throw new Error('DEMO payroll periods must be provisioned explicitly before execution.');
+    } else {
+      throw new Error(`Payroll period ${resolvedPeriodId} was not found. Create and configure the period before executing payroll.`);
+    }
+
+    const jurisdiction = String(options.jurisdiction || '').trim().toUpperCase();
+    const currency = String(options.currency || '').trim().toUpperCase();
+
+    if (!jurisdiction) {
+      throw new Error('Payroll jurisdiction must be explicitly configured for the payroll run.');
+    }
+    if (!currency) {
+      throw new Error('Payroll currency must be explicitly configured for the payroll run.');
+    }
 
     // Fetch active exchange rate to Base INR
     let exchangeRateToInr = 1.0;
-    try {
-      if (currency !== 'INR') {
-        const rateInfo = await currencyRepository.getLatestRate(currency, 'INR');
-        exchangeRateToInr = rateInfo.rate || (currency === 'AED' ? 22.70 : 84.20);
+    if (currency !== 'INR') {
+      const rateInfo = await currencyRepository.getLatestRate(currency, 'INR');
+      const resolvedRate = Number(rateInfo?.rate);
+      if (!Number.isFinite(resolvedRate) || resolvedRate <= 0) {
+        throw new Error(`No valid exchange rate is configured for ${currency}/INR for payroll processing.`);
       }
-    } catch (e) {
-      exchangeRateToInr = currency === 'AED' ? 22.70 : currency === 'USD' ? 84.20 : 1.0;
+      exchangeRateToInr = resolvedRate;
     }
 
     // Fetch active statutory rules dynamically
@@ -870,13 +877,30 @@ export class HrmsRepository {
 
     // Check for finalized attendance records for this period/month
     const finalizationRows = await db.execute(sql`
-      SELECT * FROM hr_attendance_finalizations WHERE period_id = ${periodId} OR month_year = ${payrollMonth}
+      SELECT * FROM hr_attendance_finalizations
+      WHERE period_id = ${resolvedPeriodId} AND month_year = ${payrollMonth} AND status = 'FINALIZED'
     `);
     const finalizedAttendanceMap = new Map<string, any>();
     if (finalizationRows?.rows) {
       (finalizationRows.rows as any[]).forEach((f) => {
         finalizedAttendanceMap.set(f.employee_id, f);
       });
+    }
+
+    if (finalizedAttendanceMap.size === 0 && demoMode) {
+      await this.seedDefaultAttendanceFinalization(resolvedPeriodId, payrollMonth);
+      const seededRows = await db.execute(sql`
+        SELECT * FROM hr_attendance_finalizations
+        WHERE period_id = ${resolvedPeriodId} AND month_year = ${payrollMonth} AND status = 'FINALIZED'
+      `);
+      (seededRows?.rows || []).forEach((f: any) => finalizedAttendanceMap.set(f.employee_id, f));
+    }
+
+    const missingFinalization = employees.filter((emp: any) => !finalizedAttendanceMap.has(emp.id));
+    if (missingFinalization.length > 0) {
+      throw new Error(
+        `Payroll blocked: finalized attendance is missing for ${missingFinalization.length} employee(s). Example: ${missingFinalization.slice(0, 5).map((e: any) => e.employeeCode || e.id).join(', ')}.`
+      );
     }
 
     // Fetch active loans for automatic recovery
@@ -924,14 +948,29 @@ export class HrmsRepository {
       // Fetch employee statutory profile
       const statutoryProfile = await statutoryEngineService.getEmployeeStatutoryProfile(emp.id, emp.employeeCode);
 
-      // Attendance values from finalized record or standard defaults
+      // Payroll is driven by finalized attendance only.
       const attRecord = finalizedAttendanceMap.get(emp.id);
-      const payableDutyDays = attRecord?.payable_duty_days ?? (emp.id === 'emp-002' ? 22 : 26);
-      const overtimeHours = attRecord?.overtime_hours ?? (emp.id === 'emp-002' ? 12 : emp.id === 'emp-003' ? 8 : 0);
-      const wageType = attRecord?.wage_type || (emp as any).wageType || (emp as any).dailyWageRate ? 'DAILY_WAGE' : 'MONTHLY';
-      const dailyWageRate = attRecord?.daily_wage_rate || (emp as any).dailyWageRate || ((emp as any).dailyWageRateUSD ? (emp as any).dailyWageRateUSD * exchangeRateToInr : 0);
-      const lopDays = attRecord?.unpaid_leave_days || attRecord?.absent_days || 0;
-      const totalDaysInMonth = attRecord?.total_days_in_month || 26;
+      if (!attRecord) {
+        throw new Error(`Finalized attendance is missing for employee ${emp.employeeCode || emp.id}.`);
+      }
+
+      const payableDutyDays = Number(attRecord.payable_duty_days);
+      const overtimeHours = Number(attRecord.overtime_hours ?? 0);
+      const wageType = String(attRecord.wage_type || (emp as any).wageType || 'MONTHLY').trim().toUpperCase();
+      const dailyWageRate = Number(
+        attRecord.daily_wage_rate ??
+        (emp as any).dailyWageRate ??
+        ((emp as any).dailyWageRateUSD ? (emp as any).dailyWageRateUSD * exchangeRateToInr : 0)
+      );
+      const lopDays = Number(attRecord.unpaid_leave_days ?? attRecord.absent_days ?? 0);
+      const totalDaysInMonth = Number(attRecord.total_days_in_month);
+
+      if (!Number.isFinite(payableDutyDays) || payableDutyDays < 0) throw new Error(`Invalid finalized payable duty days for ${emp.employeeCode || emp.id}.`);
+      if (!Number.isFinite(overtimeHours) || overtimeHours < 0) throw new Error(`Invalid finalized overtime hours for ${emp.employeeCode || emp.id}.`);
+      if (!Number.isFinite(totalDaysInMonth) || totalDaysInMonth <= 0) throw new Error(`Invalid finalized month-day count for ${emp.employeeCode || emp.id}.`);
+      if (wageType === 'DAILY_WAGE' && (!Number.isFinite(dailyWageRate) || dailyWageRate <= 0)) {
+        throw new Error(`Daily wage rate is missing for ${emp.employeeCode || emp.id}.`);
+      }
 
       // Evaluate loan recovery for active loans
       const empLoans = refreshedLoans.filter((l: any) => l.employeeId === emp.id && (l.outstandingBalanceAed || l.balanceOutstandingAed || 0) > 0);

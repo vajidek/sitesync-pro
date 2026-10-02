@@ -185,6 +185,7 @@ export interface POItem {
 }
 
 export interface PurchaseOrder {
+  companyId?: string;
   id: string;
   poNumber: string;
   prId?: string;

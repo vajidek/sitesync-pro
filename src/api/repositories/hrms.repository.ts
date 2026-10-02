@@ -541,6 +541,7 @@ export class HrmsRepository {
     return emp || null;
   }
 
+  // ERP-TRACE: HR-MASTER-P1 — canonical employee master write, authenticated actor, configured numbering.
   public async createEmployee(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
     const actorId = String(actor?.userId || '').trim();
@@ -1134,6 +1135,7 @@ export class HrmsRepository {
     // Fetch active loans for automatic recovery
     const allLoans = await db.select().from(phase70Loans).where(and(eq(phase70Loans.isDeleted, false), eq(phase70Loans.status, 'ACTIVE')));
 
+  // ERP-TRACE: HR-LOAN-P1 — payroll loan recovery is fail-closed; never swallow a failed ledger/balance update.
     // IDEMPOTENCY SAFEGUARD: If recalculating an existing un-disbursed run for this period, rollback previous recoveries
     try {
       const existingRecoveries = await db.execute(sql`

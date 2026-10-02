@@ -52,14 +52,19 @@ async function runFullEnterpriseVerification() {
     recordPass(`Tenders catalog verified (${tenders.length} active tenders found)`);
 
     const newTender = await commercialRepo.createTender({
+      tenderRefNumber: `TST-CI-${Date.now()}`,
       tenderTitle: 'High-Speed Railway Elevated Viaduct Package HV-09',
       clientAuthority: 'National High Speed Rail Corporation Ltd',
       clientType: 'GOVERNMENT',
       sector: 'METRO_RAIL',
       tenderType: 'EPC_TURNKEY',
       estimatedProjectValue: 850000000,
+      currency: 'INR',
+      publicationDate: new Date().toISOString().split('T')[0],
+      submissionDeadline: '2030-12-31',
       bidManagerId: 'emp-101',
-      bidManagerName: 'Abdul Vajid EK',
+      bidManagerName: 'CI Test Actor',
+      documents: [],
     });
     assert.ok(newTender.id && newTender.tenderRefNumber, 'New tender must have ID and Ref Number');
     recordPass(`Tender creation verified: ${newTender.tenderRefNumber}`);

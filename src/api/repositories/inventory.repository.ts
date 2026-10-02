@@ -1726,6 +1726,7 @@ export class InventoryRepository {
     poNumber?: string;
     vendorId?: string;
     vendorName?: string;
+    companyId?: string;
     warehouseId: string;
     warehouseName?: string;
     deliveryNoteNo?: string;
@@ -1753,12 +1754,26 @@ export class InventoryRepository {
     const now = new Date().toISOString();
     const grnId = genId('grn');
 
+    const receivedBy = String(data.receivedBy || '').trim();
+    const inspectedBy = String(data.inspectedBy || '').trim();
+    if (!receivedBy || !inspectedBy) throw new Error('Receiver and inspector identities are required for GRN creation.');
     const wh = await this.getWarehouseById(data.warehouseId);
-    const whName = data.warehouseName || wh?.name || 'Central Store';
+    if (!wh || !wh.isActive) throw new Error('Warehouse not found or inactive.');
+    const whName = wh.name;
 
     return await db.transaction(async (tx) => {
+      let companyId = String(data.companyId || '').trim();
+      if (!companyId && data.poNumber) {
+        const poRows = await tx.select().from(procurementPurchaseOrdersTable).where(eq(procurementPurchaseOrdersTable.poNumber, data.poNumber)).limit(1);
+        const poProjectId = poRows[0]?.projectId;
+        if (poProjectId) {
+          const [project] = await tx.select().from(projects).where(eq(projects.id, poProjectId)).limit(1);
+          companyId = String(project?.companyId || '').trim();
+        }
+      }
+      if (!data.grnNumber && !companyId) throw new Error('Company context is required when generating a GRN number.');
       const grnNum = data.grnNumber || (await numberingService.generateGoodsReceiptNumber({
-        companyId: 'cmp-101',
+        companyId,
         projectId: null,
         date: data.receivedDate || now,
       }, tx));
@@ -1838,7 +1853,7 @@ export class InventoryRepository {
               totalValue: acceptedQty * unitPrice,
               referenceDoc: grnNum,
               notes: `GRN Received: ${grnNum}`,
-              receivedByName: data.receivedBy || 'Store Keeper',
+              receivedByName: receivedBy,
             },
             tx
           );
@@ -1855,9 +1870,9 @@ export class InventoryRepository {
         warehouseName: whName,
         deliveryNoteNo: data.deliveryNoteNo || '',
         receivedDate: data.receivedDate || now.slice(0, 10),
-        receivedBy: data.receivedBy || 'Store Keeper',
-        inspectedBy: data.inspectedBy || 'QC Inspector',
-        qcStatus: data.qcStatus || 'PASSED',
+        receivedBy,
+        inspectedBy,
+        qcStatus: data.qcStatus || 'PENDING_INSPECTION',
         totalValue: totalVal,
         status: 'COMPLETED',
         notes: data.notes || '',
@@ -1918,8 +1933,8 @@ export class InventoryRepository {
 
       await this.logInventoryAction({
         actionType: 'GRN',
-        performedBy: data.receivedBy || 'Store Keeper',
-        details: `Created GRN ${grnNum} with ${itemsToInsert.length} items totaling AED ${totalVal}`,
+        performedBy: receivedBy,
+        details: `Created GRN ${grnNum} with ${itemsToInsert.length} items totaling ${totalVal} in transaction currency`,
         warehouseId: data.warehouseId,
       });
 

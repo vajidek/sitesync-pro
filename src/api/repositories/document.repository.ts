@@ -102,32 +102,37 @@ export async function createFolder(data: {
   createdBy?: string;
 }) {
   const actor = String(data.createdBy || '').trim();
+  const folderName = String(data.folderName || '').trim();
   if (!actor) throw new Error('Authenticated folder creator identity is required.');
+  if (!folderName) throw new Error('Folder name is required.');
+
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
-  let folderPath = '/' + data.folderName;
+  let parent = null;
 
   if (data.parentId) {
-    const parent = await getFolderById(data.parentId);
-    if (parent) {
-      folderPath = `${parent.folderPath}/${data.folderName}`;
+    parent = await getFolderById(data.parentId);
+    if (!parent) throw new Error('Parent folder not found.');
+    if (data.projectId && parent.projectId && data.projectId !== parent.projectId) {
+      throw new Error('Child folder project context does not match its parent folder.');
     }
   }
 
+  const folderPath = parent ? `${parent.folderPath}/${folderName}` : `/${folderName}`;
   const id = crypto.randomUUID();
   const record = {
     id,
-    folderName: data.folderName,
+    folderName,
     parentId: data.parentId || null,
     folderPath,
-    projectId: data.projectId || null,
-    department: data.department || 'Engineering',
-    isSystemFolder: data.isSystemFolder || false,
+    projectId: data.projectId || parent?.projectId || null,
+    department: data.department || parent?.department || 'Engineering',
+    isSystemFolder: Boolean(data.isSystemFolder),
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy,
-    updatedBy: createdBy,
+    createdBy: actor,
+    updatedBy: actor,
     isDeleted: false,
   };
 
@@ -138,20 +143,49 @@ export async function createFolder(data: {
 export async function updateFolder(id: string, data: any) {
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
-  await db.update(phase61DocumentFolders)
-    .set({ ...data, updatedAt: now })
-    .where(eq(phase61DocumentFolders.id, id));
+  const update = {
+    ...(data.folderName !== undefined ? { folderName: String(data.folderName).trim() } : {}),
+    ...(data.parentId !== undefined ? { parentId: data.parentId || null } : {}),
+    ...(data.projectId !== undefined ? { projectId: data.projectId || null } : {}),
+    ...(data.department !== undefined ? { department: String(data.department).trim() } : {}),
+    updatedAt: now,
+    ...(data.updatedBy ? { updatedBy: String(data.updatedBy).trim() } : {}),
+  };
+  if (update.folderName === '') throw new Error('Folder name cannot be empty.');
+  if ('updatedBy' in update && !update.updatedBy) throw new Error('Authenticated folder editor identity is required.');
+
+  if (update.parentId) {
+    const parent = await getFolderById(update.parentId);
+    if (!parent) throw new Error('Parent folder not found.');
+    const current = await getFolderById(id);
+    if (!current) throw new Error('Folder not found.');
+    const projectId = update.projectId ?? current.projectId;
+    if (projectId && parent.projectId && projectId !== parent.projectId) {
+      throw new Error('Folder project context does not match its parent folder.');
+    }
+    update.folderPath = `${parent.folderPath}/${update.folderName || current.folderName}`;
+  }
+
+  await db.update(phase61DocumentFolders).set(update as any).where(eq(phase61DocumentFolders.id, id));
   return getFolderById(id);
 }
 
-export async function deleteFolder(id: string) {
+export async function deleteFolder(id: string, user?: string) {
   await ensureDocumentTablesExist();
+  const actor = String(user || '').trim();
+  if (!actor) throw new Error('Authenticated folder deletion actor identity is required.');
+  const folder = await getFolderById(id);
+  if (!folder) throw new Error('Folder not found.');
+
   const now = new Date().toISOString();
   await db.update(phase61DocumentFolders)
-    .set({ isDeleted: true, deletedAt: now, status: 'DELETED' })
+    .set({ isDeleted: true, deletedAt: now, status: 'DELETED', updatedAt: now, updatedBy: actor })
     .where(eq(phase61DocumentFolders.id, id));
   return true;
 }
+
+// ==========================================
+// DOCUMENT REPOSITORY
 
 // ==========================================
 // DOCUMENT REPOSITORY

@@ -78,6 +78,23 @@ export class NumberingService {
     return result.documentNumber;
   }
   /**
+   * Allocate Employee Loan number
+   */
+  async generateLoanNumber(
+    options: { companyId?: string | null; branchId?: string | null; date?: Date | string; manualNumber?: string; allocatedBy?: string } = {},
+    clientOrTx?: any
+  ): Promise<string> {
+    const result = await this.getNextNumber({
+      entityType: 'LOAN',
+      companyId: options.companyId,
+      branchId: options.branchId,
+      date: options.date,
+      manualNumber: options.manualNumber,
+      allocatedBy: options.allocatedBy,
+    }, clientOrTx);
+    return result.documentNumber;
+  }
+  /**
    * Allocate Purchase Order number (PO)
    */
   async generatePurchaseOrderNumber(

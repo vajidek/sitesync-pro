@@ -23,8 +23,8 @@ export class DocumentService {
     return documentRepo.updateFolder(id, data);
   }
 
-  async deleteFolder(id: string) {
-    return documentRepo.deleteFolder(id);
+  async deleteFolder(id: string, user?: string) {
+    return documentRepo.deleteFolder(id, user);
   }
 
   async getDocuments(filters?: any) {

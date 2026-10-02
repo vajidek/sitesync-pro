@@ -11775,7 +11775,7 @@ export const hrBiometricRawPunches = pgTable('hr_biometric_raw_punches', {
   punchType: text('punch_type').notNull().default('CHECK_IN'),
   verificationMode: text('verification_mode').notNull().default('FINGERPRINT'),
   rawPayload: text('raw_payload'),
-  sourceFingerprint: text('source_fingerprint').notNull(),
+  sourceFingerprint: text('source_fingerprint'),
   isProcessed: boolean('is_processed').notNull().default(false),
   createdAt: text('created_at').notNull(),
 }, (table) => ({

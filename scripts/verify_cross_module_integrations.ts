@@ -96,7 +96,7 @@ async function runCrossModuleIntegrationsVerification() {
     const payrollRuns = await hrmsRepository.getPayrollRuns();
     const activeRun = payrollRuns[0] || (await hrmsRepository.executePayrollRun('pp-2026-08', 'Verification Payroll Execution'));
 
-    const disbursed = await hrmsRepository.disbursePayrollRun(activeRun.id, 'Finance Director', 'NEFT-BAT-001');
+    const disbursed = await hrmsRepository.disbursePayrollRun(activeRun.id, { userId: 'ci-finance-actor', userName: 'Finance Director' }, 'NEFT-BAT-001');
     assert.ok(disbursed, 'Payroll run must be marked as disbursed');
     assert.ok(disbursed.status === 'PAID' || disbursed.status === 'DISBURSED', 'Payroll run status must be PAID or DISBURSED');
     pass(`Payroll Run disbursed: ${disbursed.payrollMonth} (Total Net: $${(disbursed.totalNetPay ?? disbursed.totalNet ?? 0).toLocaleString()})`);

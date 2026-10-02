@@ -204,7 +204,8 @@ export class AIIntelligenceController {
   static async runWhatIfScenario(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = whatIfScenarioSchema.parse(req.body);
-      const user = (req as any).user || { id: 'usr-admin', role: 'ADMIN' };
+      const user = getAuthenticatedUser(req, res);
+      if (!user) return;
       const result = await AIIntelligenceService.runWhatIfScenario({
         title: parsed.title,
         description: parsed.description,

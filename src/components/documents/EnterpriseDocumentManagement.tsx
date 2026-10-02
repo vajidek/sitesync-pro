@@ -1123,7 +1123,6 @@ export const EnterpriseDocumentManagement: React.FC = () => {
                 />
               </div>
                 </div>
-              </div>
               <button
                 type="submit"
                 className="w-full py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-500 shadow"

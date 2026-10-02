@@ -30,6 +30,9 @@ import {
   procurementPurchaseOrdersTable,
   procurementGrnsTable,
   procurementLogs,
+  costCodes,
+  projectWbs,
+  boqItems,
 } from '../../db/schema';
 import { eq, and, ilike, or, gte, sql } from 'drizzle-orm';
 import { PaginationParams } from '../utils/pagination';
@@ -116,8 +119,12 @@ export interface DbMaterialIssue {
   issueNumber: string;
   projectId?: string;
   projectName?: string;
+  wbsId?: string;
   wbsCode?: string;
+  boqItemId?: string;
   boqRef?: string;
+  costCodeId?: string;
+  costCode?: string;
   department?: string;
   warehouseId: string;
   warehouseName: string;
@@ -136,6 +143,10 @@ export interface DbMaterialIssue {
 }
 
 export interface DbMaterialIssueItem {
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   id: string;
   issueId: string;
   materialId: string;
@@ -1978,8 +1989,12 @@ export class InventoryRepository {
     issueNumber?: string;
     projectId?: string;
     projectName?: string;
+    wbsId?: string;
     wbsCode?: string;
+    boqItemId?: string;
     boqRef?: string;
+    costCodeId?: string;
+    costCode?: string;
     department?: string;
     warehouseId: string;
     warehouseName?: string;
@@ -2017,6 +2032,30 @@ export class InventoryRepository {
 
     const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
     if (!project) throw new Error('Project not found or inactive.');
+
+    const wbsId = String(data.wbsId || '').trim();
+    const boqItemId = String(data.boqItemId || '').trim();
+    const costCodeId = String(data.costCodeId || '').trim();
+    const costCode = String(data.costCode || '').trim();
+
+    if (wbsId) {
+      const [wbs] = await db.select().from(projectWbs).where(and(eq(projectWbs.id, wbsId), eq(projectWbs.projectId, projectId))).limit(1);
+      if (!wbs) throw new Error('WBS reference does not belong to the selected project.');
+    }
+
+    if (boqItemId) {
+      const [boq] = await db.select().from(boqItems).where(and(eq(boqItems.id, boqItemId), eq(boqItems.projectId, projectId))).limit(1);
+      if (!boq) throw new Error('BOQ item reference does not belong to the selected project.');
+      if (wbsId && boq.wbsId !== wbsId) throw new Error('Selected BOQ item does not belong to the selected WBS.');
+    }
+
+    if (costCodeId) {
+      const [codeRow] = await db.select().from(costCodes).where(and(eq(costCodes.id, costCodeId), eq(costCodes.isActive, true))).limit(1);
+      if (!codeRow) throw new Error('Cost code reference was not found or is inactive.');
+      if (codeRow.projectId && codeRow.projectId !== projectId) throw new Error('Cost code does not belong to the selected project.');
+      if (wbsId && codeRow.wbsId && codeRow.wbsId !== wbsId) throw new Error('Cost code does not belong to the selected WBS.');
+    }
+
     const companyId = String(project.companyId || '').trim();
     if (!companyId) throw new Error('Project company context is required for inventory numbering.');
 
@@ -2043,6 +2082,10 @@ export class InventoryRepository {
           materialId: item.materialId,
           materialCode: item.materialCode || mat?.itemCode || 'MAT-ITEM',
           materialName: item.materialName || mat?.name || 'Material',
+          wbsId: (item as any).wbsId || wbsId || null,
+          boqItemId: (item as any).boqItemId || boqItemId || null,
+          costCodeId: (item as any).costCodeId || costCodeId || null,
+          costCode: (item as any).costCode || costCode || null,
           requestedQty: Number(item.requestedQty || 0),
           issuedQty,
           unitPrice,
@@ -2083,8 +2126,12 @@ export class InventoryRepository {
         issueNumber: issueNum,
         projectId,
         projectName: project.projectName,
+        wbsId: wbsId || '',
         wbsCode: data.wbsCode || '',
+        boqItemId: boqItemId || '',
         boqRef: data.boqRef || '',
+        costCodeId: costCodeId || '',
+        costCode: costCode || '',
         department: data.department || 'Site Construction',
         warehouseId: data.warehouseId,
         warehouseName: whName,

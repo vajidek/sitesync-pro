@@ -238,11 +238,18 @@ export class WorkflowPolicyEngineService {
         };
       }
     } catch (err) {
-      console.warn(`Could not load custom workflow for ${workflowCode}, applying safe default policy:`, err);
+      if (!isDemoSeedAllowed()) {
+        throw new Error(`Workflow configuration '${workflowCode}' could not be loaded. Configure and publish the workflow before processing this transaction.`);
+      }
+      console.warn(`Could not load custom workflow for ${workflowCode}, applying DEMO fallback policy:`, err);
     }
 
-    // Default Fallback Policy for unconfigured or new transaction types
-    return this.getDefaultPolicyForCode(workflowCode);
+    // DEMO-only fallback. UAT/PRODUCTION must use persisted workflow configuration.
+    if (isDemoSeedAllowed()) {
+      return this.getDefaultPolicyForCode(workflowCode);
+    }
+
+    throw new Error(`Workflow configuration '${workflowCode}' is not configured.`);
   }
 
   /**

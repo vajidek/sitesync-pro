@@ -361,11 +361,24 @@ export class ProcurementController {
 
   createGrn = async (req: Request, res: Response) => {
     try {
-      const grn = await this.service.createGrn(req.body);
+      const user = (req as any).user;
+      const actorName = String(user?.name || user?.fullName || user?.email || '').trim();
+      const actorId = String(user?.id || user?.userId || '').trim();
+      if (!actorName || !actorId) {
+        return res.status(401).json({ success: false, message: 'Authenticated GRN receiver identity is required.' });
+      }
+      const payload = {
+        ...req.body,
+        inspectedByName: actorName,
+        inspectedById: actorId,
+      };
+      const grn = await this.service.createGrn(payload);
       logger.info(`[Procurement Controller] Registered GRN ${grn.grnNumber} for PO ${grn.poNumber}`);
       res.status(201).json({
         success: true,
-        message: `GRN ${grn.grnNumber} created. Store inventory stock successfully incremented!`,
+        message: grn.stockUpdated
+          ? `GRN ${grn.grnNumber} created and approved quantities posted to stock.`
+          : `GRN ${grn.grnNumber} created and held pending quality approval.`,
         data: grn,
       });
     } catch (err: any) {

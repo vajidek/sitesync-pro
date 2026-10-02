@@ -7297,10 +7297,7 @@ export const phase69VendorQuotationItems = pgTable('phase69_vendor_quotation_ite
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
 
-CREATE INDEX IF NOT EXISTS idx_p69_quote_items_quote ON phase69_vendor_quotation_items(quotation_id);
-CREATE INDEX IF NOT EXISTS idx_p69_quote_items_rfq_item ON phase69_vendor_quotation_items(rfq_item_id);
-CREATE INDEX IF NOT EXISTS idx_p69_quote_items_boq ON phase69_vendor_quotation_items(boq_item_id);
-CREATE INDEX IF NOT EXISTS idx_p69_quote_items_wbs ON phase69_vendor_quotation_items(wbs_id);
+
 
 // 386. Quote Comparison
 export const phase69QuoteComparison = pgTable('phase69_quote_comparison', {

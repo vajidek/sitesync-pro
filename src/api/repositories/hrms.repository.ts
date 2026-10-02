@@ -652,6 +652,52 @@ export class HrmsRepository {
     return rec;
   }
 
+  public async verifyAttendanceRecord(
+    attendanceId: string,
+    actor: { userId: string; userName: string },
+    decision: 'VERIFY' | 'REJECT',
+    reason: string
+  ): Promise<any | null> {
+    await this.ensureHrmsTablesExist();
+    const id = String(attendanceId || '').trim();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    const verificationReason = String(reason || '').trim();
+    if (!id || !actorId || !actorName) throw new Error('Attendance record and authenticated verifier identity are required.');
+    if (!verificationReason) throw new Error('A reason is mandatory for attendance verification/rejection.');
+
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(phase70Attendance).where(eq(phase70Attendance.id, id)).limit(1);
+      if (!existing) return null;
+      if (String(existing.createdBy || '').trim().toLowerCase() === actorName.toLowerCase()) {
+        throw new Error('Maker-checker violation: attendance creator cannot verify or reject the same attendance record.');
+      }
+      if (existing.isVerified) {
+        throw new Error('Attendance record is already verified and cannot be re-verified without an explicit revision workflow.');
+      }
+
+      const nextStatus = decision === 'VERIFY' ? existing.status : 'REJECTED';
+      const [updated] = await tx.update(phase70Attendance).set({
+        isVerified: decision === 'VERIFY',
+        verifiedBy: actorName,
+        status: nextStatus,
+        remarks: [existing.remarks, `[Verification] ${verificationReason}`].filter(Boolean).join(' | '),
+        updatedAt: new Date().toISOString(),
+      } as any).where(eq(phase70Attendance.id, id)).returning();
+      if (!updated) return null;
+
+      await this.recordAuditLog({
+        actionType: decision === 'VERIFY' ? 'ATTENDANCE_VERIFIED' : 'ATTENDANCE_REJECTED',
+        entityType: 'ATTENDANCE_RECORD',
+        entityId: id,
+        referenceNumber: existing.employeeCode + ':' + existing.attendanceDate,
+        performedBy: actorName,
+        detailsJson: JSON.stringify({ actorId, employeeId: existing.employeeId, employeeCode: existing.employeeCode, attendanceDate: existing.attendanceDate, decision, reason: verificationReason }),
+      }, tx);
+
+      return updated;
+    });
+  }
   public async syncEsslBiometric(deviceId: string, punches: any[]): Promise<any> {
     await this.ensureHrmsTablesExist();
     const now = new Date().toISOString();
@@ -2248,11 +2294,12 @@ export class HrmsRepository {
     referenceNumber: string;
     performedBy: string;
     detailsJson?: string;
-  }): Promise<any> {
+  }, externalTx?: any): Promise<any> {
     const id = uuidv4();
     const now = new Date().toISOString();
     try {
-      const [log] = await db.insert(phase70HrAuditLogs).values({
+      const tx = externalTx || db;
+      const [log] = await tx.insert(phase70HrAuditLogs).values({
         id,
         actionType: data.actionType,
         entityType: data.entityType,

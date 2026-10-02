@@ -274,7 +274,7 @@ export class FinanceRepository {
       .orderBy(desc(phase60JournalEntries.createdAt));
   }
 
-  async createJournalEntry(entryData: any, lines: any[]) {
+  async createJournalEntry(entryData: any, lines: any[], externalTx?: any) {
     await ensureFinanceTablesExist();
 
     const referenceNumber = entryData.referenceNumber?.trim() || null;
@@ -300,7 +300,7 @@ export class FinanceRepository {
       throw new Error('Double-entry imbalance: total debit ' + totalDebit.toFixed(2) + ' must equal total credit ' + totalCredit.toFixed(2) + '.');
     }
 
-    return await db.transaction(async (tx) => {
+    const post = async (tx: any) => {
       if (referenceNumber) {
         const existingRows = await tx.select().from(phase60JournalEntries).where(and(
           eq(phase60JournalEntries.referenceNumber, referenceNumber),
@@ -359,7 +359,9 @@ export class FinanceRepository {
       await tx.insert(phase60JournalLines).values(lineObjects);
       await tx.insert(phase60GeneralLedger).values(glObjects);
       return { ...newJournal, lines: lineObjects };
-    });
+    };
+
+    return externalTx ? post(externalTx) : db.transaction(post);
   }
   async findGeneralLedger() {
     await ensureFinanceTablesExist();

@@ -121,6 +121,7 @@ const getLiveMetricForKpi = (label: string, live?: any): string | null => {
   if (normalized.includes('progress') || normalized.includes('completion')) return live.avgProgressPercent !== undefined ? Number(live.avgProgressPercent) + '%' : null;
   if (normalized.includes('vendor')) return live.activeVendorsCount !== undefined ? Number(live.activeVendorsCount) + ' Active' : null;
   if (normalized.includes('project')) return live.totalProjects !== undefined ? Number(live.totalProjects) + ' Projects' : null;
+  if (normalized.includes('availability')) return null;
   if (normalized.includes('fleet') || normalized.includes('machinery')) return live.totalFleetCount !== undefined ? Number(live.totalFleetCount) + ' Assets' : null;
   if (normalized.includes('requisition') || /\bpr\b/.test(normalized)) return live.pendingPRsCount !== undefined ? Number(live.pendingPRsCount) + ' Pending' : null;
   if (normalized.includes('workforce') || normalized.includes('employee') || normalized.includes('labour') || normalized.includes('labor')) return live.activeEmployeesCount !== undefined ? Number(live.activeEmployeesCount) + ' Employees' : null;

@@ -290,10 +290,16 @@ export class WorkflowController {
   public updateWorkflowPolicy = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { codeOrEntity } = req.params;
+      const actorId = String(req.user?.id || '').trim();
+      const actorName = String(req.user?.name || '').trim();
+      if (!actorId || !actorName) {
+        return sendError(res, 'Authenticated workflow policy administrator identity is required', 401);
+      }
       const updated = await workflowPolicyEngine.updateWorkflowPolicy(
         codeOrEntity,
         req.body,
-        req.user?.name || 'System Administrator'
+        actorName,
+        actorId
       );
       return sendSuccess(res, updated, 'Workflow governance policy updated successfully');
     } catch (err: any) {

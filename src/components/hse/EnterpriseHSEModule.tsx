@@ -274,13 +274,13 @@ export const EnterpriseHSEModule: React.FC = () => {
         setShowNewRiskModal(false);
         setNewRiskForm({
           activityName: '',
-          departmentOrSite: 'Site Operations Sector 1',
+          departmentOrSite: '',
           hazardDescription: '',
           severity: 3,
           likelihood: 3,
           existingControls: '',
           additionalControls: '',
-          assessedBy: 'Senior HSE Engineer',
+          assessedBy: '',
         });
         fetchHSEData();
       }

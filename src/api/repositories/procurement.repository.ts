@@ -73,6 +73,7 @@ import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter
 import { INITIAL_RA_BILLS } from '../../data/procurementMockData';
 import { enterpriseAuditRepository } from './enterprise_audit.repository';
 import { universalWorkflowBindingService } from '../services/universal_workflow_binding.service';
+import { financeRepository } from './finance.repository';
 
 // Re-export table definitions for any module importing from repository
 export {
@@ -4146,6 +4147,56 @@ export class ProcurementRepository {
     const targetStatus = String(updates.status || '').trim() as RABillStatus;
     if (!actorId || !actorName || !actorRole) throw new Error('Authenticated billing workflow actor identity is required.');
     if (!targetStatus) throw new Error('RA Bill target status is required.');
+
+    const [financeBill] = await db.select().from(procurementRaBillsTable)
+      .where(eq(procurementRaBillsTable.id, id)).limit(1);
+    if (!financeBill) return null;
+
+    const financeNetPayable = Number((financeBill as any).financials?.netPayableCurrentUSD || 0);
+    if (targetStatus === 'Approved by Project Director' && financeNetPayable > 0) {
+      await financeRepository.createAPInvoice({
+        invoiceNumber: financeBill.billNumber,
+        vendorId: (financeBill as any).contractorId || null,
+        vendorName: financeBill.contractorName,
+        projectId: financeBill.projectId,
+        projectName: financeBill.projectName,
+        totalAmount: financeNetPayable,
+        taxAmount: Number((financeBill as any).financials?.totalDeductionsUSD || 0),
+        createdBy: actorName,
+        updatedBy: actorName,
+      });
+    }
+
+    if (targetStatus === 'Disbursed / Paid') {
+      const paymentAmount = financeNetPayable;
+      if (paymentAmount <= 0) throw new Error('A positive net payable amount is required before RA Bill disbursement.');
+
+      // A disbursement must be recorded in the GL before the bill can become paid.
+      // The reference combines the immutable bill number and bank UTR, making retries idempotent.
+      await financeRepository.createJournalEntry({
+        voucherType: 'RA_BILL_PAYMENT',
+        postingDate: new Date().toISOString().split('T')[0],
+        referenceNumber: financeBill.billNumber + ':' + paymentReference,
+        narration: 'RA Bill settlement for ' + financeBill.billNumber + ' via bank reference ' + paymentReference,
+        postedBy: actorName,
+        createdBy: actorName,
+      }, [
+        {
+          accountCode: '2010',
+          accountName: 'Accounts Payable Control - Trade Creditors',
+          debitAmount: paymentAmount,
+          creditAmount: 0,
+          lineDescription: 'Settlement of RA Bill ' + financeBill.billNumber,
+        },
+        {
+          accountCode: '1010',
+          accountName: 'Cash & Bank Operating',
+          debitAmount: 0,
+          creditAmount: paymentAmount,
+          lineDescription: 'Bank payment for RA Bill ' + financeBill.billNumber + ' / ' + paymentReference,
+        },
+      ]);
+    }
 
     return await db.transaction(async (tx) => {
       const rows = await tx.select().from(procurementRaBillsTable)

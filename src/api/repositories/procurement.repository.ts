@@ -4221,47 +4221,6 @@ export class ProcurementRepository {
         throw new Error('Contractual immutability violation: a paid RA Bill cannot be modified.');
       }
 
-      const allowedTransitions: Record<string, RABillStatus[]> = {
-        Draft: ['Submitted', 'Rejected'],
-        Submitted: ['Under Technical Scrutiny', 'Rejected', 'Draft'],
-        'Under Technical Scrutiny': ['Certified by QS', 'Rejected', 'Draft'],
-        'Certified by QS': ['Approved by Incharge', 'Rejected'],
-        'Approved by Incharge': ['Approved by Project Director', 'Rejected'],
-        'Approved by Project Director': ['Disbursed / Paid', 'Rejected'],
-        'Disbursed / Paid': [],
-        Rejected: ['Draft', 'Submitted'],
-      };
-      if (!allowedTransitions[existing.status]?.includes(targetStatus)) {
-        throw new Error(`Invalid RA Bill status transition from '${existing.status}' to '${targetStatus}'.`);
-      }
-
-      const creator = String(existing.auditTrail?.[0]?.performedBy || existing.contractorRepresentative || '').trim().toLowerCase();
-      const normalizedActor = actorName.toLowerCase();
-      const previousVerifier = String(existing.qsVerifier || '').trim().toLowerCase();
-      const previousIncharge = String(existing.siteEngineer || '').trim().toLowerCase();
-      const previousDirector = String(existing.projectDirector || '').trim().toLowerCase();
-
-      if (creator && normalizedActor === creator) {
-        throw new Error('Maker-checker violation: RA Bill creator cannot perform a later control/approval action on the same bill.');
-      }
-      if (targetStatus === 'Approved by Incharge' && previousVerifier && normalizedActor === previousVerifier) {
-        throw new Error('Maker-checker violation: QS verifier cannot approve the same RA Bill at Incharge stage.');
-      }
-      if (targetStatus === 'Approved by Project Director' && (normalizedActor === previousVerifier || normalizedActor === previousIncharge)) {
-        throw new Error('Maker-checker violation: prior workflow actor cannot approve the same RA Bill at Project Director stage.');
-      }
-      if (targetStatus === 'Disbursed / Paid' && (normalizedActor === previousVerifier || normalizedActor === previousIncharge || normalizedActor === previousDirector)) {
-        throw new Error('Maker-checker violation: prior certification/approval actor cannot disburse the same RA Bill.');
-      }
-
-      const paymentReference = updates.paymentReferenceNumber?.trim() || '';
-      if (targetStatus === 'Disbursed / Paid') {
-        if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
-        const duplicate = await tx.select().from(procurementRaBillsTable);
-        const duplicateUtr = duplicate.find((bill: any) => bill.id !== id && String(bill.paymentReferenceNumber || '').trim().toLowerCase() === paymentReference.toLowerCase());
-        if (duplicateUtr) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered on bill ${duplicateUtr.billNumber}.`);
-      }
-
       const now = new Date().toISOString();
       const nextQs = targetStatus === 'Certified by QS' ? actorName : existing.qsVerifier;
       const nextIncharge = targetStatus === 'Approved by Incharge' ? actorName : existing.siteEngineer;

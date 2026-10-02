@@ -40,9 +40,12 @@ export class HSEService {
   }
 
   public async createRiskAssessment(data: any) {
-    // Calculate Risk Score & Category
-    const severity = Number(data.severity) || 3;
-    const likelihood = Number(data.likelihood) || 3;
+    // Calculate Risk Score & Category from explicit assessed values only.
+    const severity = Number(data.severity);
+    const likelihood = Number(data.likelihood);
+    if (!Number.isFinite(severity) || severity < 1 || severity > 5 || !Number.isFinite(likelihood) || likelihood < 1 || likelihood > 5) {
+      throw new Error('Risk severity and likelihood (1–5) must be explicitly supplied.');
+    }
     const riskScore = severity * likelihood;
 
     let riskCategory = 'MODERATE';

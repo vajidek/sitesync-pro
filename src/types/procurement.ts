@@ -164,6 +164,10 @@ export interface PurchaseRequisition {
 export type POStatus = 'Draft' | 'Submitted' | 'Approved' | 'Issued' | 'Partially Received' | 'Completed' | 'Cancelled';
 
 export interface POItem {
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   id: string;
   itemCode: string;
   description: string;
@@ -191,6 +195,10 @@ export interface PurchaseOrder {
   vendorGstin: string;
   projectId: string;
   projectName: string;
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   siteAddress: string;
   poDate: string;
   deliveryDueDate: string;

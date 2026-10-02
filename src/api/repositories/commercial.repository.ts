@@ -1079,9 +1079,5 @@ export class CommercialRepository {
     return updated ? this.mapIPC(updated) : null;
   }
 }
- 
-export const commercialRepository
-
-}
 
 export const commercialRepository = CommercialRepository.getInstance();

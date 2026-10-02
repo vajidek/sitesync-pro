@@ -70,10 +70,10 @@ router.get('/work-orders/:workOrderId/billable-measurements', procurementControl
 router.get('/projects/:projectId/billable-measurements', procurementController.getBillableMeasurements);
 router.get(['/measurement-book', '/measurements'], procurementController.getMeasurementEntries);
 router.post(['/measurement-book', '/measurements'], procurementController.createMeasurementEntry);
-router.put('/measurement-book/:id/status', procurementController.updateMeasurementStatus);
-router.patch('/measurement-book/:id/status', procurementController.updateMeasurementStatus);
-router.put('/measurements/:id/status', procurementController.updateMeasurementStatus);
-router.patch('/measurements/:id/status', procurementController.updateMeasurementStatus);
+router.put('/measurement-book/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);
+router.patch('/measurement-book/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);
+router.put('/measurements/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);
+router.patch('/measurements/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);
 
 // ==========================================
 // 10. TENDER MANAGEMENT ENDPOINTS

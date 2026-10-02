@@ -1574,7 +1574,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
             )}
           </div>
         </div>
-      )})}
+      )}
     </div>
   );
 };

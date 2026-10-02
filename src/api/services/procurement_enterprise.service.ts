@@ -20,7 +20,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getVendorById(id);
   }
 
-  public async registerVendor(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async registerVendor(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createVendor(data, createdBy);
   }
 
@@ -33,7 +33,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getRfqs();
   }
 
-  public async createRfq(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async createRfq(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createRfq(data, createdBy);
   }
 
@@ -41,7 +41,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getQuotations(rfqId);
   }
 
-  public async submitQuotation(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async submitQuotation(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createQuotation(data, createdBy);
   }
 
@@ -50,7 +50,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getPurchaseRequisitions();
   }
 
-  public async createPurchaseRequisition(data: any, createdBy: string = 'Project Engineer'): Promise<any> {
+  public async createPurchaseRequisition(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createPurchaseRequisition(data, createdBy);
   }
 
@@ -58,7 +58,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getPurchaseOrders();
   }
 
-  public async issuePurchaseOrder(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async issuePurchaseOrder(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createPurchaseOrder(data, createdBy);
   }
 
@@ -67,11 +67,11 @@ export class ProcurementEnterpriseService {
     return this.repository.getContracts();
   }
 
-  public async createContract(data: any, createdBy: string = 'Contracts Admin'): Promise<any> {
+  public async createContract(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createContract(data, createdBy);
   }
 
-  public async createVariationOrder(data: any, createdBy: string = 'Contracts Admin'): Promise<any> {
+  public async createVariationOrder(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createVariationOrder(data, createdBy);
   }
 
@@ -80,7 +80,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getGoodsReceipts();
   }
 
-  public async createGoodsReceipt(data: any, createdBy: string = 'Store Keeper'): Promise<any> {
+  public async createGoodsReceipt(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createGoodsReceipt(data, createdBy);
   }
 

@@ -38,12 +38,19 @@ import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.tele
 import { v4 as uuidv4 } from 'uuid';
 import { financeRepository } from './finance.repository';
 import { enterpriseAuditService } from '../services/enterprise_audit.service';
+import { isDemoSeedAllowed } from '../config/env';
 
 export class ProcurementEnterpriseRepository {
   private static isTablesEnsured = false;
 
   public async ensureProcurementTablesExist(): Promise<void> {
     if (ProcurementEnterpriseRepository.isTablesEnsured) return;
+
+    // Enterprise procurement seed fixtures are DEMO-only. UAT/PRODUCTION must use controlled master provisioning.
+    if (!isDemoSeedAllowed()) {
+      ProcurementEnterpriseRepository.isTablesEnsured = true;
+      return;
+    }
 
     try {
       await this.seedInitialProcurementData();

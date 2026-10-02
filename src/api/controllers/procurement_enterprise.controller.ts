@@ -1,5 +1,15 @@
 import { Request, Response } from 'express';
 import { ProcurementEnterpriseService } from '../services/procurement_enterprise.service';
+function requireActor(req: Request, res: Response): { id?: string; name: string } | null {
+  const user = (req as any).user;
+  const name = String(user?.fullName || user?.name || user?.email || '').trim();
+  if (!user || !name) {
+    res.status(401).json({ success: false, message: 'Authenticated actor context is required.' });
+    return null;
+  }
+  return { id: user.id, name };
+}
+
 
 export class ProcurementEnterpriseController {
   private service: ProcurementEnterpriseService;
@@ -48,8 +58,9 @@ export class ProcurementEnterpriseController {
 
   public registerVendor = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Procurement Admin';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const vendor = await this.service.registerVendor(req.body, createdBy);
       res.status(201).json({ success: true, data: vendor, message: 'Vendor registered successfully' });
     } catch (error: any) {
@@ -79,8 +90,9 @@ export class ProcurementEnterpriseController {
 
   public createRfq = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Procurement Admin';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const rfq = await this.service.createRfq(req.body, createdBy);
       res.status(201).json({ success: true, data: rfq, message: 'RFQ issued successfully' });
     } catch (error: any) {
@@ -100,8 +112,9 @@ export class ProcurementEnterpriseController {
 
   public submitQuotation = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Procurement Admin';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const quote = await this.service.submitQuotation(req.body, createdBy);
       res.status(201).json({ success: true, data: quote, message: 'Vendor quotation submitted successfully' });
     } catch (error: any) {
@@ -121,8 +134,9 @@ export class ProcurementEnterpriseController {
 
   public createPurchaseRequisition = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Project Engineer';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const pr = await this.service.createPurchaseRequisition(req.body, createdBy);
       res.status(201).json({ success: true, data: pr, message: 'Purchase requisition created successfully' });
     } catch (error: any) {
@@ -141,8 +155,9 @@ export class ProcurementEnterpriseController {
 
   public issuePurchaseOrder = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Procurement Admin';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const po = await this.service.issuePurchaseOrder(req.body, createdBy);
       res.status(201).json({ success: true, data: po, message: 'Purchase order issued successfully' });
     } catch (error: any) {
@@ -162,8 +177,9 @@ export class ProcurementEnterpriseController {
 
   public createContract = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Contracts Admin';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const contract = await this.service.createContract(req.body, createdBy);
       res.status(201).json({ success: true, data: contract, message: 'Contract registered successfully' });
     } catch (error: any) {
@@ -173,8 +189,9 @@ export class ProcurementEnterpriseController {
 
   public createVariationOrder = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Contracts Admin';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const vo = await this.service.createVariationOrder(req.body, createdBy);
       res.status(201).json({ success: true, data: vo, message: 'Variation order approved successfully' });
     } catch (error: any) {
@@ -194,8 +211,9 @@ export class ProcurementEnterpriseController {
 
   public createGoodsReceipt = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
-      const createdBy = user?.fullName || user?.email || 'Store Keeper';
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const createdBy = actor.name;
       const grn = await this.service.createGoodsReceipt(req.body, createdBy);
       res.status(201).json({ success: true, data: grn, message: 'Goods receipt note (GRN) created successfully' });
     } catch (error: any) {

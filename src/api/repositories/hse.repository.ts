@@ -23,6 +23,11 @@ import {
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 
+function requireFields(data: any, fields: string[], context: string): void {
+  const missing = fields.filter((field) => data?.[field] === undefined || data?.[field] === null || String(data[field]).trim() === '');
+  if (missing.length) throw new Error(`${context} requires: ${missing.join(', ')}.`);
+}
+
 export class HSERepository {
   private static isTablesEnsured = false;
 
@@ -419,6 +424,7 @@ export class HSERepository {
 
   // Create Operations
   public async createIncident(data: any) {
+    requireFields(data, ['title','incidentType','severity','location','incidentDate','description','reportedBy'], 'Incident');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -453,6 +459,7 @@ export class HSERepository {
   }
 
   public async createNearMiss(data: any) {
+    requireFields(data, ['title','category','location','reportedDate','potentialSeverity','description','reportedBy'], 'Near miss');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -479,6 +486,7 @@ export class HSERepository {
   }
 
   public async createHazardReport(data: any) {
+    requireFields(data, ['location','hazardType','riskLevel','description','reportedBy'], 'Hazard report');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -505,6 +513,7 @@ export class HSERepository {
   }
 
   public async createRiskAssessment(data: any) {
+    requireFields(data, ['activityName','departmentOrSite','hazardDescription','severity','likelihood','residualSeverity','residualLikelihood','assessedBy'], 'Risk assessment');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -551,6 +560,7 @@ export class HSERepository {
   }
 
   public async createJsa(data: any) {
+    requireFields(data, ['jobTitle','location','supervisorName','jsaDate','jobSteps'], 'JSA');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -577,6 +587,7 @@ export class HSERepository {
   }
 
   public async createWorkPermit(data: any) {
+    requireFields(data, ['permitType','location','description','contractorName','supervisorName','issueDateTime','expiryDateTime'], 'Work permit');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -606,6 +617,7 @@ export class HSERepository {
   }
 
   public async createPpeIssuance(data: any) {
+    requireFields(data, ['employeeId','employeeName','department','ppeItem','quantity','issuedBy'], 'PPE issuance');
     await this.ensureHSETablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();

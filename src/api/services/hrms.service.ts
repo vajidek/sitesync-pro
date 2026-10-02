@@ -98,8 +98,8 @@ export class HrmsService {
     return this.repo.applyLeave(data);
   }
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approver?: string) {
-    return this.repo.reviewLeave(id, status, remarks, approver);
+  public async reviewLeave(id: string, status: string, remarks: string | undefined, approver: string, approverId: string) {
+    return this.repo.reviewLeave(id, status, remarks, approver, approverId);
   }
 
   // Holidays

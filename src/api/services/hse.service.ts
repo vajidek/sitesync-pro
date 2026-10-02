@@ -83,6 +83,14 @@ export class HSEService {
     return this.repo.createWorkPermit(data);
   }
 
+  public async reviewWorkPermit(
+    id: string,
+    decision: 'APPROVED' | 'SUSPENDED' | 'CLOSED',
+    actor: { userId: string; userName: string }
+  ) {
+    return this.repo.reviewWorkPermit(id, decision, actor);
+  }
+
   // Safety Inspections
   public async getSafetyInspections() {
     return this.repo.getSafetyInspections();

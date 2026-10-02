@@ -10,23 +10,24 @@ import {
   Truck,
   Users,
   Database,
-  Droplets
+  Droplets,
+  Menu
 } from 'lucide-react';
 
 interface MobileNavProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
+  onOpenMenu?: () => void;
 }
 
-export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, setActiveTab }) => {
+export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, setActiveTab, onOpenMenu }) => {
   const device = useDeviceProfile();
 
   const tabs: { id: NavTab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Overview', icon: <LayoutDashboard className="w-5 h-5" /> },
-    { id: 'waterInfrastructure', label: 'Utilities', icon: <Droplets className="w-5 h-5 text-cyan-400" /> },
     { id: 'projects', label: 'Projects', icon: <Building2 className="w-5 h-5" /> },
-    { id: 'fleet', label: 'Fleet', icon: <Truck className="w-5 h-5" /> },
-    { id: 'admin', label: 'Admin', icon: <ShieldCheck className="w-5 h-5" /> },
+    { id: 'workorders', label: 'Work', icon: <ClipboardCheck className="w-5 h-5" /> },
+    { id: 'inventory', label: 'Store', icon: <Boxes className="w-5 h-5" /> },
   ];
 
   const isLandscapePhone = device.isLandscapePhone;
@@ -67,6 +68,21 @@ export const MobileNav: React.FC<MobileNavProps> = ({ activeTab, setActiveTab })
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          className="flex-1 min-w-0 flex flex-col items-center justify-center rounded-lg transition duration-150 text-center text-slate-400 hover:text-slate-200"
+          aria-label="Open all modules"
+        >
+          <div className="flex items-center justify-center">
+            <Menu className="w-5 h-5" />
+          </div>
+          {!isLandscapePhone && (
+            <span className="text-[9px] tracking-tight mt-0.5 font-medium truncate w-full text-center">
+              More
+            </span>
+          )}
+        </button>
       </div>
     </nav>
   );

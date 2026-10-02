@@ -55,8 +55,10 @@ export class DocumentController {
 
   async createFolder(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = createFolderSchema.parse(req.body);
-      const folder = await documentService.createFolder(validated);
+      const folder = await documentService.createFolder({ ...validated, createdBy: user });
       res.status(201).json({ success: true, data: folder });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -65,8 +67,10 @@ export class DocumentController {
 
   async updateFolder(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = updateFolderSchema.parse(req.body);
-      const folder = await documentService.updateFolder(req.params.id, validated);
+      const folder = await documentService.updateFolder(req.params.id, { ...validated, updatedBy: user });
       res.json({ success: true, data: folder });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -75,7 +79,9 @@ export class DocumentController {
 
   async deleteFolder(req: Request, res: Response) {
     try {
-      await documentService.deleteFolder(req.params.id);
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
+      await documentService.deleteFolder(req.params.id, user);
       res.json({ success: true, message: 'Folder deleted successfully' });
     } catch (e: any) {
       res.status(500).json({ success: false, message: e.message });

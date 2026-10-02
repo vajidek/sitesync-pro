@@ -38,16 +38,16 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
   // Form state
   const [vendorId, setVendorId] = useState(vendors[0]?.id || '');
   const [projectId, setProjectId] = useState(projects[0]?.id || '');
-  const [siteAddress, setSiteAddress] = useState('Pier P14 Site Store, Thane');
+  const [siteAddress, setSiteAddress] = useState('');
   const [deliveryDueDate, setDeliveryDueDate] = useState('');
-  const [paymentTerms, setPaymentTerms] = useState('Net 30 Days from GRN clearance');
-  const [freightTerms, setFreightTerms] = useState('FOR Destination Site Store');
-  const [itemCode, setItemCode] = useState('INV-STL-001');
-  const [itemDesc, setItemDesc] = useState('IS 2062 Grade E250 Steel Plates 25mm');
-  const [unit, setUnit] = useState('MT');
-  const [quantity, setQuantity] = useState(45);
-  const [unitPrice, setUnitPrice] = useState(910);
-  const [gstPercent, setGstPercent] = useState(18);
+  const [paymentTerms, setPaymentTerms] = useState('');
+  const [freightTerms, setFreightTerms] = useState('');
+  const [itemCode, setItemCode] = useState('');
+  const [itemDesc, setItemDesc] = useState('');
+  const [unit, setUnit] = useState('PCS');
+  const [quantity, setQuantity] = useState(0);
+  const [unitPrice, setUnitPrice] = useState(0);
+  const [gstPercent, setGstPercent] = useState(0);
 
   const filteredPos = purchaseOrders.filter((po) => {
     const matchesSearch = 
@@ -64,6 +64,8 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
     const proj = projects.find(p => p.id === projectId);
     if (!vendor || !proj) return;
 
+    if (!itemCode.trim() || !itemDesc.trim() || Number(quantity) <= 0 || Number(unitPrice) < 0 || Number(gstPercent) < 0) return;
+
     const subtotal = Number(quantity) * Number(unitPrice);
     const gstUSD = subtotal * (Number(gstPercent) / 100);
     const netAmount = subtotal + gstUSD;
@@ -76,7 +78,7 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
       projectId: proj.id,
       projectName: proj.name,
       siteAddress,
-      deliveryDueDate: deliveryDueDate || '2026-08-25',
+      deliveryDueDate,
       paymentTerms,
       freightTerms,
       subtotalUSD: subtotal,
@@ -84,11 +86,9 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
       gstUSD: gstUSD,
       freightUSD: 0,
       netAmountUSD: netAmount,
-      status: 'Issued',
-      approvalStatus: 'Approved',
-      issuedByName: 'Abdul Vajid EK',
-      approvedByName: 'Abdul Vajid EK',
-      termsAndConditions: '1. Test certificates required.\n2. Inspection required prior to unloading.',
+      status: 'Draft',
+      approvalStatus: 'Pending Approval',
+      termsAndConditions: '',
       items: [
         {
           id: `poi_${Date.now()}`,

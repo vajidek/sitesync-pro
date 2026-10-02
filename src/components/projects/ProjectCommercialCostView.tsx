@@ -570,7 +570,7 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
               </div>
 
               <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/40 text-[11px] text-blue-800 dark:text-blue-300">
-                <strong>Project Health Verdict:</strong> {kpis.cpi >= 1.0 && kpis.spi >= 1.0 ? 'On Track & Under Budget' : kpis.cpi >= 1.0 ? 'Cost Controlled, Monitor Schedule' : 'Cost Overrun Risk Detected — Review Subcontractor Billings'}
+                <strong>Project Health Verdict:</strong> {!cpiAvailable || !spiAvailable ? 'Insufficient source data for a complete EVM health statement' : kpis.cpi! >= 1.0 && kpis.spi! >= 1.0 ? 'EVM indicators available: cost and schedule indices are above 1.00' : kpis.cpi! >= 1.0 ? 'EVM indicates cost performance above 1.00; schedule index requires attention' : 'EVM indicates cost performance below 1.00; review source transactions and forecast'}
               </div>
             </div>
           </div>

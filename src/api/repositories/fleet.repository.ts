@@ -1391,30 +1391,69 @@ class FleetRepository {
   async createFuelLog(data: Partial<FuelLog>): Promise<FuelLog> {
     await ensureFleetSeeded();
 
-    const qty = Number(data.quantityLiters) || 0;
-    const price = Number(data.unitPrice) || 92.5;
-    const total = qty * price;
+    const assetId = String(data.assetId || '').trim();
+    const assetType = String(data.assetType || '').trim().toUpperCase();
+    const filledById = String(data.filledById || '').trim();
+    const filledByName = String(data.filledByName || '').trim();
+    const projectId = String(data.projectId || '').trim();
+    const wbsId = String((data as any).wbsId || '').trim();
+    const boqItemId = String((data as any).boqItemId || '').trim();
+    const costCodeId = String((data as any).costCodeId || '').trim();
+    const costCode = String((data as any).costCode || '').trim();
 
+    const qty = Number(data.quantityLiters);
+    const price = Number(data.unitPrice);
+    if (!assetId || !['VEHICLE', 'EQUIPMENT'].includes(assetType) || !filledById || !filledByName || !projectId) {
+      throw new Error('Asset, asset type, project and authenticated fuel-entry identity are required.');
+    }
+    if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
+      throw new Error('Fuel quantity and unit price must be positive numbers.');
+    }
+
+    const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+    if (!project) throw new Error('Project not found or inactive.');
+
+    if (wbsId) {
+      const [wbs] = await db.select().from(projectWbs).where(and(eq(projectWbs.id, wbsId), eq(projectWbs.projectId, projectId))).limit(1);
+      if (!wbs) throw new Error('WBS reference does not belong to the selected project.');
+    }
+    if (boqItemId) {
+      const [boq] = await db.select().from(boqItems).where(and(eq(boqItems.id, boqItemId), eq(boqItems.projectId, projectId))).limit(1);
+      if (!boq) throw new Error('BOQ item reference does not belong to the selected project.');
+      if (wbsId && boq.wbsId !== wbsId) throw new Error('Selected BOQ item does not belong to the selected WBS.');
+    }
+    if (costCodeId) {
+      const [codeRow] = await db.select().from(costCodes).where(and(eq(costCodes.id, costCodeId), eq(costCodes.isActive, true))).limit(1);
+      if (!codeRow) throw new Error('Cost code reference was not found or is inactive.');
+      if (codeRow.projectId && codeRow.projectId !== projectId) throw new Error('Cost code does not belong to the selected project.');
+      if (wbsId && codeRow.wbsId && codeRow.wbsId !== wbsId) throw new Error('Cost code does not belong to the selected WBS.');
+    }
+
+    const total = qty * price;
     const log: FuelLog = {
       id: data.id || `fuel-${Math.random().toString(36).substring(2, 8)}`,
       fuelLogCode: data.fuelLogCode || `FL-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      assetType: data.assetType || 'VEHICLE',
-      assetId: data.assetId || 'veh-101',
-      assetName: data.assetName || 'Vehicle',
-      assetCode: data.assetCode || 'REG-001',
+      assetType,
+      assetId,
+      assetName: data.assetName,
+      assetCode: data.assetCode,
       quantityLiters: qty,
       unitPrice: price,
       totalCost: total,
-      fuelStation: data.fuelStation || 'Site Fuel Bowser',
-      odometerReadingKm: data.odometerReadingKm ? Number(data.odometerReadingKm) : undefined,
-      runningHours: data.runningHours ? Number(data.runningHours) : undefined,
-      mileageCalculated: data.mileageCalculated ? Number(data.mileageCalculated) : (data.assetType === 'VEHICLE' ? 3.1 : 15.0),
-      projectId: data.projectId,
-      projectName: data.projectName,
+      fuelStation: data.fuelStation,
+      odometerReadingKm: data.odometerReadingKm == null ? undefined : Number(data.odometerReadingKm),
+      runningHours: data.runningHours == null ? undefined : Number(data.runningHours),
+      mileageCalculated: data.mileageCalculated == null ? undefined : Number(data.mileageCalculated),
+      projectId,
+      projectName: data.projectName || project.projectName,
+      wbsId: wbsId || undefined,
+      boqItemId: boqItemId || undefined,
+      costCodeId: costCodeId || undefined,
+      costCode: costCode || undefined,
       siteId: data.siteId,
       siteName: data.siteName,
-      filledById: data.filledById,
-      filledByName: data.filledByName || 'Site Storekeeper',
+      filledById,
+      filledByName,
       fillDate: data.fillDate || new Date().toISOString().split('T')[0],
       remarks: data.remarks || '',
       createdAt: new Date().toISOString(),
@@ -1422,14 +1461,13 @@ class FleetRepository {
 
     await db.insert(fleetFuelLogsTable).values(log as any).onConflictDoNothing();
 
-    // Update vehicle odometer or equipment running hours if provided
-    if (data.assetType === 'VEHICLE' && data.odometerReadingKm) {
-      const v = await this.getVehicleById(data.assetId || 'veh-101');
+    if (assetType === 'VEHICLE' && data.odometerReadingKm != null) {
+      const v = await this.getVehicleById(assetId);
       if (v && Number(data.odometerReadingKm) > v.currentOdometerKm) {
         await this.updateVehicle(v.id, { currentOdometerKm: Number(data.odometerReadingKm) });
       }
-    } else if (data.assetType === 'EQUIPMENT' && data.runningHours) {
-      const rows = await db.select().from(fleetEquipmentTable).where(eq(fleetEquipmentTable.id, data.assetId || 'eqp-301')).limit(1);
+    } else if (assetType === 'EQUIPMENT' && data.runningHours != null) {
+      const rows = await db.select().from(fleetEquipmentTable).where(eq(fleetEquipmentTable.id, assetId)).limit(1);
       if (rows.length > 0) {
         const e = rows[0] as unknown as Equipment;
         if (Number(data.runningHours) > e.runningHours) {
@@ -1440,7 +1478,6 @@ class FleetRepository {
 
     return log;
   }
-
   // ====================================================
   // TRIP LOG METHODS
   // ====================================================

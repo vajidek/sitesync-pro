@@ -68,6 +68,7 @@ import {
   warehouses,
   stocks,
   sites,
+  commercialSubcontracts,
 } from '../../db/schema';
 import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';

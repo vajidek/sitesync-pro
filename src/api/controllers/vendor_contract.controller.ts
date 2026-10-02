@@ -129,7 +129,8 @@ export class VendorContractController {
     try {
       const validated = createContractSchema.parse(req.body);
       const user = (req as any).user;
-      const createdBy = user?.name || user?.email || 'Contracts Manager';
+      const createdBy = String(user?.name || user?.email || '').trim();
+      if (!createdBy) throw new Error('Authenticated creator identity is required.');
       const contract = await service.createContract(validated, createdBy);
       return res.status(201).json({ success: true, message: 'Contract created successfully', data: contract });
     } catch (error: any) {
@@ -142,7 +143,9 @@ export class VendorContractController {
       const { id } = req.params;
       const { status, notes } = req.body;
       const user = (req as any).user;
-      const updatedBy = user?.name || user?.email || 'Contracts Director';
+      const updatedBy = String(user?.name || user?.email || '').trim();
+      if (!updatedBy) throw new Error('Authenticated actor identity is required.');
+      if (!status) throw new Error('Contract status is required.');
       const updated = await service.updateContractStatus(id, status, updatedBy, notes);
       return res.status(200).json({ success: true, message: `Contract status changed to ${status}`, data: updated });
     } catch (error: any) {
@@ -163,8 +166,9 @@ export class VendorContractController {
     try {
       const validated = createContractVariationSchema.parse(req.body);
       const user = (req as any).user;
-      const approvedBy = user?.name || 'Project Director';
-      const variation = await service.addContractVariation(validated, approvedBy);
+      const createdBy = String(user?.name || user?.email || '').trim();
+      if (!createdBy) throw new Error('Authenticated creator identity is required.');
+      const variation = await service.addContractVariation(validated, createdBy);
       return res.status(201).json({ success: true, message: 'Contract variation order added', data: variation });
     } catch (error: any) {
       return res.status(400).json({ success: false, message: error.message });
@@ -175,7 +179,8 @@ export class VendorContractController {
     try {
       const validated = createContractPaymentSchema.parse(req.body);
       const user = (req as any).user;
-      const certifiedBy = user?.name || 'Senior Quantity Surveyor';
+      const certifiedBy = String(user?.name || user?.email || '').trim();
+      if (!certifiedBy) throw new Error('Authenticated certifier identity is required.');
       const payment = await service.addContractPayment(validated, certifiedBy);
       return res.status(201).json({ success: true, message: 'Interim payment certificate generated', data: payment });
     } catch (error: any) {
@@ -187,9 +192,38 @@ export class VendorContractController {
     try {
       const validated = createContractExtensionSchema.parse(req.body);
       const user = (req as any).user;
-      const approvedBy = user?.name || 'Contracts Executive Director';
-      const extension = await service.addContractExtension(validated, approvedBy);
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) throw new Error('Authenticated actor identity is required.');
+      const extension = await service.addContractExtension(validated, actor);
       return res.status(201).json({ success: true, message: 'Contract extension granted', data: extension });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async approveVariation(req: Request, res: Response) {
+    try {
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) throw new Error('Authenticated approver identity is required.');
+      const status = req.body?.action === 'REJECT' ? 'REJECTED' : 'APPROVED';
+      const result = await service.updateContractVariationStatus(req.params.id, status, actor, req.body?.comments);
+      if (!result) return res.status(404).json({ success: false, message: 'Contract variation not found' });
+      return res.status(200).json({ success: true, message: `Contract variation ${status.toLowerCase()} successfully`, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async decideExtension(req: Request, res: Response) {
+    try {
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) throw new Error('Authenticated approver identity is required.');
+      const status = req.body?.action === 'REJECT' ? 'REJECTED' : 'APPROVED';
+      const result = await service.updateContractExtensionStatus(req.params.id, status, actor, req.body?.comments);
+      if (!result) return res.status(404).json({ success: false, message: 'Contract extension request not found' });
+      return res.status(200).json({ success: true, message: `Contract extension ${status.toLowerCase()} successfully`, data: result });
     } catch (error: any) {
       return res.status(400).json({ success: false, message: error.message });
     }

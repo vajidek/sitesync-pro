@@ -206,7 +206,7 @@ export class AutomationsRepository {
         },
         {
           id: 'ntf-002',
-          recipientUserId: 'usr-admin',
+          recipientUserId: 'SYSTEM_DEMO_RECIPIENT',
           templateId: 'tpl-inv-reorder',
           title: 'Warehouse Alert: Low Stock for Rebar Fe500',
           message: 'Structural Steel Rebar in Metro Site Central Yard fell below threshold. Current: 12 Tons.',

@@ -56,15 +56,15 @@ export const EnterpriseHRMSModule: React.FC = () => {
 
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<any>({
-    totalEmployees: 5,
-    activeEmployees: 5,
-    departmentsCount: 6,
-    pendingLeaveRequests: 1,
-    openJobVacancies: 2,
-    totalMonthlyPayrollAed: 80980,
-    totalLoanDisbursedAed: 18000,
-    attendanceRatePercent: 97.4,
-    retentionRatePercent: 96.8,
+    totalEmployees: 0,
+    activeEmployees: 0,
+    departmentsCount: 0,
+    pendingLeaveRequests: 0,
+    openJobVacancies: 0,
+    totalMonthlyPayrollAed: 0,
+    totalLoanDisbursedAed: 0,
+    attendanceRatePercent: 0,
+    retentionRatePercent: 0,
   });
 
   const [employees, setEmployees] = useState<any[]>([]);
@@ -95,31 +95,31 @@ export const EnterpriseHRMSModule: React.FC = () => {
     lastName: '',
     email: '',
     phone: '',
-    dateOfBirth: '1990-01-01',
-    joiningDate: '2026-08-01',
-    departmentId: 'dept-eng',
-    designationId: 'desig-site-eng',
-    grade: 'L4',
-    gender: 'MALE',
-    workLocation: 'Abu Dhabi HQ',
+    dateOfBirth: '',
+    joiningDate: '',
+    departmentId: '',
+    designationId: '',
+    grade: '',
+    gender: '',
+    workLocation: '',
     biometricId: '',
   });
 
   const [newLeave, setNewLeave] = useState({
     employeeId: '',
-    leaveTypeId: 'lt-annual',
-    startDate: '2026-09-01',
-    endDate: '2026-09-05',
-    totalDays: 5,
+    leaveTypeId: '',
+    startDate: '',
+    endDate: '',
+    totalDays: 0,
     reason: '',
   });
 
   const [newLoan, setNewLoan] = useState({
     employeeId: '',
-    loanType: 'PERSONAL',
-    principalAmountAed: 15000,
+    loanType: '',
+    principalAmountAed: 0,
     interestRate: 0,
-    tenureMonths: 12,
+    tenureMonths: 0,
   });
 
   // Statutory Rules & Maker-Checker State (P2.11)
@@ -207,6 +207,10 @@ export const EnterpriseHRMSModule: React.FC = () => {
 
   const handleCreateEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newEmployee.firstName.trim() || !newEmployee.lastName.trim() || !newEmployee.email.trim() || !newEmployee.phone.trim() || !newEmployee.dateOfBirth || !newEmployee.joiningDate || !newEmployee.departmentId || !newEmployee.designationId || !newEmployee.gender || !newEmployee.workLocation.trim()) {
+      setMakerCheckerMessage({ type: 'error', text: 'Complete the required employee master fields before saving.' });
+      return;
+    }
     try {
       const res = await fetch('/api/hrms/employees', {
         method: 'POST',
@@ -225,6 +229,10 @@ export const EnterpriseHRMSModule: React.FC = () => {
 
   const handleApplyLeave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newLeave.employeeId || !newLeave.leaveTypeId || !newLeave.startDate || !newLeave.endDate || newLeave.totalDays <= 0 || !newLeave.reason.trim()) {
+      setMakerCheckerMessage({ type: 'error', text: 'Complete employee, leave type, period, duration and reason before submitting leave.' });
+      return;
+    }
     try {
       const res = await fetch('/api/hrms/leaves', {
         method: 'POST',
@@ -246,7 +254,7 @@ export const EnterpriseHRMSModule: React.FC = () => {
       await fetch(`/api/hrms/leaves/${id}/review`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, remarks: `Reviewed by HR Executive on ${new Date().toISOString().split('T')[0]}` }),
+        body: JSON.stringify({ status, remarks: '' }),
       });
       fetchHrmsData();
     } catch (err) {
@@ -256,6 +264,10 @@ export const EnterpriseHRMSModule: React.FC = () => {
 
   const handleCreateLoan = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newLoan.employeeId || !newLoan.loanType || newLoan.principalAmountAed <= 0 || newLoan.tenureMonths <= 0) {
+      setMakerCheckerMessage({ type: 'error', text: 'Complete employee, loan type, principal amount and tenure before submitting a loan request.' });
+      return;
+    }
     try {
       const res = await fetch('/api/hrms/loans', {
         method: 'POST',
@@ -278,7 +290,7 @@ export const EnterpriseHRMSModule: React.FC = () => {
       await fetch('/api/hrms/attendance/sync-essl', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId: 'ESSL-DX-901' }),
+        body: JSON.stringify({ deviceId: '' }),
       });
       setIsSyncEsslOpen(false);
       fetchHrmsData();

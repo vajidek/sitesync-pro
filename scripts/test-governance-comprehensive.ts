@@ -335,7 +335,7 @@ async function runComprehensiveGovernanceVerification() {
   const updatedPolicy = await workflowPolicyEngine.updateWorkflowPolicy('WF-GOV-12', {
     workflowName: 'Versioned Workflow',
     slaHours: 48,
-  }, 'Security Auditor');
+  }, 'Security Auditor', 'usr-auditor-01');
   assert(updatedPolicy.version === v1 + 1, 'Policy Versioning: Policy version is monotonically incremented on update');
 
   // -------------------------------------------------------------
@@ -345,7 +345,7 @@ async function runComprehensiveGovernanceVerification() {
     entityType: 'WF-GOV-04',
     entityId: 'ENT-HIST-101',
     instance: { id: 'ENT-HIST-101', status: 'IN_PROGRESS', requesterName: engineer.name, createdAt: '2026-08-25T10:00:00Z' },
-  }, 'usr-auditor-01');
+  });
   assert(histChain.steps.length >= 2, 'Historical instance preservation: Workflow steps rendered accurately without data loss');
 
   // -------------------------------------------------------------

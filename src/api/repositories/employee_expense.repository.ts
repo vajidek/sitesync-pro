@@ -1045,7 +1045,7 @@ export class EmployeeExpenseRepository {
       paymentMethod: paymentData.paymentMethod,
       paymentReference: paymentData.paymentReference,
       paymentDate: now.split('T')[0],
-      amountPaid: journalAmount,
+      amountPaid: amount,
       journalVoucherNumber: jvNumber,
       paidBy: paymentData.paidByName,
     };

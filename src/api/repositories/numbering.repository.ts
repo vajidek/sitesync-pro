@@ -4,6 +4,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export type DocumentEntityType =
+  | 'EMPLOYEE'
   | 'PURCHASE_ORDER'
   | 'GOODS_RECEIPT'
   | 'MATERIAL_ISSUE'
@@ -92,6 +93,19 @@ export interface AllocationResult {
  * Standard System Default Policies
  */
 export const DEFAULT_NUMBERING_POLICIES: Record<string, Omit<DocumentNumberingPolicy, 'id' | 'createdAt' | 'updatedAt'>> = {
+  EMPLOYEE: {
+    entityType: 'EMPLOYEE',
+    scopeType: 'COMPANY',
+    prefix: 'EMP',
+    formatPattern: '{PREFIX}-{FY}-{SEQ}',
+    padLength: 4,
+    step: 1,
+    resetFrequency: 'YEARLY',
+    fiscalYearStartMonth: 1,
+    allowManualOverride: true,
+    description: 'Standard employee master numbering policy',
+    isActive: true,
+  },
   PURCHASE_ORDER: {
     entityType: 'PURCHASE_ORDER',
     scopeType: 'COMPANY',

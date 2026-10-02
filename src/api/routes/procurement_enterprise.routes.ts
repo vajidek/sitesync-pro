@@ -24,46 +24,46 @@ router.get('/dashboard', controller.getDashboardStats);
 // Vendors
 router.get('/vendors', controller.getVendors);
 router.get('/vendors/:id', controller.getVendorById);
-router.post('/vendors', controller.registerVendor);
-router.put('/vendors/:id', controller.updateVendor);
+router.post('/vendors', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.registerVendor);
+router.put('/vendors/:id', requireRoles('ADMIN', 'MANAGER'), controller.updateVendor);
 
 // RFQ & Quotations
 router.get('/rfq', controller.getRfqs);
 router.get('/rfqs', controller.getRfqs);
-router.post('/rfq', controller.createRfq);
-router.post('/rfqs', controller.createRfq);
+router.post('/rfq', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createRfq);
+router.post('/rfqs', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createRfq);
 router.get('/quotations', controller.getQuotations);
-router.post('/quotations', controller.submitQuotation);
+router.post('/quotations', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.submitQuotation);
 
 // Purchase Requisitions
 router.get('/pr', controller.getPurchaseRequisitions);
 router.get('/purchase-requisitions', controller.getPurchaseRequisitions);
-router.post('/pr', controller.createPurchaseRequisition);
-router.post('/purchase-requisitions', controller.createPurchaseRequisition);
+router.post('/pr', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR', 'STORE_KEEPER'), controller.createPurchaseRequisition);
+router.post('/purchase-requisitions', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR', 'STORE_KEEPER'), controller.createPurchaseRequisition);
 
 // Purchase Orders
 router.get('/po', controller.getPurchaseOrders);
 router.get('/purchase-orders', controller.getPurchaseOrders);
-router.post('/po', controller.issuePurchaseOrder);
-router.post('/purchase-orders', controller.issuePurchaseOrder);
+router.post('/po', requireRoles('ADMIN', 'MANAGER'), controller.issuePurchaseOrder);
+router.post('/purchase-orders', requireRoles('ADMIN', 'MANAGER'), controller.issuePurchaseOrder);
 
 // Contracts & Variation Orders
 router.get('/contracts', controller.getContracts);
-router.post('/contracts', controller.createContract);
-router.post('/variations', controller.createVariationOrder);
-router.post('/contracts/variations', controller.createVariationOrder);
+router.post('/contracts', requireRoles('ADMIN', 'MANAGER'), controller.createContract);
+router.post('/variations', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createVariationOrder);
+router.post('/contracts/variations', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createVariationOrder);
 
 // Goods Receipts (GRN)
 router.get('/grn', controller.getGoodsReceipts);
 router.get('/goods-receipts', controller.getGoodsReceipts);
-router.post('/grn', controller.createGoodsReceipt);
-router.post('/goods-receipts', controller.createGoodsReceipt);
+router.post('/grn', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), controller.createGoodsReceipt);
+router.post('/goods-receipts', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), controller.createGoodsReceipt);
 
 // 3-Way Matching
 router.get('/three-way-matching', controller.getThreeWayMatches);
 router.get('/matching', controller.getThreeWayMatches);
-router.post('/three-way-matching', controller.reconcileThreeWayMatch);
-router.post('/matching', controller.reconcileThreeWayMatch);
+router.post('/three-way-matching', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reconcileThreeWayMatch);
+router.post('/matching', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reconcileThreeWayMatch);
 
 // Scorecards & Guarantees
 router.get('/scorecards', controller.getSupplierScorecards);

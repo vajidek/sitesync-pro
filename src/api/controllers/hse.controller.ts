@@ -147,7 +147,7 @@ export class HSEController {
         createdBy: actor.userName,
         updatedBy: actor.userName,
         assessedBy: actor.userName,
-        status: 'ACTIVE',
+        status: 'PENDING_APPROVAL',
       });
       res.status(201).json({ success: true, data: result });
     } catch (err: any) {
@@ -178,6 +178,46 @@ export class HSEController {
         approvedBy: undefined,
       });
       res.status(201).json({ success: true, data: result });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
+  public reviewRiskAssessment = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const decision = String(req.body?.decision || '').trim().toUpperCase() as 'ACTIVE' | 'REJECTED';
+      if (!['ACTIVE', 'REJECTED'].includes(decision)) {
+        res.status(400).json({ success: false, message: 'Invalid risk assessment decision.' });
+        return;
+      }
+      const result = await this.service.reviewRiskAssessment(String(req.params.id), decision, actor);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Risk assessment not found.' });
+        return;
+      }
+      res.json({ success: true, data: result });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
+  public reviewJsa = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const decision = String(req.body?.decision || '').trim().toUpperCase() as 'APPROVED' | 'REJECTED';
+      if (!['APPROVED', 'REJECTED'].includes(decision)) {
+        res.status(400).json({ success: false, message: 'Invalid JSA decision.' });
+        return;
+      }
+      const result = await this.service.reviewJsa(String(req.params.id), decision, actor);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'JSA not found.' });
+        return;
+      }
+      res.json({ success: true, data: result });
     } catch (err: any) {
       res.status(400).json({ success: false, message: err.message });
     }

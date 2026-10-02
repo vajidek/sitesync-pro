@@ -176,18 +176,18 @@ leaveRouter.patch('/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'S
 export const recruitmentRouter = Router();
 recruitmentRouter.use(authenticateJWT);
 recruitmentRouter.get('/', controller.getRecruitments);
-recruitmentRouter.post('/', controller.createRecruitment);
+recruitmentRouter.post('/', requireRoles('ADMIN', 'MANAGER'), controller.createRecruitment);
 recruitmentRouter.get('/candidates', controller.getCandidates);
-recruitmentRouter.post('/candidates', controller.createCandidate);
+recruitmentRouter.post('/candidates', requireRoles('ADMIN', 'MANAGER'), controller.createCandidate);
 
 export const trainingRouter = Router();
 trainingRouter.use(authenticateJWT);
 trainingRouter.get('/', controller.getTrainingPrograms);
-trainingRouter.post('/', controller.createTrainingProgram);
+trainingRouter.post('/', requireRoles('ADMIN', 'MANAGER'), controller.createTrainingProgram);
 
 export const performanceRouter = Router();
 performanceRouter.use(authenticateJWT);
 performanceRouter.get('/', controller.getPerformanceReviews);
-performanceRouter.post('/', controller.createPerformanceReview);
+performanceRouter.post('/', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createPerformanceReview);
 
 export default router;

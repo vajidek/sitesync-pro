@@ -50,6 +50,13 @@
       "when": 1790899200004,
       "tag": "0006_vendor_quotation_item_lineage",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790899200005,
+      "tag": "0007_po_quote_item_reference",
+      "breakpoints": true
     }
   ]
 }

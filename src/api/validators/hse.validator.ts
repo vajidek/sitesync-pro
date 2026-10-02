@@ -18,7 +18,7 @@ export const CreateIncidentSchema = z.object({
   preventiveAction: z.string().optional(),
   status: z.literal('REPORTED').optional(),
   investigatorName: z.string().optional(),
-  reportedBy: z.string().min(2, 'Reporter is required'),
+  reportedBy: z.string().optional(),
 });
 
 export const CreateNearMissSchema = z.object({
@@ -58,7 +58,7 @@ export const CreateRiskAssessmentSchema = z.object({
   additionalControls: z.string().optional(),
   residualSeverity: z.number().int().min(1).max(5),
   residualLikelihood: z.number().int().min(1).max(5),
-  assessedBy: z.string().min(2, 'Assessor is required'),
+  assessedBy: z.string().optional(),
   reviewDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   status: z.literal('PENDING_APPROVAL').optional(),
 });

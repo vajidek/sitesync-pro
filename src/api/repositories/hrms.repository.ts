@@ -933,7 +933,7 @@ export class HrmsRepository {
       detailsJson: JSON.stringify({ actorId, employeeId: employee.id, leaveTypeId: leaveType.id, startDate, endDate, totalDays: requestedDays }),
     });
     return app;
-  },
+   }
 
 
 

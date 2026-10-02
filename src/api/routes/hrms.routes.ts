@@ -100,7 +100,7 @@ router.get('/loans', requireRoles('ADMIN', 'MANAGER'), controller.getLoans);
 router.post('/loans', controller.createLoan);
 router.post('/loans/:id/approve', requireRoles('ADMIN', 'MANAGER'), controller.approveLoan);
 router.get('/loans/recoveries', requireRoles('ADMIN', 'MANAGER'), controller.getLoanRecoveries);
-router.post('/loans/simulate', controller.simulateLoanRecovery);
+router.post('/loans/simulate', requireRoles('ADMIN', 'MANAGER'), controller.simulateLoanRecovery);
 
 // Appraisals & Performance
 router.get('/performance-reviews', controller.getPerformanceReviews);

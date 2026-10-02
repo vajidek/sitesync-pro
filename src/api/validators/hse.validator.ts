@@ -24,26 +24,26 @@ export const CreateIncidentSchema = z.object({
 export const CreateNearMissSchema = z.object({
   nearMissNumber: z.string().optional(),
   title: z.string().min(3, 'Title is required'),
-  category: z.string().default('UNSAFE_ACT'),
+  category: z.string().min(1, 'Near miss category is required'),
   location: z.string().min(2, 'Location is required'),
   reportedDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  potentialSeverity: z.string().default('MEDIUM'),
+  potentialSeverity: z.string().min(1, 'Potential severity is required'),
   description: z.string().min(5, 'Description is required'),
   preventiveAction: z.string().optional(),
-  status: z.string().default('OPEN'),
+  status: z.literal('OPEN').optional(),
   reportedBy: z.string().min(2, 'Reporter is required'),
 });
 
 export const CreateHazardReportSchema = z.object({
   hazardNumber: z.string().optional(),
   location: z.string().min(2, 'Location is required'),
-  hazardType: z.string().default('PHYSICAL'),
-  riskLevel: z.string().default('MEDIUM'),
+  hazardType: z.string().min(1, 'Hazard type is required'),
+  riskLevel: z.string().min(1, 'Risk level is required'),
   description: z.string().min(5, 'Description is required'),
   recommendedAction: z.string().optional(),
   assignedTo: z.string().optional(),
   dueDate: z.string().optional(),
-  status: z.string().default('IDENTIFIED'),
+  status: z.literal('IDENTIFIED').optional(),
   reportedBy: z.string().min(2, 'Reporter is required'),
 });
 
@@ -52,15 +52,15 @@ export const CreateRiskAssessmentSchema = z.object({
   activityName: z.string().min(3, 'Activity name is required'),
   departmentOrSite: z.string().min(2, 'Department or Site is required'),
   hazardDescription: z.string().min(5, 'Hazard description is required'),
-  severity: z.number().min(1).max(5).default(3),
-  likelihood: z.number().min(1).max(5).default(3),
+  severity: z.number().int().min(1).max(5),
+  likelihood: z.number().int().min(1).max(5),
   existingControls: z.string().optional(),
   additionalControls: z.string().optional(),
-  residualSeverity: z.number().min(1).max(5).optional(),
-  residualLikelihood: z.number().min(1).max(5).optional(),
+  residualSeverity: z.number().int().min(1).max(5),
+  residualLikelihood: z.number().int().min(1).max(5),
   assessedBy: z.string().min(2, 'Assessor is required'),
   reviewDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  status: z.string().default('ACTIVE'),
+  status: z.literal('ACTIVE').optional(),
 });
 
 export const CreateJsaSchema = z.object({
@@ -70,7 +70,7 @@ export const CreateJsaSchema = z.object({
   supervisorName: z.string().min(2, 'Supervisor name is required'),
   jsaDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   jobSteps: z.string().min(5, 'Job steps are required'),
-  requiredPpe: z.string().default('Safety Helmet, Shoes, High-Vis Vest, Safety Glasses'),
+  requiredPpe: z.string().min(2, 'Required PPE must be specified'),
   permitRequired: z.boolean().default(false),
   status: z.string().default('DRAFT'),
   approvedBy: z.string().optional(),
@@ -82,10 +82,10 @@ export const CreateToolboxTalkSchema = z.object({
   conductedBy: z.string().min(2, 'Conducted by is required'),
   location: z.string().min(2, 'Location is required'),
   talkDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  attendeesCount: z.number().default(10),
+  attendeesCount: z.number().int().nonnegative('Attendee count is required'),
   keyPoints: z.string().min(5, 'Key points are required'),
   attendeesList: z.string().optional(),
-  status: z.string().default('COMPLETED'),
+  status: z.literal('COMPLETED').optional(),
 });
 
 export const CreateWorkPermitSchema = z.object({
@@ -120,11 +120,11 @@ export const CreateSafetyInspectionSchema = z.object({
   location: z.string().min(2, 'Location is required'),
   inspectorName: z.string().min(2, 'Inspector name is required'),
   inspectionDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  totalItemsChecked: z.number().int().min(0).default(0),
-  compliantItems: z.number().int().min(0).default(0),
-  nonCompliantItems: z.number().int().min(0).default(0),
+  totalItemsChecked: z.number().int().positive('Total inspected items are required'),
+  compliantItems: z.number().int().nonnegative(),
+  nonCompliantItems: z.number().int().nonnegative(),
   findings: z.string().optional(),
-  status: z.string().default('ACTION_REQUIRED'),
+  status: z.enum(['PASSED','PASSED_WITH_OBSERVATIONS','ACTION_REQUIRED','FAILED']).optional(),
 });
 
 export const CreatePpeIssuanceSchema = z.object({
@@ -133,7 +133,7 @@ export const CreatePpeIssuanceSchema = z.object({
   employeeName: z.string().min(2, 'Employee Name is required'),
   department: z.string().default('SITE_OPERATIONS'),
   ppeItem: z.string().min(2, 'PPE Item is required'),
-  quantity: z.number().default(1),
+  quantity: z.number().int().positive('Quantity must be greater than zero'),
   issueDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   expiryDate: z.string().optional(),
   condition: z.string().default('NEW'),
@@ -145,10 +145,10 @@ export const CreateTrainingRecordSchema = z.object({
   courseName: z.string().min(3, 'Course Name is required'),
   trainerName: z.string().min(2, 'Trainer Name is required'),
   trainingDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  validityMonths: z.number().default(12),
-  participantsCount: z.number().default(1),
+  validityMonths: z.number().int().positive('Validity period must be specified'),
+  participantsCount: z.number().int().positive('Participant count must be specified'),
   participantsList: z.string().optional(),
-  status: z.string().default('VALID'),
+  status: z.literal('VALID').optional(),
 });
 
 export const CreateEmergencyDrillSchema = z.object({
@@ -156,8 +156,8 @@ export const CreateEmergencyDrillSchema = z.object({
   drillType: z.string().default('FIRE_EVACUATION'),
   location: z.string().min(2, 'Location is required'),
   drillDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  evacuationTimeSeconds: z.number().default(180),
-  participantsCount: z.number().default(45),
+  evacuationTimeSeconds: z.number().positive('Evacuation time is required'),
+  participantsCount: z.number().int().positive('Participant count is required'),
   observerName: z.string().min(2, 'Observer Name is required'),
   performanceRating: z.string().default('SATISFACTORY'),
   recommendations: z.string().optional(),
@@ -173,10 +173,10 @@ export const CreateFireEquipmentSchema = z.object({
     d.setMonth(d.getMonth() + 6);
     return d.toISOString().split('T')[0];
   }),
-  pressureStatus: z.string().default('NORMAL'),
-  physicalCondition: z.string().default('GOOD'),
-  inspectorName: z.string().default('Safety Inspector'),
-  status: z.string().default('OPERATIONAL'),
+  pressureStatus: z.string().min(1, 'Pressure status is required'),
+  physicalCondition: z.string().min(1, 'Physical condition is required'),
+  inspectorName: z.string().min(2, 'Inspector name is required'),
+  status: z.string().min(1, 'Equipment status is required'),
 });
 
 export const CreateEnvironmentMonitoringSchema = z.object({
@@ -187,7 +187,7 @@ export const CreateEnvironmentMonitoringSchema = z.object({
   unit: z.string().default('dBA'),
   permissibleLimit: z.number(),
   monitoringDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  monitoredBy: z.string().default('Environmental Officer'),
+  monitoredBy: z.string().min(2, 'Monitoring officer is required'),
 });
 
 export const CreateWasteManagementSchema = z.object({

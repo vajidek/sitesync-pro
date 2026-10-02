@@ -151,8 +151,28 @@ export class HrController {
 
   async punchAttendance(req: Request, res: Response) {
     try {
+      const user = (req as any).user;
+      const actorId = String(user?.id || user?.userId || '').trim();
+      const actorEmployeeId = String(user?.employeeId || user?.employeeCode || '').trim();
+      const role = String(user?.role || '').toUpperCase();
       const { employeeId, type, location, remarks } = req.body;
-      const result = await hrService.punchAttendance({ employeeId, type, location, remarks });
+      const requestedEmployeeId = String(employeeId || '').trim();
+
+      if (!actorId || !requestedEmployeeId || !type) {
+        return res.status(400).json({ success: false, message: 'Authenticated employee context, employeeId and punch type are required.' });
+      }
+
+      const privileged = ['ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'].includes(role);
+      if (!privileged && requestedEmployeeId !== actorId && requestedEmployeeId !== actorEmployeeId) {
+        return res.status(403).json({ success: false, message: 'You can only record attendance for your own employee context.' });
+      }
+
+      const result = await hrService.punchAttendance({
+        employeeId: requestedEmployeeId,
+        type,
+        location,
+        remarks,
+      });
 
       if (!result) {
         return res.status(404).json({ success: false, message: 'Employee not found' });

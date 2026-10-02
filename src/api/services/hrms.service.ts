@@ -40,12 +40,12 @@ export class HrmsService {
     return this.repo.getEmployeeById(id);
   }
 
-  public async createEmployee(data: any) {
-    return this.repo.createEmployee(data);
+  public async createEmployee(data: any, actor: { userId: string; userName: string }) {
+    return this.repo.createEmployee(data, actor);
   }
 
-  public async updateEmployee(id: string, data: any) {
-    return this.repo.updateEmployee(id, data);
+  public async updateEmployee(id: string, data: any, actor: { userId: string; userName: string }) {
+    return this.repo.updateEmployee(id, data, actor);
   }
 
   // Attendance & Biometrics
@@ -98,8 +98,8 @@ export class HrmsService {
     return this.repo.applyLeave(data);
   }
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approver?: string) {
-    return this.repo.reviewLeave(id, status, remarks, approver);
+  public async reviewLeave(id: string, status: string, remarks: string | undefined, actor: { userId: string; userName: string }) {
+    return this.repo.reviewLeave(id, status, remarks, actor);
   }
 
   // Holidays
@@ -112,8 +112,8 @@ export class HrmsService {
     return this.repo.getSalaryStructures();
   }
 
-  public async createSalaryStructure(data: any) {
-    return this.repo.createSalaryStructure(data);
+  public async createSalaryStructure(data: any, actor: { userId: string; userName: string }) {
+    return this.repo.createSalaryStructure(data, actor);
   }
 
   public async getPayrollPeriods() {
@@ -195,8 +195,8 @@ export class HrmsService {
     return this.repo.getLoans();
   }
 
-  public async applyLoan(data: any) {
-    return this.repo.createLoan(data);
+  public async applyLoan(data: any, actor: { userId: string; userName: string; role?: string }) {
+    return this.repo.createLoan(data, actor);
   }
 
   public async approveLoan(loanId: string, actor: { userId: string; userName: string }, remarks?: string) {

@@ -1,5 +1,5 @@
 import { db } from '../../db/index';
-import { sql, eq, desc, and } from 'drizzle-orm';
+import { sql, eq, desc, and, or } from 'drizzle-orm';
 import { enterpriseAuditRepository } from './enterprise_audit.repository';
 import {
   phase70Departments,
@@ -54,6 +54,7 @@ import {
   hrBiometricRawPunches,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
+import { numberingService } from '../services/numbering.service';
 import { createHash } from 'node:crypto';
 import { statutoryEngineService } from '../services/statutoryEngine.service';
 import { currencyRepository } from './currency.repository';
@@ -540,42 +541,113 @@ export class HrmsRepository {
     return emp || null;
   }
 
-  public async createEmployee(data: any): Promise<any> {
+  public async createEmployee(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated HR actor identity is required.');
+
+    const required = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'joiningDate', 'departmentId', 'designationId', 'workLocation'];
+    for (const field of required) {
+      if (!String(data?.[field] || '').trim()) throw new Error(`${field} is required for employee onboarding.`);
+    }
+    const normalizedEmail = String(data.email).trim().toLowerCase();
+    const duplicate = await db.select({ id: phase70EmployeeMaster.id })
+      .from(phase70EmployeeMaster)
+      .where(or(eq(phase70EmployeeMaster.email, normalizedEmail), eq(phase70EmployeeMaster.phone, String(data.phone).trim())))
+      .limit(1);
+    if (duplicate.length) throw new Error('Employee email or phone is already registered.');
+
+    if (!data?.companyId && !isDemoSeedAllowed()) {
+      throw new Error('Company context is required for employee master numbering outside DEMO mode.');
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const code = data.employeeCode || `EMP-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const code = String(data.employeeCode || '').trim() || await numberingService.generateEmployeeNumber({
+      companyId: data.companyId || null,
+      branchId: data.branchId || null,
+      date: data.joiningDate || now,
+      allocatedBy: actorName,
+    });
+
     const [emp] = await db.insert(phase70EmployeeMaster).values({
       id,
-      ...data,
-      employeeCode: code,
+      firstName: String(data.firstName).trim(),
+      lastName: String(data.lastName).trim(),
+      email: normalizedEmail,
+      phone: String(data.phone).trim(),
+      gender: String(data.gender || 'OTHER').trim().toUpperCase(),
+      dateOfBirth: String(data.dateOfBirth).trim(),
+      nationalId: data.nationalId || null,
+      passportNumber: data.passportNumber || null,
+      visaStatus: data.visaStatus || 'EMPLOYMENT_RESIDENCE',
+      joiningDate: String(data.joiningDate).trim(),
+      departmentId: String(data.departmentId).trim(),
+      designationId: String(data.designationId).trim(),
+      reportingManagerId: data.reportingManagerId || null,
+      employmentType: data.employmentType || 'FULL_TIME',
+      workLocation: String(data.workLocation).trim(),
+      projectId: data.projectId || null,
+      employmentStatus: data.employmentStatus || 'ACTIVE',
+      biometricId: data.biometricId || null,
+      grade: String(data.grade || '').trim() || 'UNASSIGNED',
+      noticePeriodDays: Number.isFinite(Number(data.noticePeriodDays)) ? Number(data.noticePeriodDays) : 30,
+      probationEndDate: data.probationEndDate || null,
       createdAt: now,
       updatedAt: now,
+      createdBy: actorName,
+      updatedBy: actorName,
+      employeeCode: code,
+      isDeleted: false,
     }).returning();
+    if (!emp) throw new Error('Employee onboarding failed.');
 
-    // Audit log
     await this.recordAuditLog({
       actionType: 'EMPLOYEE_ONBOARD',
       entityType: 'EMPLOYEE',
       entityId: id,
       referenceNumber: code,
-      performedBy: 'HR Admin',
-      detailsJson: JSON.stringify({ name: `${data.firstName} ${data.lastName}`, designation: data.designationId }),
+      performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, name: `${data.firstName} ${data.lastName}`, departmentId: data.departmentId, designationId: data.designationId }),
     });
-
     return emp;
   }
 
-  public async updateEmployee(id: string, data: any): Promise<any> {
+  public async updateEmployee(id: string, data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
-    const now = new Date().toISOString();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated HR actor identity is required.');
+    const [existing] = await db.select().from(phase70EmployeeMaster).where(eq(phase70EmployeeMaster.id, id)).limit(1);
+    if (!existing || existing.isDeleted) return null;
+
+    const allowed: Record<string, any> = {};
+    const fields = ['firstName','lastName','email','phone','gender','dateOfBirth','nationalId','passportNumber','visaStatus','joiningDate','departmentId','designationId','reportingManagerId','employmentType','workLocation','projectId','employmentStatus','biometricId','grade','noticePeriodDays','probationEndDate'];
+    for (const field of fields) if (data[field] !== undefined) allowed[field] = data[field];
+    if (allowed.email) allowed.email = String(allowed.email).trim().toLowerCase();
+    if (allowed.phone) allowed.phone = String(allowed.phone).trim();
+    if (allowed.noticePeriodDays !== undefined) {
+      const notice = Number(allowed.noticePeriodDays);
+      if (!Number.isFinite(notice) || notice < 0) throw new Error('Notice period days must be a non-negative number.');
+      allowed.noticePeriodDays = notice;
+    }
+
     const [updated] = await db.update(phase70EmployeeMaster)
-      .set({ ...data, updatedAt: now })
+      .set({ ...allowed, updatedAt: new Date().toISOString(), updatedBy: actorName })
       .where(eq(phase70EmployeeMaster.id, id))
       .returning();
+    if (!updated) return null;
+    await this.recordAuditLog({
+      actionType: 'EMPLOYEE_MASTER_UPDATE',
+      entityType: 'EMPLOYEE',
+      entityId: id,
+      referenceNumber: updated.employeeCode,
+      performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, changedFields: Object.keys(allowed) }),
+    });
     return updated;
   }
-
   // 4. Attendance
   public async getAttendanceRecords(date?: string): Promise<any[]> {
     await this.ensureHrmsTablesExist();
@@ -818,35 +890,108 @@ export class HrmsRepository {
 
   public async applyLeave(data: any): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const employeeId = String(data?.employeeId || '').trim();
+    const leaveTypeId = String(data?.leaveTypeId || '').trim();
+    const startDate = String(data?.startDate || '').trim();
+    const endDate = String(data?.endDate || '').trim();
+    const reason = String(data?.reason || '').trim();
+    const actorId = String(data?.requestedByUserId || data?.userId || '').trim();
+    const actorName = String(data?.requestedByUserName || data?.userName || '').trim();
+    const actorRole = String(data?.requestedByUserRole || '').trim().toUpperCase();
+    if (!data?.companyId && !isDemoSeedAllowed()) throw new Error('Company context is required for leave request numbering outside DEMO mode.');
+    if (!employeeId || !leaveTypeId || !startDate || !endDate || !reason || !actorId || !actorName) throw new Error('Employee, leave type, dates, reason and authenticated requester identity are required.');
+    if (actorId !== employeeId && !['ADMIN', 'MANAGER', 'INCHARGE'].includes(actorRole)) {
+      throw new Error('You can submit leave only for your own employee context.');
+    }
+    if (new Date(startDate) > new Date(endDate)) throw new Error('Leave end date cannot be before start date.');
+
+    const [employee] = await db.select().from(phase70EmployeeMaster).where(and(eq(phase70EmployeeMaster.id, employeeId), eq(phase70EmployeeMaster.isDeleted, false))).limit(1);
+    if (!employee) throw new Error('Leave requester is not an active employee.');
+    const [leaveType] = await db.select().from(phase70LeaveTypes).where(and(eq(phase70LeaveTypes.id, leaveTypeId), eq(phase70LeaveTypes.isDeleted, false))).limit(1);
+    if (!leaveType) throw new Error('Selected leave type is not configured.');
+
+    const requestedDays = Number(data?.totalDays);
+    if (!Number.isFinite(requestedDays) || requestedDays <= 0) throw new Error('Leave duration must be greater than zero.');
+
+    const requestNumber = await numberingService.generateLeaveRequestNumber({
+      companyId: data?.companyId || null,
+      date: startDate,
+      allocatedBy: actorName,
+    });
+    const [duplicate] = await db.select({ id: phase70LeaveRequests.id }).from(phase70LeaveRequests).where(eq(phase70LeaveRequests.requestNumber, requestNumber)).limit(1);
+    if (duplicate) throw new Error(`Leave request number ${requestNumber} already exists.`);
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const requestNumber = `LV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-
     const [app] = await db.insert(phase70LeaveRequests).values({
-      id,
-      requestNumber,
-      ...data,
-      status: 'PENDING',
-      createdAt: now,
-      updatedAt: now,
+      id, requestNumber, employeeId: employee.id, leaveTypeId: leaveType.id, startDate, endDate, totalDays: requestedDays, reason,
+      contactDuringLeave: data?.contactDuringLeave || null, attachmentUrl: data?.attachmentUrl || null, status: 'PENDING',
+      approvedBy: null, approvalRemarks: null, reviewedAt: null, createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName, deletedAt: null, isDeleted: false,
     }).returning();
+    await this.recordAuditLog({
+      actionType: 'LEAVE_REQUEST_CREATED', entityType: 'LEAVE_REQUEST', entityId: id, referenceNumber: requestNumber, performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, employeeId: employee.id, leaveTypeId: leaveType.id, startDate, endDate, totalDays: requestedDays }),
+    });
     return app;
-  }
+  },
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approverName: string = 'HR Manager'): Promise<any> {
+
+
+  // ERP-TRACE: leave approval uses a controlled maker/checker transition.
+  public async reviewLeave(
+    id: string,
+    status: string,
+    remarks: string | undefined,
+    actor: { userId: string; userName: string }
+  ): Promise<any | null> {
     await this.ensureHrmsTablesExist();
-    const now = new Date().toISOString();
-    const [reviewed] = await db.update(phase70LeaveRequests)
-      .set({
-        status,
-        approvalRemarks: remarks,
-        approvedBy: approverName,
+
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    const targetStatus = String(status || '').trim().toUpperCase();
+    const approvalRemarks = String(remarks || '').trim();
+
+    if (!actorId || !actorName) throw new Error('Authenticated leave reviewer identity is required.');
+    if (!['APPROVED', 'REJECTED', 'CANCELLED'].includes(targetStatus)) {
+      throw new Error('Leave review status must be APPROVED, REJECTED or CANCELLED.');
+    }
+
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(phase70LeaveRequests)
+        .where(and(eq(phase70LeaveRequests.id, id), eq(phase70LeaveRequests.isDeleted, false)))
+        .limit(1);
+
+      if (!existing) return null;
+      if (existing.status !== 'PENDING') {
+        throw new Error(`Leave request cannot be reviewed from status ${existing.status}.`);
+      }
+      if (existing.employeeId === actorId) {
+        throw new Error('Maker-checker violation: leave requester cannot approve or reject the same request.');
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(phase70LeaveRequests).set({
+        status: targetStatus,
+        approvalRemarks: approvalRemarks || null,
+        approvedBy: actorName,
         reviewedAt: now,
         updatedAt: now,
-      })
-      .where(eq(phase70LeaveRequests.id, id))
-      .returning();
-    return reviewed;
+        updatedBy: actorName,
+      }).where(eq(phase70LeaveRequests.id, id)).returning();
+
+      if (!updated) return null;
+
+      await this.recordAuditLog({
+        actionType: targetStatus === 'APPROVED' ? 'LEAVE_REQUEST_APPROVED' : targetStatus === 'REJECTED' ? 'LEAVE_REQUEST_REJECTED' : 'LEAVE_REQUEST_CANCELLED',
+        entityType: 'LEAVE_REQUEST',
+        entityId: id,
+        referenceNumber: updated.requestNumber,
+        performedBy: actorName,
+        detailsJson: JSON.stringify({ actorId, previousStatus: existing.status, status: targetStatus, remarks: approvalRemarks }),
+      }, tx);
+
+      return updated;
+    });
   }
 
   // 7. Holidays
@@ -861,18 +1006,33 @@ export class HrmsRepository {
     return db.select().from(phase70SalaryStructures).where(eq(phase70SalaryStructures.isDeleted, false));
   }
 
-  public async createSalaryStructure(data: any): Promise<any> {
+  public async createSalaryStructure(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    const structureCode = String(data?.structureCode || '').trim();
+    const title = String(data?.title || '').trim();
+    const effectiveFrom = String(data?.effectiveFrom || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated payroll/HR actor identity is required.');
+    if (!structureCode || !title || !effectiveFrom) throw new Error('Salary structure code, title and effective-from date are required.');
+    const moneyFields = ['baseMonthlyAed','hraAed','conveyanceAed','medicalAed','specialAllowanceAed','siteAllowanceAed','otRatePerHour'];
+    for (const field of moneyFields) { const value = Number(data?.[field] ?? 0); if (!Number.isFinite(value) || value < 0) throw new Error(`${field} must be a valid non-negative number.`); }
+    const [duplicate] = await db.select({ id: phase70SalaryStructures.id }).from(phase70SalaryStructures).where(eq(phase70SalaryStructures.structureCode, structureCode)).limit(1);
+    if (duplicate) throw new Error(`Salary structure ${structureCode} already exists.`);
     const id = uuidv4();
     const now = new Date().toISOString();
     const [struct] = await db.insert(phase70SalaryStructures).values({
-      id,
-      ...data,
-      createdAt: now,
-      updatedAt: now,
+      id, structureCode, title, grade: String(data?.grade || '').trim() || 'UNASSIGNED', baseMonthlyAed: Number(data?.baseMonthlyAed || 0),
+      hraAed: Number(data?.hraAed || 0), conveyanceAed: Number(data?.conveyanceAed || 0), medicalAed: Number(data?.medicalAed || 0),
+      specialAllowanceAed: Number(data?.specialAllowanceAed || 0), siteAllowanceAed: Number(data?.siteAllowanceAed || 0), otRatePerHour: Number(data?.otRatePerHour || 0),
+      pfApplicable: Boolean(data?.pfApplicable), esiApplicable: Boolean(data?.esiApplicable), ptApplicable: Boolean(data?.ptApplicable),
+      status: String(data?.status || 'ACTIVE').trim().toUpperCase(), effectiveFrom, createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName, isDeleted: false, deletedAt: null,
     }).returning();
+    await this.recordAuditLog({ actionType: 'SALARY_STRUCTURE_CREATED', entityType: 'SALARY_STRUCTURE', entityId: id, referenceNumber: structureCode, performedBy: actorName, detailsJson: JSON.stringify({ actorId, title, effectiveFrom }) });
     return struct;
   }
+
+
 
   public async getPayrollPeriods(): Promise<any[]> {
     await this.ensureHrmsTablesExist();
@@ -993,8 +1153,8 @@ export class HrmsRepository {
         await db.execute(sql`DELETE FROM hr_loan_recoveries WHERE period_id = ${periodId}`);
       }
       await db.delete(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, `prun-${periodId}`));
-    } catch (cleanErr) {
-      console.warn('Recalculation idempotency cleanup notice:', cleanErr);
+    } catch (cleanErr: any) {
+      throw new Error(`Payroll recalculation cleanup failed for period ${periodId}: ${cleanErr?.message || cleanErr}`);
     }
 
     // Refresh loan balances after any idempotency rollback
@@ -1089,8 +1249,8 @@ export class HrmsRepository {
             status: isFullyClosed ? 'CLOSED' : 'ACTIVE',
             updatedAt: now,
           }).where(eq(phase70Loans.id, loan.id));
-        } catch (loanRecErr) {
-          console.warn('Loan recovery ledger insert notice:', loanRecErr);
+        } catch (loanRecErr: any) {
+          throw new Error(`Loan recovery posting failed for ${anyLoan.loanCode || anyLoan.id}: ${loanRecErr?.message || loanRecErr}`);
         }
       }
 
@@ -1963,89 +2123,70 @@ export class HrmsRepository {
     return loans;
   }
 
-  public async createLoan(data: any): Promise<any> {
+  public async createLoan(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
 
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
     const employeeId = String(data?.employeeId || '').trim();
-    const employeeName = String(data?.employeeName || '').trim();
-    const employeeCode = String(data?.employeeCode || '').trim();
     const principal = Number(data?.principalAmountAed);
     const tenureMonths = Number(data?.tenureMonths);
     const interestRate = Number(data?.interestRate || 0);
     const repaymentMethod = String(data?.repaymentMethod || '').trim();
     const repaymentFrequency = String(data?.repaymentFrequency || repaymentMethod).trim();
     const repaymentRateInput = data?.repaymentRate;
+    if (!actorId || !actorName) throw new Error('Authenticated loan requester identity is required.');
+    if (!employeeId) throw new Error('Loan beneficiary employee is required.');
 
-    if (!employeeId || !employeeName || !employeeCode) throw new Error('Authenticated employee identity is required for a loan request.');
+    const [employee] = await db.select().from(phase70EmployeeMaster)
+      .where(and(eq(phase70EmployeeMaster.id, employeeId), eq(phase70EmployeeMaster.isDeleted, false)))
+      .limit(1);
+    if (!employee) throw new Error('Loan beneficiary must be an active employee in the employee master.');
+    if (!isDemoSeedAllowed() && !data?.companyId) throw new Error('Company context is required for employee loan requests outside DEMO mode.');
+
     if (!Number.isFinite(principal) || principal <= 0) throw new Error('Loan principal must be greater than zero.');
     if (!Number.isFinite(tenureMonths) || tenureMonths <= 0) throw new Error('Loan tenure must be greater than zero.');
     if (!Number.isFinite(interestRate) || interestRate < 0) throw new Error('Interest rate must be a valid non-negative number.');
     if (!repaymentMethod) throw new Error('Repayment method is required.');
 
-    const id = uuidv4();
-    const now = new Date().toISOString();
     const interest = (principal * interestRate) / 100;
     const totalRepayable = principal + interest;
     const emi = parseFloat((totalRepayable / tenureMonths).toFixed(2));
-    const repaymentRate = repaymentRateInput == null
-      ? emi
-      : Number(repaymentRateInput);
+    const repaymentRate = repaymentRateInput == null ? emi : Number(repaymentRateInput);
     if (!Number.isFinite(repaymentRate) || repaymentRate <= 0) throw new Error('Repayment rate must be greater than zero.');
 
     const policy = await workflowPolicyEngine.getWorkflowConfig('LOAN');
     const initialStatus = policy.approvalRequired ? 'PENDING' : 'ACTIVE';
+    const loanCode = String(data?.loanCode || '').trim() || await numberingService.generateLoanNumber({
+      companyId: data?.companyId || null,
+      branchId: data?.branchId || null,
+      date: data?.requestDate || new Date().toISOString(),
+      allocatedBy: actorName,
+    });
+    const [duplicate] = await db.select({ id: phase70Loans.id }).from(phase70Loans).where(eq(phase70Loans.loanCode, loanCode)).limit(1);
+    if (duplicate) throw new Error(`Loan number ${loanCode} already exists.`);
 
-    const loanCode = `LOAN-${new Date().getFullYear()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+    const id = uuidv4();
+    const now = new Date().toISOString();
     const [loan] = await db.insert(phase70Loans).values({
-      id,
-      loanCode,
-      employeeId,
-      employeeCode,
-      employeeName,
-      loanType: data.loanType,
-      principalAmountAed: principal,
-      requestedAmountAed: principal,
-      openingBalanceAed: totalRepayable,
-      interestRate,
-      totalRepayableAed: totalRepayable,
-      monthlyEmiAed: emi,
-      balanceOutstandingAed: totalRepayable,
-      totalRecoveredAed: 0,
-      repaymentMethod,
-      repaymentRate,
-      repaymentFrequency,
-      tenureMonths,
-      purpose: String(data.purpose || '').trim(),
-      disbursementDate: data.disbursementDate || null,
-      status: initialStatus,
-      createdAt: now,
-      updatedAt: now,
+      id, loanCode, employeeId: employee.id, employeeCode: employee.employeeCode, employeeName: `${employee.firstName} ${employee.lastName}`.trim(),
+      loanType: data.loanType, principalAmountAed: principal, requestedAmountAed: principal, openingBalanceAed: totalRepayable, interestRate,
+      totalRepayableAed: totalRepayable, monthlyEmiAed: emi, balanceOutstandingAed: totalRepayable, totalRecoveredAed: 0,
+      repaymentMethod, repaymentRate, repaymentFrequency, tenureMonths, purpose: String(data.purpose || '').trim(), disbursementDate: data.disbursementDate || null,
+      status: initialStatus, createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName,
     }).returning();
+    if (!loan) throw new Error('Loan request creation failed.');
 
     await db.insert(workflowHistory).values({
-      id: `hist-loan-${Date.now()}-${uuidv4().slice(0, 6)}`,
-      workflowCode: policy.workflowCode,
-      entityType: 'LOAN',
-      entityId: id,
-      fromState: 'DRAFT',
-      toState: initialStatus,
-      actionTaken: 'SUBMIT',
-      performedByUserId: employeeId,
-      performedByUserName: employeeName,
-      performedByUserRole: 'EMPLOYEE',
-      comments: `Loan request created under Workflow Policy Version ${policy.version}.`,
-      timestamp: now,
+      id: `hist-loan-${Date.now()}-${uuidv4().slice(0, 6)}`, workflowCode: policy.workflowCode, entityType: 'LOAN', entityId: id,
+      fromState: 'DRAFT', toState: initialStatus, actionTaken: 'SUBMIT', performedByUserId: actorId, performedByUserName: actorName,
+      performedByUserRole: String(actor?.role || 'EMPLOYEE'), comments: `Loan request created under Workflow Policy Version ${policy.version}.`, timestamp: now,
     });
 
     await this.recordAuditLog({
-      actionType: 'LOAN_REQUEST_CREATED',
-      entityType: 'LOAN',
-      entityId: id,
-      referenceNumber: loanCode,
-      performedBy: employeeName,
-      detailsJson: JSON.stringify({ principal, repaymentMethod, repaymentRate, repaymentFrequency, totalRepayable, status: initialStatus }),
+      actionType: 'LOAN_REQUEST_CREATED', entityType: 'LOAN', entityId: id, referenceNumber: loanCode, performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, employeeId: employee.id, principal, repaymentMethod, repaymentRate, repaymentFrequency, totalRepayable, status: initialStatus }),
     });
-
     return loan;
   }
   public async approveLoan(loanId: string, actor: { userId: string; userName: string; role?: string }, remarks?: string): Promise<any> {
@@ -2120,7 +2261,7 @@ export class HrmsRepository {
     }
   }
 
-  public async simulateLoanRecovery(employeeId: string, payableDutyDays: number, grossSalary: number = 75000): Promise<any> {
+  public async simulateLoanRecovery(employeeId: string, payableDutyDays: number, grossSalary: number): Promise<any> {
     await this.ensureHrmsTablesExist();
     const loans = await db.select().from(phase70Loans).where(and(
       eq(phase70Loans.employeeId, employeeId),
@@ -2133,12 +2274,22 @@ export class HrmsRepository {
       let calculatedInstallment = 0;
       const method = anyLoan.repaymentMethod || 'PER_DUTY_DAY';
       if (method === 'PER_DUTY_DAY' || method === 'PER_DAY' || method === 'PER_WORKING_DAY') {
-        const rate = anyLoan.repaymentRate || 1000;
+        const rate = Number(anyLoan.repaymentRate);
+        if (!Number.isFinite(rate) || rate < 0) throw new Error(`Loan repayment rate is not configured for ${anyLoan.loanCode || anyLoan.id}.`);
         calculatedInstallment = payableDutyDays * rate;
       } else if (method === 'PERCENTAGE_OF_SALARY') {
-        calculatedInstallment = (grossSalary * (anyLoan.repaymentRate || 10)) / 100;
+        const percentage = Number(anyLoan.repaymentRate);
+        if (!Number.isFinite(grossSalary) || grossSalary < 0 || !Number.isFinite(percentage) || percentage < 0) throw new Error(`Salary basis / repayment percentage is not configured for ${anyLoan.loanCode || anyLoan.id}.`);
+        calculatedInstallment = (grossSalary * percentage) / 100;
       } else {
-        calculatedInstallment = anyLoan.monthlyEmiAed || ((anyLoan.totalRepayableAed || anyLoan.principalAmountAed || 25000) / (anyLoan.tenureMonths || 12));
+        const monthlyEmi = Number(anyLoan.monthlyEmiAed);
+        if (Number.isFinite(monthlyEmi) && monthlyEmi > 0) calculatedInstallment = monthlyEmi;
+        else {
+          const totalRepayable = Number(anyLoan.totalRepayableAed);
+          const tenureMonths = Number(anyLoan.tenureMonths);
+          if (!Number.isFinite(totalRepayable) || totalRepayable <= 0 || !Number.isFinite(tenureMonths) || tenureMonths <= 0) throw new Error(`Loan installment configuration is incomplete for ${anyLoan.loanCode || anyLoan.id}.`);
+          calculatedInstallment = totalRepayable / tenureMonths;
+        }
       }
 
       const openingBalance = anyLoan.outstandingBalanceAed ?? anyLoan.balanceOutstandingAed ?? 0;
@@ -2150,7 +2301,7 @@ export class HrmsRepository {
         loanId: loan.id,
         loanCode: loan.loanCode,
         repaymentMethod: method,
-        repaymentRate: anyLoan.repaymentRate || 1000,
+        repaymentRate: Number(anyLoan.repaymentRate),
         payableDutyDays,
         openingBalance,
         calculatedInstallment,

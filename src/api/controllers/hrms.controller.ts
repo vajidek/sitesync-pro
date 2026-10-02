@@ -92,20 +92,28 @@ export class HrmsController {
 
   public createEmployee = async (req: Request, res: Response): Promise<void> => {
     try {
-      const emp = await this.service.createEmployee(req.body);
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const emp = await this.service.createEmployee(req.body, actor);
       res.status(201).json({ success: true, data: emp });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
   public updateEmployee = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
-      const emp = await this.service.updateEmployee(id, req.body);
+      const emp = await this.service.updateEmployee(id, req.body, actor);
+      if (!emp) {
+        res.status(404).json({ success: false, message: 'Employee not found.' });
+        return;
+      }
       res.status(200).json({ success: true, data: emp });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
@@ -219,21 +227,35 @@ export class HrmsController {
 
   public applyLeave = async (req: Request, res: Response): Promise<void> => {
     try {
-      const leave = await this.service.applyLeave(req.body);
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const role = String((req as any).user?.role || '').trim().toUpperCase();
+      const leave = await this.service.applyLeave({
+        ...req.body,
+        requestedByUserId: actor.userId,
+        requestedByUserName: actor.userName,
+        requestedByUserRole: role,
+      });
       res.status(201).json({ success: true, data: leave });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
   public reviewLeave = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
-      const { status, remarks, approver } = req.body;
-      const updated = await this.service.reviewLeave(id, status, remarks, approver);
+      const { status, remarks } = req.body;
+      const updated = await this.service.reviewLeave(id, status, remarks, actor);
+      if (!updated) {
+        res.status(404).json({ success: false, message: 'Leave request not found.' });
+        return;
+      }
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
@@ -260,10 +282,12 @@ export class HrmsController {
 
   public createSalaryStructure = async (req: Request, res: Response): Promise<void> => {
     try {
-      const struct = await this.service.createSalaryStructure(req.body);
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const struct = await this.service.createSalaryStructure(req.body, actor);
       res.status(201).json({ success: true, data: struct });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
@@ -490,23 +514,27 @@ export class HrmsController {
     try {
       const actor = getAuthenticatedActor(req, res);
       if (!actor) return;
-
       const role = String((req as any).user?.role || '').trim().toUpperCase();
-      const isPrivilegedLoanAdmin = ['ADMIN', 'MANAGER'].includes(role);
-
+      const beneficiaryId = String(req.body?.employeeId || '').trim();
+      if (!beneficiaryId) {
+        res.status(400).json({ success: false, message: 'Employee beneficiary is required.' });
+        return;
+      }
+      if (!['ADMIN', 'MANAGER'].includes(role) && beneficiaryId !== actor.userId) {
+        res.status(403).json({ success: false, message: 'You may submit a loan only for your own employee record.' });
+        return;
+      }
       const loan = await this.service.applyLoan({
         ...req.body,
-        employeeId: isPrivilegedLoanAdmin && req.body?.employeeId ? req.body.employeeId : actor.userId,
-        employeeName: isPrivilegedLoanAdmin && req.body?.employeeName ? req.body.employeeName : actor.userName,
+        employeeId: beneficiaryId,
         userId: actor.userId,
         userName: actor.userName,
-      });
+      }, actor);
       res.status(201).json({ success: true, data: loan });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
     }
   };
-
   public approveLoan = async (req: Request, res: Response): Promise<void> => {
     try {
       const actor = getAuthenticatedActor(req, res);
@@ -536,15 +564,17 @@ export class HrmsController {
 
   public simulateLoanRecovery = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { employeeId, payableDutyDays, grossSalary } = req.body;
-      const result = await this.service.simulateLoanRecovery(
-        employeeId,
-        Number(payableDutyDays || 26),
-        grossSalary ? Number(grossSalary) : 75000
-      );
+      const employeeId = String(req.body?.employeeId || '').trim();
+      const payableDutyDays = Number(req.body?.payableDutyDays);
+      const grossSalary = Number(req.body?.grossSalary);
+      if (!employeeId || !Number.isFinite(payableDutyDays) || payableDutyDays < 0 || !Number.isFinite(grossSalary) || grossSalary < 0) {
+        res.status(400).json({ success: false, message: 'Employee, payable duty days and gross salary are required for loan recovery simulation.' });
+        return;
+      }
+      const result = await this.service.simulateLoanRecovery(employeeId, payableDutyDays, grossSalary);
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
@@ -567,15 +597,15 @@ export class HrmsController {
       const actor = getAuthenticatedActor(req, res);
       if (!actor) return;
       const { periodId, monthYear, records, remarks } = req.body;
-      if (!periodId || !monthYear || !Array.isArray(records)) {
-        res.status(400).json({ success: false, message: 'Payroll period, month and attendance records are required.' });
+      if (!periodId || !monthYear) {
+        res.status(400).json({ success: false, message: 'Payroll period and month are required.' });
         return;
       }
       const result = await this.service.finalizeAttendance({
         periodId,
         monthYear,
         finalizedBy: actor.userName,
-        records,
+        records: Array.isArray(records) ? records : undefined,
         remarks,
       });
       res.status(200).json({ success: true, data: result });

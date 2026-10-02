@@ -3,9 +3,12 @@
 // =============================================================
 
 import { Router } from 'express';
+import { authenticateJWT, requireRoles } from '../middleware/auth.middleware';
 import { aiGatewayController } from '../controllers/ai_gateway.controller';
 
 const router = Router();
+
+router.use(authenticateJWT);
 
 // Overview & Health Monitoring
 router.get('/overview', (req, res) => aiGatewayController.getOverview(req, res));
@@ -20,8 +23,8 @@ router.post('/execute', (req, res) => aiGatewayController.execute(req, res));
 // Routing Policies
 router.get('/policies', (req, res) => aiGatewayController.getRoutingPolicies(req, res));
 router.get('/routing', (req, res) => aiGatewayController.getRoutingPolicies(req, res));
-router.put('/policies', (req, res) => aiGatewayController.updateRoutingPolicy(req, res));
-router.put('/routing', (req, res) => aiGatewayController.updateRoutingPolicy(req, res));
+router.put('/policies', requireRoles('ADMIN'), (req, res) => aiGatewayController.updateRoutingPolicy(req, res));
+router.put('/routing', requireRoles('ADMIN'), (req, res) => aiGatewayController.updateRoutingPolicy(req, res));
 
 // Usage & Cost Logs
 router.get('/usage-logs', (req, res) => aiGatewayController.getUsageLogs(req, res));
@@ -36,21 +39,21 @@ router.post('/evaluations', (req, res) => aiGatewayController.runEvaluation(req,
 router.post('/quality/evaluate', (req, res) => aiGatewayController.runEvaluation(req, res));
 
 // Failover Chaos Simulator
-router.post('/simulate-failover', (req, res) => aiGatewayController.simulateFailover(req, res));
-router.post('/failover/simulate', (req, res) => aiGatewayController.simulateFailover(req, res));
+router.post('/simulate-failover', requireRoles('ADMIN'), (req, res) => aiGatewayController.simulateFailover(req, res));
+router.post('/failover/simulate', requireRoles('ADMIN'), (req, res) => aiGatewayController.simulateFailover(req, res));
 
 // API Clients & Key Management
 router.get('/api-clients', (req, res) => aiGatewayController.getApiClients(req, res));
 router.get('/clients', (req, res) => aiGatewayController.getApiClients(req, res));
-router.post('/api-clients', (req, res) => aiGatewayController.createApiClient(req, res));
-router.post('/clients', (req, res) => aiGatewayController.createApiClient(req, res));
-router.delete('/api-clients/:clientId', (req, res) => aiGatewayController.revokeApiClient(req, res));
-router.delete('/clients/:clientId', (req, res) => aiGatewayController.revokeApiClient(req, res));
+router.post('/api-clients', requireRoles('ADMIN'), (req, res) => aiGatewayController.createApiClient(req, res));
+router.post('/clients', requireRoles('ADMIN'), (req, res) => aiGatewayController.createApiClient(req, res));
+router.delete('/api-clients/:clientId', requireRoles('ADMIN'), (req, res) => aiGatewayController.revokeApiClient(req, res));
+router.delete('/clients/:clientId', requireRoles('ADMIN'), (req, res) => aiGatewayController.revokeApiClient(req, res));
 
 // Webhooks & Event Subscriptions
 router.get('/webhooks', (req, res) => aiGatewayController.getWebhooks(req, res));
-router.post('/webhooks', (req, res) => aiGatewayController.createWebhook(req, res));
-router.post('/webhooks/:webhookCode/test', (req, res) => aiGatewayController.testWebhook(req, res));
+router.post('/webhooks', requireRoles('ADMIN'), (req, res) => aiGatewayController.createWebhook(req, res));
+router.post('/webhooks/:webhookCode/test', requireRoles('ADMIN'), (req, res) => aiGatewayController.testWebhook(req, res));
 router.get('/webhook-events', (req, res) => aiGatewayController.getWebhookEvents(req, res));
 
 // Audit Logs

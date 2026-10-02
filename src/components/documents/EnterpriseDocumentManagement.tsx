@@ -69,13 +69,13 @@ export const EnterpriseDocumentManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'EXPLORER' | 'FAVORITES' | 'APPROVAL_QUEUE' | 'CHECKED_OUT' | 'ARCHIVE' | 'RECYCLE_BIN' | 'AUDIT_LOGS'>('EXPLORER');
   const [viewMode, setViewMode] = useState<'GRID' | 'LIST'>('GRID');
   const [stats, setStats] = useState<EDMSStats>({
-    totalDocuments: 14,
-    totalFolders: 4,
-    pendingApprovals: 3,
-    approvedDocuments: 8,
-    checkedOutCount: 2,
-    archivedCount: 1,
-    totalStorageMB: 128.4
+    totalDocuments: 0,
+    totalFolders: 0,
+    pendingApprovals: 0,
+    approvedDocuments: 0,
+    checkedOutCount: 0,
+    archivedCount: 0,
+    totalStorageMB: 0,
   });
 
   const [folders, setFolders] = useState<DocumentFolder[]>([]);
@@ -100,11 +100,13 @@ export const EnterpriseDocumentManagement: React.FC = () => {
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocDesc, setNewDocDesc] = useState('');
   const [newDocType, setNewDocType] = useState('PDF');
+  const [newDocFileUrl, setNewDocFileUrl] = useState('');
   const [newDocFolderId, setNewDocFolderId] = useState('');
   const [newDocWatermark, setNewDocWatermark] = useState('');
 
   // Version Upload Form
   const [versionName, setVersionName] = useState('');
+  const [versionFileUrl, setVersionFileUrl] = useState('');
   const [versionSummary, setVersionSummary] = useState('');
 
   // Approval Form
@@ -207,7 +209,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
 
   const handleUploadDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDocTitle.trim()) return;
+    if (!newDocTitle.trim() || !newDocFileUrl.trim()) return;
     try {
       const token = localStorage.getItem('accessToken');
       const res = await fetch('/api/documents/documents', {
@@ -221,20 +223,24 @@ export const EnterpriseDocumentManagement: React.FC = () => {
           description: newDocDesc,
           folderId: newDocFolderId || selectedFolderId || folders[0]?.id || '',
           fileType: newDocType,
+          fileUrl: newDocFileUrl.trim(),
+          fileSizeBytes: 0,
           watermarkText: newDocWatermark || undefined,
-          fileSizeBytes: Math.floor(Math.random() * 5000000) + 500000,
         })
       });
       const data = await res.json();
       if (data.success) {
         setNewDocTitle('');
         setNewDocDesc('');
+        setNewDocFileUrl('');
         setShowUploadModal(false);
         fetchDocuments();
         fetchStats();
+      } else {
+        window.alert(data.message || 'Document registration failed.');
       }
     } catch (e) {
-      console.error('Error uploading document:', e);
+      console.error('Error registering document:', e);
     }
   };
 
@@ -281,11 +287,11 @@ export const EnterpriseDocumentManagement: React.FC = () => {
 
   const handleUploadVersion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDoc) return;
+    if (!selectedDoc || !versionFileUrl.trim()) return;
     try {
       const token = localStorage.getItem('accessToken');
       const nextRev = selectedDoc.revisionNumber + 1;
-      const res = await fetch('/api/documents/versions', {
+      const res = await fetch('/api/documents/checkin', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -293,22 +299,24 @@ export const EnterpriseDocumentManagement: React.FC = () => {
         },
         body: JSON.stringify({
           documentId: selectedDoc.id,
-          versionName: versionName || `v1.${nextRev}`,
-          fileUrl: `https://assets.sitesyncpro.com/docs/rev_${nextRev}.pdf`,
-          changeSummary: versionSummary || 'New revision uploaded',
-          isMajorVersion: false,
+          newVersionName: versionName || `v1.${nextRev}`,
+          fileUrl: versionFileUrl.trim(),
+          changeSummary: versionSummary || 'New revision checked in',
         })
       });
       const data = await res.json();
       if (data.success) {
         setShowVersionModal(false);
         setVersionName('');
+        setVersionFileUrl('');
         setVersionSummary('');
         fetchDocuments();
         fetchStats();
+      } else {
+        window.alert(data.message || 'Document check-in failed.');
       }
     } catch (e) {
-      console.error('Version upload error:', e);
+      console.error('Document check-in error:', e);
     }
   };
 
@@ -325,7 +333,6 @@ export const EnterpriseDocumentManagement: React.FC = () => {
         },
         body: JSON.stringify({
           documentId: selectedDoc.id,
-          approverName: 'Project Manager',
           approvalRole: 'PROJECT_MANAGER',
           decision: approvalDecision,
           remarks: approvalRemarks,
@@ -971,6 +978,21 @@ export const EnterpriseDocumentManagement: React.FC = () => {
               </div>
 
               <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">File Reference</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Storage URL or controlled document repository path"
+                  value={newDocFileUrl}
+                  onChange={(e) => setNewDocFileUrl(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  The document record must point to an actual stored file. No sample file is generated.
+                </p>
+              </div>
+
+              <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Security Watermark (Optional)</label>
                 <input
                   type="text"
@@ -1075,7 +1097,16 @@ export const EnterpriseDocumentManagement: React.FC = () => {
 
             <form onSubmit={handleUploadVersion} className="space-y-3 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
               <h4 className="text-xs font-bold text-indigo-900">Upload New Revision (Check-in)</h4>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
+                <input
+                  type="text"
+                  required
+                  placeholder="New revision file reference"
+                  value={versionFileUrl}
+                  onChange={(e) => setVersionFileUrl(e.target.value)}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs bg-white"
+                />
+                <div className="grid grid-cols-2 gap-2">
                 <input
                   type="text"
                   placeholder="Version Name e.g. v1.2"
@@ -1090,6 +1121,8 @@ export const EnterpriseDocumentManagement: React.FC = () => {
                   onChange={(e) => setVersionSummary(e.target.value)}
                   className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs bg-white"
                 />
+              </div>
+                </div>
               </div>
               <button
                 type="submit"

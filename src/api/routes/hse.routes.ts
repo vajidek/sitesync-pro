@@ -52,6 +52,7 @@ router.put('/jsa/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), cont
 
 // Toolbox Talks (TBT)
 router.get('/toolbox-talks', controller.getToolboxTalks);
+router.post('/toolbox-talks', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createToolboxTalk);
 
 // Work Permits (PTW)
 router.get('/permits', controller.getWorkPermits);
@@ -63,6 +64,7 @@ router.put('/work-permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARG
 
 // Safety Inspections
 router.get('/safety-inspections', controller.getSafetyInspections);
+router.post('/safety-inspections', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createSafetyInspection);
 
 // PPE Issuances
 router.get('/ppe', controller.getPpeIssuances);
@@ -71,17 +73,22 @@ router.post('/ppe', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), 
 
 // Training Records
 router.get('/training', controller.getTrainingRecords);
+router.post('/training', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createTrainingRecord);
 
 // Emergency Drills
 router.get('/drills', controller.getEmergencyDrills);
+router.post('/drills', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createEmergencyDrill);
 
 // Fire Equipment
 router.get('/fire-equipment', controller.getFireEquipment);
+router.post('/fire-equipment', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.createFireEquipment);
 
 // Environmental Monitoring
 router.get('/environment', controller.getEnvironmentLogs);
+router.post('/environment', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createEnvironmentLog);
 
 // Waste Management
 router.get('/waste', controller.getWasteLogs);
+router.post('/waste', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), controller.createWasteLog);
 
 export default router;

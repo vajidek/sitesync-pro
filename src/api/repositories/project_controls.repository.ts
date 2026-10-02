@@ -632,7 +632,7 @@ export class ProjectControlsRepository {
   }
 
   // 2. Work Packages
-  public async getWorkPackages(wbsId?: string, projectId: string | undefined) {
+  public async getWorkPackages(wbsId?: string, projectId?: string) {
     await this.ensureProjectControlsTablesExist();
     projectId = this.resolveProjectId(projectId);
     if (wbsId) {

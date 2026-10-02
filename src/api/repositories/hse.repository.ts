@@ -204,6 +204,8 @@ export class HSERepository {
         approvedBy: 'HSE Director',
         createdAt: now,
         updatedAt: now,
+        createdBy: 'SYSTEM_DEMO_SEED',
+        updatedBy: 'SYSTEM_DEMO_SEED',
       },
     ]);
 
@@ -244,6 +246,8 @@ export class HSERepository {
         approvedBy: 'HSE Manager',
         createdAt: now,
         updatedAt: now,
+        createdBy: 'SYSTEM_DEMO_SEED',
+        updatedBy: 'SYSTEM_DEMO_SEED',
       },
       {
         id: uuidv4(),
@@ -262,6 +266,8 @@ export class HSERepository {
         approvedBy: 'HSE Lead',
         createdAt: now,
         updatedAt: now,
+        createdBy: 'SYSTEM_DEMO_SEED',
+        updatedBy: 'SYSTEM_DEMO_SEED',
       },
     ]);
 

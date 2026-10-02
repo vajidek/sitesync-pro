@@ -2242,8 +2242,6 @@ export class InventoryRepository {
               projectName: project.projectName,
               referenceDoc: issueNum,
               notes: `Material Issue Note: ${issueNum} to ${data.issuedTo}`,
-              projectId,
-              projectName: project.projectName,
               wbsId: (item as any).wbsId || wbsId || undefined,
               boqItemId: (item as any).boqItemId || boqItemId || undefined,
               costCodeId: (item as any).costCodeId || costCodeId || undefined,

@@ -416,6 +416,8 @@ export class ProcurementEnterpriseRepository {
           status: 'APPROVED',
           createdAt: now,
           updatedAt: now,
+          createdBy: 'SYSTEM_DEMO_SEED',
+          updatedBy: 'SYSTEM_DEMO_SEED',
         },
       ]);
 
@@ -608,8 +610,8 @@ export class ProcurementEnterpriseRepository {
       totalSpendAmount: data.totalSpendAmount ?? 0,
       createdAt: now,
       updatedAt: now,
-      createdBy: actor,
-      updatedBy: actor,
+      createdBy,
+      updatedBy: createdBy,
       isDeleted: false,
     };
 

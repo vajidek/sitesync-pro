@@ -136,6 +136,7 @@ export async function createFolder(data: {
     createdBy: actor,
     updatedBy: actor,
     isDeleted: false,
+    deletedAt: null,
   };
 
   await db.insert(phase61DocumentFolders).values(record);
@@ -145,7 +146,7 @@ export async function createFolder(data: {
 export async function updateFolder(id: string, data: any) {
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
-  const update = {
+  const update: Record<string, any> = {
     ...(data.folderName !== undefined ? { folderName: String(data.folderName).trim() } : {}),
     ...(data.parentId !== undefined ? { parentId: data.parentId || null } : {}),
     ...(data.projectId !== undefined ? { projectId: data.projectId || null } : {}),

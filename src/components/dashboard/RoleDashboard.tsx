@@ -61,7 +61,7 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
   } = useShell();
 
   // Real attendance state must not default to a completed punch. DEMO may show a sample state; real environments start neutral.
-  const [punchedIn, setPunchedIn] = useState(isDemo ? false : false);
+  const [punchedIn, setPunchedIn] = useState(false);
   const [siteLogSubmitted, setSiteLogSubmitted] = useState(false);
   const [logNotes, setLogNotes] = useState('');
   const [viewMode, setViewMode] = useState<'workspace' | 'legacy'>('workspace');

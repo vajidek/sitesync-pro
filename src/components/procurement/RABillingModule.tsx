@@ -270,7 +270,9 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
     let updatePayload: any = {
       status: nextStatus,
       remarks: scrutinyRemarks || undefined,
-    };    try {
+    };
+
+    try {
       const data = await safeFetchJson<{ success: boolean; message?: string }>(`/api/procurement/ra-bills/${billId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

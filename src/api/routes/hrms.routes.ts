@@ -20,12 +20,12 @@ router.get('/designations', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), contro
 router.post('/designations', requireRoles('ADMIN', 'MANAGER'), controller.createDesignation);
 
 // Employees (Authoritative Enterprise HR Master)
-router.get('/employees', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res) => hrController.getEmployees(req, res));
+router.get('/employees', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.getEmployees);
 router.get('/employees/hierarchy-tree', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res) => hrController.getReportingHierarchyTree(req, res));
-router.get('/employees/:id', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res) => hrController.getEmployeeById(req, res));
-router.post('/employees', requireRoles('ADMIN', 'MANAGER'), (req, res) => hrController.createEmployee(req, res));
+router.get('/employees/:id', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.getEmployeeById);
+router.post('/employees', requireRoles('ADMIN', 'MANAGER'), controller.createEmployee);
 router.post('/employees/bulk-import', requireRoles('ADMIN', 'MANAGER'), (req, res) => hrController.bulkImportEmployees(req, res));
-router.put('/employees/:id', requireRoles('ADMIN', 'MANAGER'), (req, res) => hrController.updateEmployee(req, res));
+router.put('/employees/:id', requireRoles('ADMIN', 'MANAGER'), controller.updateEmployee);
 router.delete('/employees/:id', requireRoles('ADMIN', 'MANAGER'), (req, res) => hrController.deleteEmployee(req, res));
 router.post('/employees/:id/restore', requireRoles('ADMIN', 'MANAGER'), (req, res) => hrController.restoreEmployee(req, res));
 

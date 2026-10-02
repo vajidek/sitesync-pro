@@ -416,6 +416,8 @@ export class ProcurementEnterpriseRepository {
           status: 'APPROVED',
           createdAt: now,
           updatedAt: now,
+          createdBy: 'DEMO_SEED',
+          updatedBy: 'DEMO_SEED',
         },
       ]);
 

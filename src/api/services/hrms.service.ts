@@ -1,4 +1,5 @@
 import { HrmsRepository } from '../repositories/hrms.repository';
+import { isDemoSeedAllowed } from '../config/env';
 
 export class HrmsService {
   private repo: HrmsRepository;
@@ -57,7 +58,16 @@ export class HrmsService {
   }
 
   public async syncEsslBiometrics(deviceId: string, records: any[] = []) {
-    // If no records passed, simulate device push
+    if (!deviceId) {
+      throw new Error('Biometric device ID is required for synchronization.');
+    }
+
+    // Real environments must receive source punches from the configured eSSL integration.
+    // Synthetic punches are permitted only when the explicit demo-seed policy is enabled.
+    if (records.length === 0 && !isDemoSeedAllowed()) {
+      throw new Error('No biometric source records were received. Synthetic attendance punches are disabled outside DEMO mode.');
+    }
+
     const punches = records.length > 0 ? records : [
       { biometricId: 'ESSL-1001', punchType: 'CHECK_IN', timestamp: new Date().toISOString() },
       { biometricId: 'ESSL-1002', punchType: 'CHECK_IN', timestamp: new Date().toISOString() },

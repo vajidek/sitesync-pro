@@ -1,6 +1,6 @@
 import { db } from '../../db';
 import { users, roles, loginHistory } from '../../db/schema';
-import { eq, or, desc } from 'drizzle-orm';
+import { eq, or, and, ilike, desc } from 'drizzle-orm';
 import { roleRepository, ensureAuthSeeded } from './role.repository';
 import { adminRepository } from './admin.repository';
 import { AuthContext } from '../utils/authCache';
@@ -92,13 +92,25 @@ export class UserRepository {
   async findByUsernameOrEmail(identifier: string): Promise<DbUser | null> {
     await ensureAuthSeeded();
     if (!identifier) return null;
+
     const normalized = identifier.toLowerCase().trim();
     const normalizedClean = normalized.replace(/[^a-z0-9]/g, '');
 
-    const allUsers = await db.select().from(users);
-    
-    // 1. Direct attribute match (email, username prefix, id, employeeId)
-    let userRow = allUsers.find((u) => {
+    // Bounded identity lookup; never load the entire user table into application memory.
+    const directRows = await db
+      .select()
+      .from(users)
+      .where(
+        or(
+          eq(users.email, normalized),
+          ilike(users.email, normalized + '@%'),
+          eq(users.id, normalized),
+          eq(users.employeeId, normalized)
+        )
+      )
+      .limit(10);
+
+    let userRow = directRows.find((u) => {
       const emailPrefix = u.email ? u.email.toLowerCase().split('@')[0] : '';
       return (
         u.email.toLowerCase() === normalized ||
@@ -109,7 +121,7 @@ export class UserRepository {
       );
     });
 
-    // 2. Fallback: match by Role Code (e.g. ADMIN, MANAGER, INCHARGE, SUPERVISOR, STORE_KEEPER, DRIVER, WORKER)
+    // Compatibility fallback: resolve an active user by role code/name only after direct identity lookup fails.
     if (!userRow) {
       const allRoles = await roleRepository.findAll();
       const matchedRole = allRoles.find(
@@ -120,13 +132,18 @@ export class UserRepository {
       );
 
       if (matchedRole) {
-        userRow = allUsers.find((u) => u.roleId === matchedRole.id && u.isActive);
+        const [roleUser] = await db
+          .select()
+          .from(users)
+          .where(and(eq(users.roleId, matchedRole.id), eq(users.isActive, true)))
+          .limit(1);
+
+        userRow = roleUser;
       }
     }
 
     return userRow ? mapUserRow(userRow) : null;
   }
-
   async findByEmail(email: string): Promise<DbUser | null> {
     return this.findByUsernameOrEmail(email);
   }
@@ -340,11 +357,23 @@ export class UserRepository {
 
   async getLoginHistory(userId?: string, limit = 50): Promise<DbLoginHistory[]> {
     await ensureAuthSeeded();
-    const all = await db.select().from(loginHistory).orderBy(desc(loginHistory.createdAt)).limit(limit);
+
     if (userId) {
-      return all.filter((l) => l.userId === userId) as DbLoginHistory[];
+      const rows = await db
+        .select()
+        .from(loginHistory)
+        .where(eq(loginHistory.userId, userId))
+        .orderBy(desc(loginHistory.createdAt))
+        .limit(limit);
+      return rows as DbLoginHistory[];
     }
-    return all as DbLoginHistory[];
+
+    const rows = await db
+      .select()
+      .from(loginHistory)
+      .orderBy(desc(loginHistory.createdAt))
+      .limit(limit);
+    return rows as DbLoginHistory[];
   }
 
   async getUserPermissions(roleId: string): Promise<string[]> {

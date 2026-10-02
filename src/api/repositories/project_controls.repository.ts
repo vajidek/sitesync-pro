@@ -1333,6 +1333,11 @@ export class ProjectControlsRepository {
 
     const ipcs = await commercialRepository.getClientIPCs(resolvedProjectId);
     const realBilledRevenue = ipcs.filter((ipc: any) => ['CERTIFIED', 'PAID'].includes(ipc.status)).reduce((sum: number, ipc: any) => sum + Number(ipc.grossWorkDoneCertified || 0), 0);
+    const executedBoqValue = (boqRows as any[]).reduce((sum, item) => sum + Number(item.executedQty || 0) * Number(item.rate || 0), 0);
+    const contractBoqValue = (boqRows as any[]).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.rate || 0), 0);
+    const pendingSubcontractBills = projectSubcontractBills
+      .filter((bill: any) => ['SUBMITTED', 'VERIFIED', 'UNDER_MEASUREMENT'].includes(String(bill.status || '').toUpperCase()))
+      .reduce((sum: number, bill: any) => sum + Number(bill.netCertifiedPayable || bill.grossClaimedAmount || 0), 0);
 
     // Project-level actual cost from real operational postings. This is intentionally kept
     // separate from WBS actuals when source records do not carry a WBS ID, avoiding false allocation.
@@ -1536,6 +1541,9 @@ export class ProjectControlsRepository {
         totalActual: projectActualCost,
         totalCertified: realSubcontractCertified,
         totalRevenue: realBilledRevenue,
+        executedBoqValue,
+        contractBoqValue,
+        pendingSubcontractBills,
         totalEarnedValue,
         totalPlannedValue,
         totalWbsAllocatedActualCost: totalActualWbs,

@@ -4151,7 +4151,7 @@ export class ProcurementRepository {
 
     const actorId = String(updates.actorId || '').trim();
     const actorName = String(updates.actorName || '').trim();
-    const actorRole = String(updates.actorRole || '').trim();
+    const actorRole = String(updates.actorRole || '').trim().toUpperCase();
     const targetStatus = String(updates.status || '').trim() as RABillStatus;
     if (!actorId || !actorName || !actorRole) throw new Error('Authenticated billing workflow actor identity is required.');
     if (!targetStatus) throw new Error('RA Bill target status is required.');
@@ -4174,59 +4174,71 @@ export class ProcurementRepository {
       throw new Error(`Invalid RA Bill status transition from '${financeBill.status}' to '${targetStatus}'.`);
     }
 
-    const financeNetPayable = Number((financeBill as any).financials?.netPayableCurrentUSD || 0);
+    const financials: any = financeBill.financials || {};
+    const financeNetPayable = Number(financials.netPayableCurrentUSD || 0);
+    if (!Number.isFinite(financeNetPayable) || financeNetPayable < 0) throw new Error('RA Bill net payable amount is invalid.');
     const paymentReference = String(updates.paymentReferenceNumber || '').trim();
 
-    if (targetStatus === 'Disbursed / Paid') {
-      if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
-      const duplicatePayment = await db.select({ id: procurementRaBillsTable.id })
-        .from(procurementRaBillsTable)
-        .where(and(
-          eq(procurementRaBillsTable.paymentReferenceNumber, paymentReference),
-          sql`${procurementRaBillsTable.id} <> ${id}`
-        ))
-        .limit(1);
-      if (duplicatePayment.length) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered.`);
-      if (financeNetPayable <= 0) throw new Error('A positive net payable amount is required before RA Bill disbursement.');
-    }
-
-    if (targetStatus === 'Approved by Project Director' && financeNetPayable > 0) {
-      await financeRepository.createAPInvoice({
-        invoiceNumber: financeBill.billNumber,
-        vendorId: (financeBill as any).contractorId || null,
-        vendorName: financeBill.contractorName,
-        projectId: financeBill.projectId,
-        projectName: financeBill.projectName,
-        totalAmount: financeNetPayable,
-        taxAmount: Number((financeBill as any).financials?.totalDeductionsUSD || 0),
-        createdBy: actorName,
-        updatedBy: actorName,
-      });
-    }
-
-    if (targetStatus === 'Disbursed / Paid') {
-      // The reference combines the immutable bill number and bank UTR, making retries idempotent.
-      await financeRepository.createJournalEntry({
-        voucherType: 'RA_BILL_PAYMENT',
-        postingDate: new Date().toISOString().split('T')[0],
-        referenceNumber: financeBill.billNumber + ':' + paymentReference,
-        narration: 'RA Bill settlement for ' + financeBill.billNumber + ' via bank reference ' + paymentReference,
-        postedBy: actorName,
-        createdBy: actorName,
-      }, [
-        { accountCode: '2010', accountName: 'Accounts Payable Control - Trade Creditors', debitAmount: financeNetPayable, creditAmount: 0, lineDescription: 'Settlement of RA Bill ' + financeBill.billNumber },
-        { accountCode: '1010', accountName: 'Cash & Bank Operating', debitAmount: 0, creditAmount: financeNetPayable, lineDescription: 'Bank payment for RA Bill ' + financeBill.billNumber + ' / ' + paymentReference },
-      ]);
-    }
-
     return await db.transaction(async (tx) => {
-      const rows = await tx.select().from(procurementRaBillsTable)
+      const [existingRow] = await tx.select().from(procurementRaBillsTable)
         .where(eq(procurementRaBillsTable.id, id)).limit(1);
-      if (!rows.length) return null;
+      if (!existingRow) return null;
 
-      const existing = rows[0] as unknown as RABillRecord;
+      const existing = existingRow as unknown as RABillRecord;
       if (existing.status === 'Disbursed / Paid') {
         throw new Error('Contractual immutability violation: a paid RA Bill cannot be modified.');
+      }
+
+      // Maker-checker: the same person may not perform sequential controlled approvals.
+      const previousActors = new Set(
+        (existing.auditTrail || []).map((entry) => String(entry.performedBy || '').trim().toLowerCase()).filter(Boolean)
+      );
+      if (['Certified by QS', 'Approved by Incharge', 'Approved by Project Director', 'Disbursed / Paid'].includes(targetStatus) && previousActors.has(actorName.toLowerCase())) {
+        throw new Error('Maker-checker violation: this approval/payment action must be performed by a different workflow actor.');
+      }
+
+      if (targetStatus === 'Disbursed / Paid') {
+        if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
+        if (financeNetPayable <= 0) throw new Error('A positive net payable amount is required before RA Bill disbursement.');
+
+        const duplicatePayment = await tx.select({ id: procurementRaBillsTable.id })
+          .from(procurementRaBillsTable)
+          .where(and(
+            eq(procurementRaBillsTable.paymentReferenceNumber, paymentReference),
+            sql`${procurementRaBillsTable.id} <> ${id}`
+          ))
+          .limit(1);
+        if (duplicatePayment.length) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered.`);
+      }
+
+      // Finance side-effects occur inside the same transaction as the bill state transition.
+      // This prevents an AP/GL posting from surviving a failed workflow update.
+      if (targetStatus === 'Approved by Project Director' && financeNetPayable > 0) {
+        await financeRepository.createAPInvoice({
+          invoiceNumber: existing.billNumber,
+          vendorId: (existing as any).contractorId || null,
+          vendorName: existing.contractorName,
+          projectId: existing.projectId,
+          projectName: existing.projectName,
+          totalAmount: financeNetPayable,
+          taxAmount: 0,
+          createdBy: actorName,
+          updatedBy: actorName,
+        }, tx);
+      }
+
+      if (targetStatus === 'Disbursed / Paid') {
+        await financeRepository.createJournalEntry({
+          voucherType: 'RA_BILL_PAYMENT',
+          postingDate: new Date().toISOString().split('T')[0],
+          referenceNumber: existing.billNumber + ':' + paymentReference,
+          narration: 'RA Bill settlement for ' + existing.billNumber + ' via bank reference ' + paymentReference,
+          postedBy: actorName,
+          createdBy: actorName,
+        }, [
+          { accountCode: '2010', accountName: 'Accounts Payable Control - Trade Creditors', debitAmount: financeNetPayable, creditAmount: 0, lineDescription: 'Settlement of RA Bill ' + existing.billNumber },
+          { accountCode: '1010', accountName: 'Cash & Bank Operating', debitAmount: 0, creditAmount: financeNetPayable, lineDescription: 'Bank payment for RA Bill ' + existing.billNumber + ' / ' + paymentReference },
+        ], tx);
       }
 
       const now = new Date().toISOString();
@@ -4244,16 +4256,15 @@ export class ProcurementRepository {
         performedBy: actorName,
         role: actorRole,
         timestamp: now,
-        remarks: updates.remarks || `Status transitioned to ${targetStatus}` ,
+        remarks: updates.remarks || `Status transitioned to ${targetStatus}`,
         paymentReferenceNumber: paymentReference || existing.paymentReferenceNumber,
         financialSnapshot: {
-          grossWorkDoneCurrentUSD: Number(existing.financials?.grossWorkDoneCurrentUSD || 0),
-          totalDeductionsUSD: Number(existing.financials?.totalDeductionsUSD || 0),
-          netPayableCurrentUSD: Number(existing.financials?.netPayableCurrentUSD || 0),
+          grossWorkDoneCurrentUSD: Number(financials.grossWorkDoneCurrentUSD || 0),
+          totalDeductionsUSD: Number(financials.totalDeductionsUSD || 0),
+          netPayableCurrentUSD: financeNetPayable,
         },
       };
 
-      const auditTrail = [...(existing.auditTrail || []), auditEntry];
       const updated: RABillRecord = {
         ...existing,
         status: targetStatus,
@@ -4264,7 +4275,7 @@ export class ProcurementRepository {
         paymentReferenceNumber: paymentReference || existing.paymentReferenceNumber,
         paymentDisbursedDate: nextPaymentDate,
         remarks: updates.remarks ? `${existing.remarks ? existing.remarks + ' | ' : ''}${updates.remarks.trim()}` : existing.remarks,
-        auditTrail,
+        auditTrail: [...(existing.auditTrail || []), auditEntry],
         updatedAt: now,
       };
 
@@ -4281,20 +4292,16 @@ export class ProcurementRepository {
         updatedAt: updated.updatedAt,
       } as any).where(eq(procurementRaBillsTable.id, id));
 
-      // Reconstruct Work Order executed value from persisted certified/approved/paid bills.
-      // This is idempotent across rejection/resubmission cycles and never increments blindly.
       if (updated.workOrderId) {
         const allWorkOrderBills = await tx.select().from(procurementRaBillsTable);
         const eligibleStatuses = new Set(['Certified by QS', 'Approved by Incharge', 'Approved by Project Director', 'Disbursed / Paid']);
         const executedValue = allWorkOrderBills
           .filter((bill: any) => bill.workOrderId === updated.workOrderId && eligibleStatuses.has(String(bill.status || '')))
           .reduce((sum: number, bill: any) => sum + Number(bill.financials?.grossWorkDoneCurrentUSD || 0), 0);
-        await tx.update(procurementWorkOrdersTable)
-          .set({
-            executedValueUSD: Math.round(executedValue * 100) / 100,
-            status: updated.isFinalBill && targetStatus !== 'Rejected' ? 'Completed' : 'Under Execution',
-          } as any)
-          .where(eq(procurementWorkOrdersTable.id, updated.workOrderId));
+        await tx.update(procurementWorkOrdersTable).set({
+          executedValueUSD: Math.round(executedValue * 100) / 100,
+          status: updated.isFinalBill && targetStatus !== 'Rejected' ? 'Completed' : 'Under Execution',
+        } as any).where(eq(procurementWorkOrdersTable.id, updated.workOrderId));
       }
 
       await enterpriseAuditRepository.logEvent({
@@ -4306,20 +4313,8 @@ export class ProcurementRepository {
         entityNumber: updated.billNumber,
         fromState: existing.status,
         toState: targetStatus,
-        diffJson: {
-          status: targetStatus,
-          paymentReferenceNumber: paymentReference || undefined,
-          remarks: updates.remarks,
-        },
-        metadata: {
-          projectId: updated.projectId,
-          projectName: updated.projectName,
-          contractorName: updated.contractorName,
-          workOrderId: updated.workOrderId,
-          billNumber: updated.billNumber,
-          grossAmount: updated.financials?.grossWorkDoneCurrentUSD,
-          netPayable: updated.financials?.netPayableCurrentUSD,
-        },
+        diffJson: { status: targetStatus, paymentReferenceNumber: paymentReference || undefined, remarks: updates.remarks },
+        metadata: { projectId: updated.projectId, projectName: updated.projectName, contractorName: updated.contractorName, workOrderId: updated.workOrderId, billNumber: updated.billNumber, grossAmount: financials.grossWorkDoneCurrentUSD, netPayable: financeNetPayable },
         reason: updates.remarks || `Status transitioned from ${existing.status} to ${targetStatus}`,
       }, tx);
 

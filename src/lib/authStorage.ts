@@ -30,7 +30,10 @@ function removeKeys(keys: string[]): void {
 function migrateFirst(keys: string[], canonicalKey: string): string {
   if (!isBrowser()) return '';
   const canonical = localStorage.getItem(canonicalKey) || '';
-  if (canonical) return canonical;
+  if (canonical) {
+    removeKeys(keys);
+    return canonical;
+  }
 
   for (const key of keys) {
     const value = localStorage.getItem(key) || '';
@@ -52,6 +55,7 @@ export function getStoredRefreshToken(): string {
   return migrateFirst(LEGACY_REFRESH_KEYS, REFRESH_KEY);
 }
 
+// SITESYNC-ERP-CHECKPOINT: canonical auth transport storage; see docs/AI_ENGINEERING_CHECKPOINT.md.
 export function setStoredAuthTokens(accessToken: string, refreshToken: string): void {
   if (!isBrowser()) return;
   localStorage.setItem(ACCESS_KEY, accessToken);

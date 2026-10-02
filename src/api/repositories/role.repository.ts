@@ -2,6 +2,7 @@ import { db } from '../../db';
 import { roles, permissions, rolePermissions, users } from '../../db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { UserRole } from '../../types';
+import { isDemoSeedAllowed } from '../config/env';
 import bcrypt from 'bcryptjs';
 
 export interface DbRole {
@@ -30,9 +31,14 @@ let seedDone = false;
 export async function ensureAuthSeeded() {
   if (seedDone) return;
   try {
+    const demoSeedAllowed = isDemoSeedAllowed();
     const existingRoles = await db.select().from(roles).limit(1);
     if (existingRoles.length === 0) {
-      console.log('Seeding initial Roles, Permissions, RolePermissions to PostgreSQL...');
+      if (!demoSeedAllowed) {
+        throw new Error('Authentication seed data is missing. UAT/PRODUCTION requires controlled provisioning; automatic demo seeding is disabled.');
+      }
+
+      console.log('Seeding DEMO Roles, Permissions, and RolePermissions to PostgreSQL...');
       
       const defaultRoles = [
         { id: 'role-uuid-001', code: 'ADMIN', name: 'System Administrator', description: 'Full root level operational & system administration privileges across all construction sites.', isActive: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
@@ -77,6 +83,12 @@ export async function ensureAuthSeeded() {
       await db.insert(rolePermissions).values(defaultRolePermissions).onConflictDoNothing();
     }
 
+    // Demo identities must never be generated in UAT/PRODUCTION.
+    if (!demoSeedAllowed) {
+      seedDone = true;
+      return;
+    }
+
     const defaultHash = bcrypt.hashSync('Password123!', 10);
     const defaultUsers = [
       { id: 'usr-admin-001', email: 'admin@sitesyncpro.com', passwordHash: defaultHash, name: 'Abdul Vajid EK', phone: '+971 50 123 4567', department: 'System Architecture & Operations', avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80', roleId: 'role-uuid-001', employeeId: 'emp-001', assignedProjectId: 'PRJ-101', assignedProjectName: 'Al Reem Mechanical Piping & Structural Hub', isActive: true, isEmailVerified: true, failedLoginAttempts: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
@@ -92,7 +104,9 @@ export async function ensureAuthSeeded() {
 
     seedDone = true;
   } catch (err) {
-    console.error('Error auto-seeding auth tables:', err);
+    seedDone = false;
+    console.error('Error initializing auth data:', err);
+    throw err;
   }
 }
 

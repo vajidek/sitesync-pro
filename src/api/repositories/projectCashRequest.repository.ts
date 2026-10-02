@@ -42,11 +42,25 @@ export class ProjectCashRequestRepository {
   }
 
   async create(data: any) {
+    const projectId = String(data.projectId || '').trim();
+    const employeeId = String(data.employeeId || '').trim();
+    const employeeName = String(data.employeeName || '').trim();
+    if (!projectId || !employeeId || !employeeName) {
+      throw new Error('Project and authenticated employee context are required.');
+    }
+
+    const [project] = await db.select().from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.isActive, true)))
+      .limit(1);
+    if (!project) throw new Error('Project not found or inactive.');
+
+    const companyId = String(data.companyId || project.companyId || '').trim();
+    if (!companyId) throw new Error('Company context is required for cash-request numbering.');
     const id = `pcr-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const now = new Date().toISOString();
     const requestCode = data.requestCode || (await numberingService.generateCashRequestNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || null,
+      companyId,
+      projectId: projectId || null,
       date: data.requiredDate || now,
     }));
 
@@ -67,7 +81,12 @@ export class ProjectCashRequestRepository {
     // Resolve conversion rate
     const rateInfo = await currencyRepository.getLatestRate(currency, baseCurrencyCode);
     const exchangeRate = rateInfo.rate || 1.0;
-    const reqAmount = Number(data.amount) || 0;
+    const reqAmount = Number(data.amount);
+    if (!Number.isFinite(reqAmount) || reqAmount <= 0) throw new Error('Cash request amount must be greater than zero.');
+    const requestedApprovedAmount = Number(data.approvedAmount ?? reqAmount);
+    if (!Number.isFinite(requestedApprovedAmount) || requestedApprovedAmount <= 0 || requestedApprovedAmount > reqAmount) {
+      throw new Error('Approved amount must be positive and cannot exceed the requested amount.');
+    }
     const baseAmount = Number((reqAmount * exchangeRate).toFixed(2));
 
     const record = {
@@ -75,8 +94,8 @@ export class ProjectCashRequestRepository {
       requestCode,
       projectId: data.projectId,
       projectName: data.projectName,
-      employeeId: data.employeeId,
-      employeeName: data.employeeName,
+      employeeId,
+      employeeName,
       employeeCode: data.employeeCode || '',
       divisionId: data.divisionId || null,
       divisionName: data.divisionName || '',
@@ -88,12 +107,12 @@ export class ProjectCashRequestRepository {
       baseAmount,
       baseCurrency: baseCurrencyCode,
       amount: reqAmount,
-      approvedAmount: Number(data.approvedAmount) || reqAmount,
+      approvedAmount: Number(data.approvedAmount ?? reqAmount),
       disbursedAmount: 0,
       purpose: data.purpose,
       category: data.category || 'SITE_OPERATIONS',
       requiredDate: data.requiredDate || now.split('T')[0],
-      status: data.status || 'SUBMITTED',
+      status: 'SUBMITTED',
       siteInchargeId: data.siteInchargeId || null,
       siteInchargeName: data.siteInchargeName || null,
       inchargeRemarks: data.inchargeRemarks || null,
@@ -168,8 +187,18 @@ export class ProjectCashRequestRepository {
     if (!existing) throw new Error('Cash request not found');
 
     const now = new Date().toISOString();
+    const status = String(existing.status || '').toUpperCase();
+    if (!['DRAFT', 'SUBMITTED', 'REJECTED'].includes(status)) {
+      throw new Error('Cash request is locked at workflow status ' + status + '.');
+    }
+
+    const allowedFields = ['projectId', 'projectName', 'purpose', 'category', 'requiredDate', 'originalAmount', 'currency', 'amount', 'supportingDocuments'];
+    const sanitized = Object.fromEntries(Object.entries(updates).filter(([key]) => allowedFields.includes(key)));
+
     const updated = {
-      ...updates,
+      ...sanitized,
+      employeeId: existing.employeeId,
+      employeeName: existing.employeeName,
       updatedAt: now,
     };
 
@@ -180,6 +209,9 @@ export class ProjectCashRequestRepository {
   async reviewByIncharge(id: string, inchargeData: { inchargeId: string; inchargeName: string; remarks?: string; approved: boolean }) {
     const existing = await this.getById(id);
     if (!existing) throw new Error('Cash request not found');
+    if (existing.status !== 'SUBMITTED') throw new Error('In-charge review is allowed only for submitted cash requests.');
+    if (!inchargeData.inchargeId || !inchargeData.inchargeName?.trim()) throw new Error('Authenticated in-charge identity is required.');
+    if (existing.employeeId === inchargeData.inchargeId) throw new Error('Maker-checker violation: requester cannot review their own cash request.');
 
     const now = new Date().toISOString();
     const history = (existing.approvalHistory as any[]) || [];
@@ -223,6 +255,11 @@ export class ProjectCashRequestRepository {
   async approveByDirector(id: string, directorData: { directorId: string; directorName: string; approvedAmount?: number; remarks?: string; approved: boolean }) {
     const existing = await this.getById(id);
     if (!existing) throw new Error('Cash request not found');
+    if (existing.status !== 'INCHARGE_REVIEWED') throw new Error('Director approval is allowed only after in-charge review.');
+    if (!directorData.directorId || !directorData.directorName?.trim()) throw new Error('Authenticated director identity is required.');
+    if (existing.employeeId === directorData.directorId || existing.siteInchargeId === directorData.directorId) {
+      throw new Error('Maker-checker violation: requester/reviewer cannot approve the same cash request.');
+    }
 
     const now = new Date().toISOString();
     const history = (existing.approvalHistory as any[]) || [];
@@ -235,11 +272,16 @@ export class ProjectCashRequestRepository {
       approvedAmount: directorData.approvedAmount || existing.amount,
     });
 
+    const approvedAmount = directorData.approved ? Number(directorData.approvedAmount ?? existing.amount) : 0;
+    if (directorData.approved && (!Number.isFinite(approvedAmount) || approvedAmount <= 0 || approvedAmount > existing.amount)) {
+      throw new Error('Approved cash amount must be positive and cannot exceed the requested amount.');
+    }
+
     const newStatus = directorData.approved ? 'APPROVED' : 'REJECTED';
 
     await db.update(projectCashRequestsTable).set({
       status: newStatus,
-      approvedAmount: directorData.approved ? (directorData.approvedAmount || existing.amount) : 0,
+      approvedAmount,
       projectDirectorId: directorData.directorId,
       projectDirectorName: directorData.directorName,
       directorRemarks: directorData.remarks || '',
@@ -268,6 +310,17 @@ export class ProjectCashRequestRepository {
   async disburseByFinance(id: string, financeData: { financeId: string; financeName: string; paymentMethod: string; paymentReference: string; disbursedAmount: number; remarks?: string }) {
     const existing = await this.getById(id);
     if (!existing) throw new Error('Cash request not found');
+    if (existing.status !== 'APPROVED') throw new Error('Finance disbursement is allowed only for approved cash requests.');
+    if (!financeData.financeId || !financeData.financeName?.trim()) throw new Error('Authenticated finance identity is required.');
+    if (existing.employeeId === financeData.financeId) throw new Error('Maker-checker violation: requester cannot disburse their own cash request.');
+    if (!String(financeData.paymentMethod || '').trim() || !String(financeData.paymentReference || '').trim()) {
+      throw new Error('Payment method and payment reference are required.');
+    }
+    const approvedAmount = Number(existing.approvedAmount || existing.amount);
+    const disbursedAmount = Number(financeData.disbursedAmount);
+    if (!Number.isFinite(disbursedAmount) || disbursedAmount <= 0 || disbursedAmount > approvedAmount) {
+      throw new Error('Disbursed amount must be positive and cannot exceed the approved amount.');
+    }
 
     const now = new Date().toISOString();
     const history = (existing.approvalHistory as any[]) || [];
@@ -282,7 +335,7 @@ export class ProjectCashRequestRepository {
 
     await db.update(projectCashRequestsTable).set({
       status: 'DISBURSED',
-      disbursedAmount: financeData.disbursedAmount,
+      disbursedAmount,
       remainingBalance: financeData.disbursedAmount,
       paymentMethod: financeData.paymentMethod,
       paymentReference: financeData.paymentReference,
@@ -328,11 +381,21 @@ export class ProjectCashRequestRepository {
   }) {
     const request = await this.getById(requestId);
     if (!request) throw new Error('Cash request not found');
+    if (request.status !== 'DISBURSED') throw new Error('Settlement can be submitted only after cash disbursement.');
+    if (!settlementData.employeeId || !settlementData.employeeName?.trim()) throw new Error('Authenticated settlement actor identity is required.');
+    if (request.employeeId !== settlementData.employeeId) throw new Error('Only the original requester can submit this settlement.');
+
+    const totalExpense = Number(settlementData.totalExpenseAmount);
+    const unspent = Number(settlementData.unspentCashReturned);
+    const available = Number(request.disbursedAmount || request.approvedAmount || request.amount);
+    if (!Number.isFinite(totalExpense) || totalExpense < 0 || !Number.isFinite(unspent) || unspent < 0 || totalExpense + unspent > available) {
+      throw new Error('Settlement expense plus returned cash cannot exceed the disbursed amount.');
+    }
 
     const now = new Date().toISOString();
     const settlementId = `stl-${Date.now()}`;
     const settlementCode = settlementData.settlementCode || (await numberingService.generateCashSettlementNumber({
-      companyId: 'cmp-101',
+      companyId: (request as any).companyId || undefined,
       projectId: request.projectId || null,
       date: now,
     }));
@@ -340,7 +403,7 @@ export class ProjectCashRequestRepository {
     const currency = request.currency || 'AED';
     const baseCurrencyCode = request.baseCurrency || 'AED';
     const exchangeRate = request.exchangeRate || 1.0;
-    const totalExpense = Number(settlementData.totalExpenseAmount) || 0;
+
     const baseExpenseAmount = Number((totalExpense * exchangeRate).toFixed(2));
 
     const settlementRecord = {
@@ -408,6 +471,8 @@ export class ProjectCashRequestRepository {
     const rows = await db.select().from(projectCashSettlementsTable).where(eq(projectCashSettlementsTable.id, settlementId));
     const settlement = rows[0];
     if (!settlement) throw new Error('Settlement record not found');
+    if (!auditData.auditorId || !auditData.auditorName?.trim()) throw new Error('Authenticated auditor identity is required.');
+    if (settlement.employeeId === auditData.auditorId) throw new Error('Maker-checker violation: settlement submitter cannot audit the same settlement.');
 
     const now = new Date().toISOString();
     const status = auditData.approved ? 'AUDITED' : 'REJECTED';

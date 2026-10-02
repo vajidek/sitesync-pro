@@ -70,7 +70,55 @@ export class ProcurementEnterpriseRepository {
     const now = new Date().toISOString();
     try {
       const existing = await db.select().from(phase69VendorMaster).limit(1);
-      if (existing.length > 0) return;
+      if (existing.length > 0) {
+        // A prior DEMO database may predate quotation-item lineage.
+        const [acceptedQuote] = await db.select().from(phase69VendorQuotations)
+          .where(and(eq(phase69VendorQuotations.status, 'ACCEPTED'), eq(phase69VendorQuotations.isDeleted, false)))
+          .limit(1);
+        if (acceptedQuote) {
+          const quoteItems = await db.select({ id: phase69VendorQuotationItems.id })
+            .from(phase69VendorQuotationItems)
+            .where(eq(phase69VendorQuotationItems.quotationId, acceptedQuote.id))
+            .limit(1);
+          if (quoteItems.length === 0) {
+            const [rfqItem] = await db.select().from(phase69RfqItems)
+              .where(and(eq(phase69RfqItems.rfqId, acceptedQuote.rfqId), eq(phase69RfqItems.isDeleted, false)))
+              .limit(1);
+            if (rfqItem?.boqItemId && rfqItem.wbsId && rfqItem.boqItemCode && rfqItem.wbsCode) {
+              const now = new Date().toISOString();
+              const quantity = Number(rfqItem.quantity || 0);
+              const unitPrice = acceptedQuote.subtotalAmount / Math.max(quantity, 1);
+              await db.insert(phase69VendorQuotationItems).values({
+                id: uuidv4(),
+                quotationId: acceptedQuote.id,
+                quotationNumber: acceptedQuote.quotationNumber,
+                rfqItemId: rfqItem.id,
+                prItemId: rfqItem.prItemId || null,
+                boqItemId: rfqItem.boqItemId,
+                wbsId: rfqItem.wbsId,
+                boqItemCode: rfqItem.boqItemCode,
+                wbsCode: rfqItem.wbsCode,
+                itemCode: rfqItem.itemCode,
+                description: rfqItem.description,
+                quotedQuantity: quantity,
+                uom: rfqItem.uom,
+                quotedUnitPrice: Math.round(unitPrice * 100) / 100,
+                lineSubtotal: acceptedQuote.subtotalAmount,
+                lineVatAmount: acceptedQuote.taxVatAmount,
+                lineTotal: acceptedQuote.totalQuoteAmount,
+                deliveryLeadTimeDays: acceptedQuote.leadTimeDays,
+                remarks: acceptedQuote.remarks || null,
+                createdAt: now,
+                updatedAt: now,
+                createdBy: acceptedQuote.createdBy,
+                updatedBy: acceptedQuote.updatedBy,
+                isDeleted: false,
+              });
+            }
+          }
+        }
+        return;
+      }
 
       const v1Id = 'ven-emirates-steel-01';
       const v2Id = 'ven-jindal-pipes-02';
@@ -289,6 +337,39 @@ export class ProcurementEnterpriseRepository {
           updatedAt: now,
         },
       ]);
+
+      // 4A. DEMO vendor quotation item lineage
+      const [seededRfqItem] = await db.select().from(phase69RfqItems)
+        .where(and(eq(phase69RfqItems.rfqId, rfq1Id), eq(phase69RfqItems.isDeleted, false)))
+        .limit(1);
+      if (seededRfqItem?.boqItemId && seededRfqItem.wbsId && seededRfqItem.boqItemCode && seededRfqItem.wbsCode) {
+        await db.insert(phase69VendorQuotationItems).values({
+          id: uuidv4(),
+          quotationId: qot1Id,
+          quotationNumber: 'QOT-2026-0891',
+          rfqItemId: seededRfqItem.id,
+          prItemId: seededRfqItem.prItemId || null,
+          boqItemId: seededRfqItem.boqItemId,
+          wbsId: seededRfqItem.wbsId,
+          boqItemCode: seededRfqItem.boqItemCode,
+          wbsCode: seededRfqItem.wbsCode,
+          itemCode: seededRfqItem.itemCode,
+          description: seededRfqItem.description,
+          quotedQuantity: Number(seededRfqItem.quantity || 0),
+          uom: seededRfqItem.uom,
+          quotedUnitPrice: 1230,
+          lineSubtotal: 22755000,
+          lineVatAmount: 1137750,
+          lineTotal: 23892750,
+          deliveryLeadTimeDays: 45,
+          remarks: 'DEMO quotation line generated from the RFQ item lineage.',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'DEMO SEED',
+          updatedBy: 'DEMO SEED',
+          isDeleted: false,
+        }).onConflictDoNothing();
+      }
 
       // 5. Purchase Requisition
       await db.insert(phase69PurchaseRequisitions).values([

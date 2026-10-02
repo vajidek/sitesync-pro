@@ -527,7 +527,21 @@ export class HrmsController {
 
   public createLoan = async (req: Request, res: Response): Promise<void> => {
     try {
-      const loan = await this.service.applyLoan(req.body);
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated loan requester identity is required.' });
+        return;
+      }
+
+      const loan = await this.service.applyLoan({
+        ...req.body,
+        userId: actorId,
+        createdById: actorId,
+        createdBy: actorName,
+        employeeName: actorName,
+      });
       res.status(201).json({ success: true, data: loan });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });

@@ -70,7 +70,7 @@ router.get('/measurement-book/billable', procurementController.getBillableMeasur
 router.get('/work-orders/:workOrderId/billable-measurements', procurementController.getBillableMeasurements);
 router.get('/projects/:projectId/billable-measurements', procurementController.getBillableMeasurements);
 router.get(['/measurement-book', '/measurements'], procurementController.getMeasurementEntries);
-router.post(['/measurement-book', '/measurements'], procurementController.createMeasurementEntry);
+router.post(['/measurement-book', '/measurements'], requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.createMeasurementEntry);
 router.put('/measurement-book/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);
 router.patch('/measurement-book/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);
 router.put('/measurements/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateMeasurementStatus);

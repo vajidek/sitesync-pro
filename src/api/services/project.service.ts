@@ -345,7 +345,7 @@ export class ProjectService {
       actualEquipmentFuelCost: Number(cost.realFleetFuelCost || 0),
       actualCertifiedRaBillCost: Number(cost.realSubcontractActual || 0),
       actualImprestExpenseCost: Number(cost.realPettyCashExpenses || 0),
-      actualLaborCost: null,
+      actualLaborCost: Number(cost.realLaborCost || 0),
     };
 
     const wbsBreakdown = (matrix.wbsBreakdown || []).map((wbs: any) => ({
@@ -371,6 +371,7 @@ export class ProjectService {
       { category: 'Employee Expenses', budget: null, committed: 0, actual: Number(cost.realEmployeeExpenses || 0) },
       { category: 'Project Petty Cash', budget: null, committed: 0, actual: Number(cost.realPettyCashExpenses || 0) },
       { category: 'Equipment & Fuel', budget: null, committed: 0, actual: Number(cost.realFleetFuelCost || 0) },
+      { category: 'Site Labour', budget: null, committed: 0, actual: Number(cost.realLaborCost || 0) },
     ];
 
     return {

@@ -388,7 +388,7 @@ export class ProcurementEnterpriseRepository {
           budgetAvailableAed: 35000000,
           isBudgetApproved: true,
           stockCheckCompleted: true,
-          status: 'PO_ISSUED',
+          status: 'FINANCE_APPROVED',
           workflowStep: 'PO_DISPATCHED',
           notes: 'Pre-approved under capital works budget WBS-PIPE-MAIN-04 with DEWA technical vetting.',
           createdAt: now,
@@ -742,7 +742,7 @@ export class ProcurementEnterpriseRepository {
       .limit(1);
     if (!pr) throw new Error('Source purchase requisition was not found.');
 
-    if (!['HOD_APPROVED', 'FINANCE_APPROVED', 'PO_ISSUED'].includes(pr.status)) {
+    if (!['HOD_APPROVED', 'FINANCE_APPROVED'].includes(pr.status)) {
       throw new Error(`RFQ cannot be created from requisition status ${pr.status}. Complete the configured approval stages first.`);
     }
 
@@ -1268,7 +1268,7 @@ export class ProcurementEnterpriseRepository {
 
   public async updatePurchaseRequisitionStatus(
     id: string,
-    status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'PO_ISSUED' | 'REJECTED',
+    status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'REJECTED',
     actorName: string,
     remarks?: string
   ): Promise<any> {
@@ -1284,8 +1284,7 @@ export class ProcurementEnterpriseRepository {
       DRAFT: ['SUBMITTED', 'REJECTED'],
       SUBMITTED: ['HOD_APPROVED', 'REJECTED'],
       HOD_APPROVED: ['FINANCE_APPROVED', 'REJECTED'],
-      FINANCE_APPROVED: ['PO_ISSUED', 'REJECTED'],
-      PO_ISSUED: [],
+      FINANCE_APPROVED: ['REJECTED'],
       REJECTED: ['DRAFT'],
     };
 
@@ -1297,7 +1296,6 @@ export class ProcurementEnterpriseRepository {
       SUBMITTED: 'HOD_REVIEW',
       HOD_APPROVED: 'FINANCE_REVIEW',
       FINANCE_APPROVED: 'PROCUREMENT_SOURCING',
-      PO_ISSUED: 'PO_ISSUED',
       REJECTED: 'REQUESTOR_CORRECTION',
     };
 

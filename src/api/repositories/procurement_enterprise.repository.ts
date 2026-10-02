@@ -840,24 +840,140 @@ export class ProcurementEnterpriseRepository {
     };
   }
 
+  public async createPurchaseRequisition(data: any, createdBy: string = ''): Promise<any> {
+    await this.ensureProcurementTablesExist();
+
+    if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required.');
+
+    const projectId = String(data?.projectId || '').trim();
+    const projectName = String(data?.projectName || '').trim();
+    const title = String(data?.title || '').trim();
+    const department = String(data?.department || '').trim();
+    const requiredDate = String(data?.requiredDate || '').trim();
+    const items = Array.isArray(data?.items) ? data.items : [];
+
+    if (!projectId || !projectName || !title || !department || !requiredDate || items.length === 0) {
+      throw new Error('Project, title, department, required date and at least one BOQ-linked item are required.');
+    }
+
+    const resolvedItems = [];
+    for (const item of items) {
+      resolvedItems.push(await this.resolveBoqProcurementItem(projectId, item));
+    }
+
+    const estimatedCostAed = data.estimatedCostAed == null
+      ? resolvedItems.reduce((sum, item) => sum + item.estimatedTotalPrice, 0)
+      : Number(data.estimatedCostAed);
+
+    if (!Number.isFinite(estimatedCostAed) || estimatedCostAed < 0) {
+      throw new Error('Estimated procurement cost must be a valid non-negative amount.');
+    }
+
+    const budgetCode = String(data?.budgetCode || '').trim();
+    if (!budgetCode) {
+      throw new Error('Budget code is required. Link the requisition to its configured WBS/budget context.');
+    }
+
+    const budgetAvailableAed = data?.budgetAvailableAed == null ? 0 : Number(data.budgetAvailableAed);
+    if (!Number.isFinite(budgetAvailableAed) || budgetAvailableAed < 0) {
+      throw new Error('Budget availability must be a valid non-negative amount.');
+    }
+
+    const now = new Date().toISOString();
+    const prNumber = data.prNumber
+      ? String(data.prNumber).trim()
+      : await numberingService.generatePurchaseRequisitionNumber({
+          companyId: data.companyId || null,
+          branchId: data.branchId || null,
+          projectId,
+          date: requiredDate,
+          allocatedBy: createdBy,
+        });
+
+    if (!prNumber) throw new Error('Purchase requisition number could not be generated.');
+
+    const duplicate = await db
+      .select({ id: phase69PurchaseRequisitions.id })
+      .from(phase69PurchaseRequisitions)
+      .where(eq(phase69PurchaseRequisitions.prNumber, prNumber))
+      .limit(1);
+
+    if (duplicate.length) throw new Error(`Purchase requisition ${prNumber} already exists.`);
+
+    const prId = uuidv4();
+    const prRecord = {
+      id: prId,
+      prNumber,
+      title,
+      projectId,
+      projectName,
+      department,
+      requestedBy: String(data?.requestedBy || createdBy).trim(),
+      requiredDate,
+      priority: data?.priority || 'MEDIUM',
+      estimatedCostAed,
+      budgetCode,
+      budgetAvailableAed,
+      isBudgetApproved: data?.isBudgetApproved === true,
+      stockCheckCompleted: data?.stockCheckCompleted === true,
+      status: 'DRAFT',
+      workflowStep: 'REQUESTOR_SUBMISSION',
+      notes: String(data?.notes || ''),
+      createdAt: now,
+      updatedAt: now,
+      createdBy: createdBy.trim(),
+      updatedBy: createdBy.trim(),
+      isDeleted: false,
+    };
+
+    return await db.transaction(async (tx) => {
+      await tx.insert(phase69PurchaseRequisitions).values(prRecord as any);
+
+      await tx.insert(phase69PurchaseRequisitionItems).values(
+        resolvedItems.map((item, index) => ({
+          id: uuidv4(),
+          prId,
+          prNumber,
+          itemNumber: index + 1,
+          boqItemId: item.boqItemId,
+          wbsId: item.wbsId,
+          boqItemCode: item.boqItemCode,
+          wbsCode: item.wbsCode,
+          materialCode: item.materialCode,
+          materialName: item.materialName,
+          description: item.description,
+          specification: item.specification,
+          quantity: item.quantity,
+          uom: item.uom,
+          estimatedUnitPrice: item.estimatedUnitPrice,
+          estimatedTotalPrice: item.estimatedTotalPrice,
+          requiredDate: item.requiredDate || requiredDate,
+          remarks: item.remarks,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: createdBy.trim(),
+          updatedBy: createdBy.trim(),
+          isDeleted: false,
+        }))
+      );
+
+      return {
+        ...prRecord,
+        items: resolvedItems,
+      };
+    });
+  }
+
   public async getPurchaseRequisitions(): Promise<any[]> {
     await this.ensureProcurementTablesExist();
-    const prs = await db
-      .select()
-      .from(phase69PurchaseRequisitions)
+    const prs = await db.select().from(phase69PurchaseRequisitions)
       .where(eq(phase69PurchaseRequisitions.isDeleted, false))
       .orderBy(desc(phase69PurchaseRequisitions.createdAt));
-
-    const items = await db
-      .select()
-      .from(phase69PurchaseRequisitionItems)
+    const items = await db.select().from(phase69PurchaseRequisitionItems)
       .where(eq(phase69PurchaseRequisitionItems.isDeleted, false));
-
-    return prs.map((pr) => ({
-      ...pr,
-      items: items.filter((item) => item.prId === pr.id),
-    }));
+    return prs.map((pr) => ({ ...pr, items: items.filter((item) => item.prId === pr.id) }));
   }
+
   // --- Purchase Orders ---
   public async getPurchaseOrders(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

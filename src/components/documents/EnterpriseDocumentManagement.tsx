@@ -125,7 +125,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/documents/stats', {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -138,7 +138,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
 
   const fetchFolders = async () => {
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/documents/folders', {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -157,7 +157,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
   const fetchDocuments = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       let url = '/api/documents/documents?';
       if (activeTab === 'FAVORITES') url += 'isFavorite=true&';
       else if (activeTab === 'ARCHIVE') url += 'isArchived=true&';
@@ -184,7 +184,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     e.preventDefault();
     if (!newFolderName.trim()) return;
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/documents/folders', {
         method: 'POST',
         headers: {
@@ -211,7 +211,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     e.preventDefault();
     if (!newDocTitle.trim() || !newDocFileUrl.trim()) return;
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/documents/documents', {
         method: 'POST',
         headers: {
@@ -247,7 +247,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
   const handleToggleFavorite = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       await fetch(`/api/documents/documents/${id}/favorite`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
@@ -260,7 +260,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
 
   const handleCheckoutToggle = async (doc: DocumentFile) => {
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       if (doc.isCheckedOut) {
         // Show version upload modal to check in
         setSelectedDoc(doc);
@@ -289,7 +289,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedDoc || !versionFileUrl.trim()) return;
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const nextRev = selectedDoc.revisionNumber + 1;
       const res = await fetch('/api/documents/checkin', {
         method: 'POST',
@@ -324,7 +324,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedDoc) return;
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/documents/approvals', {
         method: 'POST',
         headers: {
@@ -354,7 +354,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     e.stopPropagation();
     if (!window.confirm('Are you sure you want to move this document to the Recycle Bin?')) return;
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       await fetch(`/api/documents/documents/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
@@ -369,7 +369,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
   const handleRestore = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       await fetch(`/api/documents/documents/${id}/restore`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
@@ -386,7 +386,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     setSelectedDoc(doc);
     setShowAuditModal(true);
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch(`/api/documents/audit?documentId=${doc.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -401,7 +401,7 @@ export const EnterpriseDocumentManagement: React.FC = () => {
     setSelectedDoc(doc);
     setShowVersionModal(true);
     try {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch(`/api/documents/documents/${doc.id}/versions`, {
         headers: { Authorization: `Bearer ${token}` }
       });

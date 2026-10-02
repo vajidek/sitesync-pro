@@ -3389,8 +3389,8 @@ export const phase58Assets = pgTable('phase58_assets', {
   fuelEfficiencyKmPerL: doublePrecision('fuel_efficiency_km_per_l').default(0).notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
 });
 
@@ -3662,8 +3662,8 @@ export const phase59FleetVehicles = pgTable('phase59_fleet_vehicles', {
   gpsDeviceId: text('gps_device_id'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
 });
 
@@ -4462,17 +4462,17 @@ export const phase62ItpMasters = pgTable('phase62_itp_masters', {
   itpNumber: text('itp_number').notNull(),
   title: text('title').notNull(),
   discipline: text('discipline').notNull().default('MECHANICAL'), // MECHANICAL, CIVIL, ELECTRICAL, PIPELINE, WATER_TREATMENT, HVAC
-  projectId: text('project_id').notNull().default('PRJ-101'),
-  projectName: text('project_name').notNull().default('Al Reem Mechanical Piping & Structural Hub'),
+  projectId: text('project_id').notNull(),
+  projectName: text('project_name').notNull(),
   revisionNumber: text('revision_number').notNull().default('R0'),
   standardReference: text('standard_reference'), // ISO 9001, ASME B31.3, KWA Spec 2026, AWS D1.1
-  status: text('status').notNull().default('APPROVED'), // DRAFT, UNDER_REVIEW, APPROVED, SUPERSEDED
-  preparedBy: text('prepared_by').notNull().default('Quality Inspector'),
-  approvedBy: text('approved_by').notNull().default('QA/QC Manager'),
+  status: text('status').notNull().default('DRAFT'), // DRAFT, UNDER_REVIEW, APPROVED, SUPERSEDED
+  preparedBy: text('prepared_by').notNull(),
+  approvedBy: text('approved_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4506,7 +4506,7 @@ export const phase62Inspections = pgTable('phase62_inspections', {
   title: text('title').notNull(),
   discipline: text('discipline').notNull().default('MECHANICAL'),
   inspectionType: text('inspection_type').notNull().default('SITE_INSPECTION'), // SITE_INSPECTION, MATERIAL_RECEIVING, WELDING, PRESSURE_TEST, HYDRO_TEST, PUNCH_LIST
-  projectId: text('project_id').notNull().default('PRJ-101'),
+  projectId: text('project_id').notNull(),
   location: text('location').notNull(),
   requestedDate: text('requested_date').notNull(),
   inspectionDate: text('inspection_date'),
@@ -4517,8 +4517,8 @@ export const phase62Inspections = pgTable('phase62_inspections', {
   remarks: text('remarks'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4545,7 +4545,7 @@ export const phase62Ncr = pgTable('phase62_ncr', {
   id: text('id').primaryKey(),
   ncrNumber: text('ncr_number').notNull(), // NCR-2026-XXXX
   inspectionId: text('inspection_id'),
-  projectId: text('project_id').notNull().default('PRJ-101'),
+  projectId: text('project_id').notNull(),
   title: text('title').notNull(),
   severity: text('severity').notNull().default('MAJOR'), // MINOR, MAJOR, CRITICAL
   description: text('description').notNull(),
@@ -4561,8 +4561,8 @@ export const phase62Ncr = pgTable('phase62_ncr', {
   remarks: text('remarks'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4943,12 +4943,12 @@ export const phase63Jsa = pgTable('phase63_jsa', {
   jobSteps: text('job_steps').notNull(), // Structured text/JSON of job steps, hazards, controls
   requiredPpe: text('required_ppe').notNull(),
   permitRequired: boolean('permit_required').notNull().default(false),
-  status: text('status').notNull().default('APPROVED'), // DRAFT, APPROVED, REJECTED, EXPIRED
+  status: text('status').notNull().default('DRAFT'), // DRAFT, APPROVED, REJECTED, EXPIRED
   approvedBy: text('approved_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -4991,8 +4991,8 @@ export const phase63WorkPermits = pgTable('phase63_work_permits', {
   approvedBy: text('approved_by'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5008,13 +5008,13 @@ export const phase63SafetyInspections = pgTable('phase63_safety_inspections', {
   totalItemsChecked: integer('total_items_checked').notNull().default(0),
   compliantItems: integer('compliant_items').notNull().default(0),
   nonCompliantItems: integer('non_compliant_items').notNull().default(0),
-  scorePercentage: doublePrecision('score_percentage').notNull().default(100.0),
+  scorePercentage: doublePrecision('score_percentage').notNull().default(0),
   findings: text('findings'),
-  status: text('status').notNull().default('PASSED'), // PASSED, PASSED_WITH_OBSERVATIONS, ACTION_REQUIRED, FAILED
+  status: text('status').notNull().default('ACTION_REQUIRED'), // PASSED, PASSED_WITH_OBSERVATIONS, ACTION_REQUIRED, FAILED
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });

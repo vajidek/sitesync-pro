@@ -4038,161 +4038,171 @@ export class ProcurementRepository {
     id: string,
     updates: {
       status: string;
-      qsVerifier?: string;
-      siteEngineer?: string;
-      projectDirector?: string;
-      financeApprover?: string;
+      actorId: string;
+      actorName: string;
+      actorRole: string;
       paymentReferenceNumber?: string;
       paymentDisbursedDate?: string;
       remarks?: string;
     }
   ): Promise<RABillRecord | null> {
     await ensureProcurementSeeded();
-    const rows = await db.select().from(procurementRaBillsTable).where(eq(procurementRaBillsTable.id, id)).limit(1);
-    if (rows.length === 0) return null;
 
-    const existing = rows[0] as unknown as RABillRecord;
-    const targetStatus = updates.status as RABillStatus;
+    const actorId = String(updates.actorId || '').trim();
+    const actorName = String(updates.actorName || '').trim();
+    const actorRole = String(updates.actorRole || '').trim();
+    const targetStatus = String(updates.status || '').trim() as RABillStatus;
+    if (!actorId || !actorName || !actorRole) throw new Error('Authenticated billing workflow actor identity is required.');
+    if (!targetStatus) throw new Error('RA Bill target status is required.');
 
-    // 1. Payment Immutability Rule: Paid bills are frozen
-    if (existing.status === 'Disbursed / Paid') {
-      throw new Error('Contractual Immutability Violation: Cannot modify or change the status of a Disbursed / Paid RA Bill.');
-    }
+    return await db.transaction(async (tx) => {
+      const rows = await tx.select().from(procurementRaBillsTable)
+        .where(eq(procurementRaBillsTable.id, id)).limit(1);
+      if (!rows.length) return null;
 
-    // 2. Strict State Machine Validation
-    const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-      'Draft': ['Submitted', 'Rejected'],
-      'Submitted': ['Under Technical Scrutiny', 'Rejected', 'Draft'],
-      'Under Technical Scrutiny': ['Certified by QS', 'Rejected', 'Draft'],
-      'Certified by QS': ['Approved by Incharge', 'Rejected'],
-      'Approved by Incharge': ['Approved by Project Director', 'Rejected'],
-      'Approved by Project Director': ['Disbursed / Paid', 'Rejected'],
-      'Disbursed / Paid': [], // Terminal
-      'Rejected': ['Draft', 'Submitted'],
-    };
-
-    const allowedNext = ALLOWED_TRANSITIONS[existing.status] || [];
-    if (!allowedNext.includes(targetStatus)) {
-      throw new Error(`Invalid status transition from "${existing.status}" to "${targetStatus}". Progression must strictly follow contractual scrutiny stages.`);
-    }
-
-    // 3. Duplicate Payment / UTR Uniqueness Protection
-    if (targetStatus === 'Disbursed / Paid') {
-      if (!updates.paymentReferenceNumber || !updates.paymentReferenceNumber.trim()) {
-        throw new Error('Bank Payment Reference / UTR Number is required to record a disbursement.');
+      const existing = rows[0] as unknown as RABillRecord;
+      if (existing.status === 'Disbursed / Paid') {
+        throw new Error('Contractual immutability violation: a paid RA Bill cannot be modified.');
       }
-      const trimmedUtr = updates.paymentReferenceNumber.trim();
-      const allBills = await db.select().from(procurementRaBillsTable);
-      const duplicateUtr = allBills.find(b => b.id !== id && b.paymentReferenceNumber && b.paymentReferenceNumber.trim().toLowerCase() === trimmedUtr.toLowerCase());
-      if (duplicateUtr) {
-        throw new Error(`Duplicate Payment Reference: UTR "${trimmedUtr}" is already registered on bill ${duplicateUtr.billNumber}.`);
+
+      const allowedTransitions: Record<string, RABillStatus[]> = {
+        Draft: ['Submitted', 'Rejected'],
+        Submitted: ['Under Technical Scrutiny', 'Rejected', 'Draft'],
+        'Under Technical Scrutiny': ['Certified by QS', 'Rejected', 'Draft'],
+        'Certified by QS': ['Approved by Incharge', 'Rejected'],
+        'Approved by Incharge': ['Approved by Project Director', 'Rejected'],
+        'Approved by Project Director': ['Disbursed / Paid', 'Rejected'],
+        'Disbursed / Paid': [],
+        Rejected: ['Draft', 'Submitted'],
+      };
+      if (!allowedTransitions[existing.status]?.includes(targetStatus)) {
+        throw new Error(`Invalid RA Bill status transition from '${existing.status}' to '${targetStatus}'.`);
       }
-    }
 
-    const now = new Date().toISOString();
+      const creator = String(existing.auditTrail?.[0]?.performedBy || existing.contractorRepresentative || '').trim().toLowerCase();
+      const normalizedActor = actorName.toLowerCase();
+      const previousVerifier = String(existing.qsVerifier || '').trim().toLowerCase();
+      const previousIncharge = String(existing.siteEngineer || '').trim().toLowerCase();
+      const previousDirector = String(existing.projectDirector || '').trim().toLowerCase();
 
-    // 4. Role and Actor Attribution for Audit Trail
-    let role = 'SCRUTINY_OFFICER';
-    let performedBy = 'Authorizing Officer';
+      if (creator && normalizedActor === creator) {
+        throw new Error('Maker-checker violation: RA Bill creator cannot perform a later control/approval action on the same bill.');
+      }
+      if (targetStatus === 'Approved by Incharge' && previousVerifier && normalizedActor === previousVerifier) {
+        throw new Error('Maker-checker violation: QS verifier cannot approve the same RA Bill at Incharge stage.');
+      }
+      if (targetStatus === 'Approved by Project Director' && (normalizedActor === previousVerifier || normalizedActor === previousIncharge)) {
+        throw new Error('Maker-checker violation: prior workflow actor cannot approve the same RA Bill at Project Director stage.');
+      }
+      if (targetStatus === 'Disbursed / Paid' && (normalizedActor === previousVerifier || normalizedActor === previousIncharge || normalizedActor === previousDirector)) {
+        throw new Error('Maker-checker violation: prior certification/approval actor cannot disburse the same RA Bill.');
+      }
 
-    if (targetStatus === 'Certified by QS') {
-      role = 'LEAD_QS';
-      performedBy = updates.qsVerifier || 'Lead Quantity Surveyor';
-    } else if (targetStatus === 'Approved by Incharge') {
-      role = 'SITE_INCHARGE';
-      performedBy = updates.siteEngineer || 'Site Incharge';
-    } else if (targetStatus === 'Approved by Project Director') {
-      role = 'PROJECT_DIRECTOR';
-      performedBy = updates.projectDirector || 'Project Director';
-    } else if (targetStatus === 'Disbursed / Paid') {
-      role = 'FINANCE_ACCOUNTS';
-      performedBy = updates.financeApprover || 'Finance & Accounts Officer';
-    } else if (targetStatus === 'Rejected') {
-      role = 'SCRUTINY_OFFICER';
-      performedBy = updates.qsVerifier || updates.siteEngineer || updates.projectDirector || 'Scrutiny Officer';
-    } else if (targetStatus === 'Submitted') {
-      role = 'CONTRACTOR_REP';
-      performedBy = existing.contractorRepresentative || 'Contractor Representative';
-    }
+      const paymentReference = updates.paymentReferenceNumber?.trim() || '';
+      if (targetStatus === 'Disbursed / Paid') {
+        if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
+        const duplicate = await tx.select().from(procurementRaBillsTable);
+        const duplicateUtr = duplicate.find((bill: any) => bill.id !== id && String(bill.paymentReferenceNumber || '').trim().toLowerCase() === paymentReference.toLowerCase());
+        if (duplicateUtr) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered on bill ${duplicateUtr.billNumber}.`);
+      }
 
-    const auditEntry = {
-      id: `audit_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
-      action: 'STATUS_TRANSITION',
-      fromStatus: existing.status,
-      toStatus: targetStatus,
-      performedBy,
-      role,
-      timestamp: now,
-      remarks: updates.remarks || `Status transitioned to ${targetStatus}`,
-      paymentReferenceNumber: updates.paymentReferenceNumber,
-      financialSnapshot: {
-        grossWorkDoneCurrentUSD: existing.financials?.grossWorkDoneCurrentUSD || 0,
-        totalDeductionsUSD: existing.financials?.totalDeductionsUSD || 0,
-        netPayableCurrentUSD: existing.financials?.netPayableCurrentUSD || 0,
-      },
-    };
+      const now = new Date().toISOString();
+      const nextQs = targetStatus === 'Certified by QS' ? actorName : existing.qsVerifier;
+      const nextIncharge = targetStatus === 'Approved by Incharge' ? actorName : existing.siteEngineer;
+      const nextDirector = targetStatus === 'Approved by Project Director' ? actorName : existing.projectDirector;
+      const nextFinance = targetStatus === 'Disbursed / Paid' ? actorName : existing.financeApprover;
+      const nextPaymentDate = targetStatus === 'Disbursed / Paid' ? (updates.paymentDisbursedDate || now.split('T')[0]) : existing.paymentDisbursedDate;
 
-    const auditTrail = [...(existing.auditTrail || []), auditEntry];
+      const auditEntry: RABillAuditEntry = {
+        id: `audit_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`,
+        action: 'STATUS_TRANSITION',
+        fromStatus: existing.status,
+        toStatus: targetStatus,
+        performedBy: actorName,
+        role: actorRole,
+        timestamp: now,
+        remarks: updates.remarks || `Status transitioned to ${targetStatus}` ,
+        paymentReferenceNumber: paymentReference || existing.paymentReferenceNumber,
+        financialSnapshot: {
+          grossWorkDoneCurrentUSD: Number(existing.financials?.grossWorkDoneCurrentUSD || 0),
+          totalDeductionsUSD: Number(existing.financials?.totalDeductionsUSD || 0),
+          netPayableCurrentUSD: Number(existing.financials?.netPayableCurrentUSD || 0),
+        },
+      };
 
-    const updated: RABillRecord = {
-      ...existing,
-      status: targetStatus,
-      qsVerifier: updates.qsVerifier ?? existing.qsVerifier,
-      siteEngineer: updates.siteEngineer ?? existing.siteEngineer,
-      projectDirector: updates.projectDirector ?? existing.projectDirector,
-      financeApprover: updates.financeApprover ?? existing.financeApprover,
-      paymentReferenceNumber: updates.paymentReferenceNumber ?? existing.paymentReferenceNumber,
-      paymentDisbursedDate: updates.paymentDisbursedDate ?? (targetStatus === 'Disbursed / Paid' ? now.split('T')[0] : existing.paymentDisbursedDate),
-      remarks: updates.remarks ? `${existing.remarks ? existing.remarks + ' | ' : ''}${updates.remarks}` : existing.remarks,
-      auditTrail,
-      updatedAt: now,
-    };
+      const auditTrail = [...(existing.auditTrail || []), auditEntry];
+      const updated: RABillRecord = {
+        ...existing,
+        status: targetStatus,
+        qsVerifier: nextQs,
+        siteEngineer: nextIncharge,
+        projectDirector: nextDirector,
+        financeApprover: nextFinance,
+        paymentReferenceNumber: paymentReference || existing.paymentReferenceNumber,
+        paymentDisbursedDate: nextPaymentDate,
+        remarks: updates.remarks ? `${existing.remarks ? existing.remarks + ' | ' : ''}${updates.remarks.trim()}` : existing.remarks,
+        auditTrail,
+        updatedAt: now,
+      };
 
-    await db.update(procurementRaBillsTable)
-      .set({
+      await tx.update(procurementRaBillsTable).set({
         status: updated.status,
-        qsVerifier: updated.qsVerifier,
-        siteEngineer: updated.siteEngineer,
-        projectDirector: updated.projectDirector,
-        financeApprover: updated.financeApprover,
-        paymentReferenceNumber: updated.paymentReferenceNumber,
-        paymentDisbursedDate: updated.paymentDisbursedDate,
-        remarks: updated.remarks,
+        qsVerifier: updated.qsVerifier || null,
+        siteEngineer: updated.siteEngineer || null,
+        projectDirector: updated.projectDirector || null,
+        financeApprover: updated.financeApprover || null,
+        paymentReferenceNumber: updated.paymentReferenceNumber || null,
+        paymentDisbursedDate: updated.paymentDisbursedDate || null,
+        remarks: updated.remarks || null,
         auditTrail: updated.auditTrail,
         updatedAt: updated.updatedAt,
-      } as any)
-      .where(eq(procurementRaBillsTable.id, id));
+      } as any).where(eq(procurementRaBillsTable.id, id));
 
-    // Log Enterprise Audit Event
-    await enterpriseAuditRepository.logEvent({
-      userName: performedBy,
-      userRole: role,
-      actionType: targetStatus === 'Disbursed / Paid' ? 'DISBURSE' : targetStatus === 'Rejected' ? 'REJECT' : 'STATUS_TRANSITION',
-      entityType: 'RA_BILL',
-      entityId: updated.id,
-      entityNumber: updated.billNumber,
-      fromState: existing.status,
-      toState: targetStatus,
-      diffJson: {
-        status: targetStatus,
-        paymentReferenceNumber: updates.paymentReferenceNumber,
-        remarks: updates.remarks,
-      },
-      metadata: {
-        projectId: updated.projectId,
-        projectName: updated.projectName,
-        contractorName: updated.contractorName,
-        workOrderId: updated.workOrderId,
-        billNumber: updated.billNumber,
-        grossAmount: updated.financials?.grossWorkDoneCurrentUSD,
-        netPayable: updated.financials?.netPayableCurrentUSD,
-      },
-      reason: updates.remarks || `Status transitioned from ${existing.status} to ${targetStatus}`,
+      // Reconstruct Work Order executed value from persisted certified/approved/paid bills.
+      // This is idempotent across rejection/resubmission cycles and never increments blindly.
+      if (updated.workOrderId) {
+        const allWorkOrderBills = await tx.select().from(procurementRaBillsTable);
+        const eligibleStatuses = new Set(['Certified by QS', 'Approved by Incharge', 'Approved by Project Director', 'Disbursed / Paid']);
+        const executedValue = allWorkOrderBills
+          .filter((bill: any) => bill.workOrderId === updated.workOrderId && eligibleStatuses.has(String(bill.status || '')))
+          .reduce((sum: number, bill: any) => sum + Number(bill.financials?.grossWorkDoneCurrentUSD || 0), 0);
+        await tx.update(procurementWorkOrdersTable)
+          .set({
+            executedValueUSD: Math.round(executedValue * 100) / 100,
+            status: updated.isFinalBill && targetStatus !== 'Rejected' ? 'Completed' : 'Under Execution',
+          } as any)
+          .where(eq(procurementWorkOrdersTable.id, updated.workOrderId));
+      }
+
+      await enterpriseAuditRepository.logEvent({
+        userName: actorName,
+        userRole: actorRole,
+        actionType: targetStatus === 'Disbursed / Paid' ? 'DISBURSE' : targetStatus === 'Rejected' ? 'REJECT' : 'STATUS_TRANSITION',
+        entityType: 'RA_BILL',
+        entityId: updated.id,
+        entityNumber: updated.billNumber,
+        fromState: existing.status,
+        toState: targetStatus,
+        diffJson: {
+          status: targetStatus,
+          paymentReferenceNumber: paymentReference || undefined,
+          remarks: updates.remarks,
+        },
+        metadata: {
+          projectId: updated.projectId,
+          projectName: updated.projectName,
+          contractorName: updated.contractorName,
+          workOrderId: updated.workOrderId,
+          billNumber: updated.billNumber,
+          grossAmount: updated.financials?.grossWorkDoneCurrentUSD,
+          netPayable: updated.financials?.netPayableCurrentUSD,
+        },
+        reason: updates.remarks || `Status transitioned from ${existing.status} to ${targetStatus}`,
+      }, tx);
+
+      return updated;
     });
-
-    return updated;
   }
-
   async deleteRABill(id: string): Promise<boolean> {
     await ensureProcurementSeeded();
     const rows = await db.select().from(procurementRaBillsTable).where(eq(procurementRaBillsTable.id, id)).limit(1);

@@ -1,5 +1,5 @@
 import { db } from '../../db/index';
-import { sql, eq, desc, inArray } from 'drizzle-orm';
+import { sql, eq, desc, inArray, and } from 'drizzle-orm';
 import {
   phase64ProjectsWbs,
   phase64WorkPackages,
@@ -43,6 +43,11 @@ export class ProjectControlsRepository {
     throw new Error('Explicit projectId is required for project-controls operations outside DEMO mode.');
   }
 
+  private requireWriteActor(data: any): string {
+    const actor = String(data?.createdBy || data?.updatedBy || '').trim();
+    if (!actor) throw new Error('Authenticated actor identity is required for project-controls writes.');
+    return actor;
+  }
   public async ensureProjectControlsTablesExist(): Promise<void> {
     if (ProjectControlsRepository.isTablesEnsured) return;
 
@@ -600,16 +605,32 @@ export class ProjectControlsRepository {
 
   public async createWbs(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectsWbs);
     const count = Number(countRes[0]?.count || 0) + 1;
     const wbsNumber = `WBS-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
+    const projectId = this.resolveProjectId(data.projectId);
+    if (!String(data.code || '').trim() || !String(data.name || '').trim()) {
+      throw new Error('WBS code and name are required.');
+    }
+
+    if (data.parentId) {
+      const parent = await db.select({ id: phase64ProjectsWbs.id, projectId: phase64ProjectsWbs.projectId })
+        .from(phase64ProjectsWbs)
+        .where(and(eq(phase64ProjectsWbs.id, data.parentId), sql`is_deleted = false`))
+        .limit(1);
+      if (!parent.length || parent[0].projectId !== projectId) {
+        throw new Error('Parent WBS node does not belong to the selected project.');
+      }
+    }
+
     const record = {
       id,
       wbsNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId,
       code: data.code,
       name: data.name,
       description: data.description || '',
@@ -621,8 +642,8 @@ export class ProjectControlsRepository {
       status: 'ACTIVE',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -643,29 +664,42 @@ export class ProjectControlsRepository {
 
   public async createWorkPackage(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64WorkPackages);
     const count = Number(countRes[0]?.count || 0) + 1;
     const wpNumber = `WP-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
+    const projectId = this.resolveProjectId(data.projectId);
+    const [wbs] = await db.select({ id: phase64ProjectsWbs.id, projectId: phase64ProjectsWbs.projectId })
+      .from(phase64ProjectsWbs)
+      .where(and(eq(phase64ProjectsWbs.id, data.wbsId), sql`is_deleted = false`))
+      .limit(1);
+    if (!wbs || wbs.projectId !== projectId) {
+      throw new Error('Work package WBS does not belong to the selected project.');
+    }
+    if (!String(data.code || '').trim() || !String(data.name || '').trim()) {
+      throw new Error('Work package code and name are required.');
+    }
+
     const record = {
       id,
       wpNumber,
       wbsId: data.wbsId,
-      projectId: data.projectId || 'PRJ-101',
+      projectId,
       code: data.code,
       name: data.name,
       deliverable: data.deliverable || '',
-      responsiblePerson: data.responsiblePerson || 'Project Manager',
+      responsiblePerson: String(data.responsiblePerson || '').trim(),
       estimatedCost: data.estimatedCost || 0,
       plannedStartDate: data.plannedStartDate || null,
       plannedEndDate: data.plannedEndDate || null,
       status: 'PLANNED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -683,16 +717,36 @@ export class ProjectControlsRepository {
 
   public async createActivity(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectActivities);
     const count = Number(countRes[0]?.count || 0) + 1;
     const activityNumber = `ACT-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
+    const projectId = this.resolveProjectId(data.projectId);
+    const [wbs] = await db.select({ id: phase64ProjectsWbs.id, projectId: phase64ProjectsWbs.projectId })
+      .from(phase64ProjectsWbs)
+      .where(and(eq(phase64ProjectsWbs.id, data.wbsId), sql`is_deleted = false`))
+      .limit(1);
+    if (!wbs || wbs.projectId !== projectId) {
+      throw new Error('Activity WBS does not belong to the selected project.');
+    }
+
+    if (data.wpId) {
+      const [wp] = await db.select({ id: phase64WorkPackages.id, projectId: phase64WorkPackages.projectId, wbsId: phase64WorkPackages.wbsId })
+        .from(phase64WorkPackages)
+        .where(and(eq(phase64WorkPackages.id, data.wpId), sql`is_deleted = false`))
+        .limit(1);
+      if (!wp || wp.projectId !== projectId || wp.wbsId !== data.wbsId) {
+        throw new Error('Activity work package does not belong to the selected project/WBS.');
+      }
+    }
+
     const record = {
       id,
       activityNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId,
       wbsId: data.wbsId,
       wpId: data.wpId || null,
       activityCode: data.activityCode,
@@ -709,15 +763,15 @@ export class ProjectControlsRepository {
       lateFinish: data.plannedEndDate,
       totalFloat: 0,
       freeFloat: 0,
-      isCritical: true, // Default to critical path until CPM recache
+      isCritical: false, // CPM/service layer determines critical-path status from the schedule network
       percentComplete: 0,
       plannedCost: data.plannedCost || 0,
       actualCost: 0,
       status: 'NOT_STARTED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -729,25 +783,60 @@ export class ProjectControlsRepository {
   // 4. Relationships
   public async getRelationships(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
-    projectId = this.resolveProjectId(projectId);
-    return db.select().from(phase64ActivityRelationships).where(sql`is_deleted = false`);
+    const resolvedProjectId = this.resolveProjectId(projectId);
+
+    const projectActivities = await db.select({ id: phase64ProjectActivities.id })
+      .from(phase64ProjectActivities)
+      .where(sql`project_id = ${resolvedProjectId} AND is_deleted = false`);
+
+    const activityIds = projectActivities.map((activity) => activity.id);
+    if (activityIds.length === 0) return [];
+
+    return db.select()
+      .from(phase64ActivityRelationships)
+      .where(and(
+        sql`is_deleted = false`,
+        inArray(phase64ActivityRelationships.predecessorActivityId, activityIds),
+        inArray(phase64ActivityRelationships.successorActivityId, activityIds),
+      ));
   }
 
   public async createRelationship(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
+    const predecessorId = String(data.predecessorActivityId || '').trim();
+    const successorId = String(data.successorActivityId || '').trim();
+
+    if (!predecessorId || !successorId || predecessorId === successorId) {
+      throw new Error('Valid distinct predecessor and successor activities are required.');
+    }
+
+    const [predecessor] = await db.select()
+      .from(phase64ProjectActivities)
+      .where(and(eq(phase64ProjectActivities.id, predecessorId), sql`is_deleted = false`))
+      .limit(1);
+    const [successor] = await db.select()
+      .from(phase64ProjectActivities)
+      .where(and(eq(phase64ProjectActivities.id, successorId), sql`is_deleted = false`))
+      .limit(1);
+
+    if (!predecessor || !successor || predecessor.projectId !== successor.projectId) {
+      throw new Error('Predecessor and successor activities must belong to the same project.');
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
-      predecessorActivityId: data.predecessorActivityId,
-      successorActivityId: data.successorActivityId,
+      predecessorActivityId: predecessorId,
+      successorActivityId: successorId,
       relationshipType: data.relationshipType || 'FS',
-      lagDays: data.lagDays || 0,
+      lagDays: Number(data.lagDays || 0),
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -765,6 +854,15 @@ export class ProjectControlsRepository {
 
   public async createBaseline(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
+    const baselineName = String(data.baselineName || '').trim();
+    const approvedBy = String(data.approvedBy || '').trim();
+    const totalDurationDays = Number(data.totalDurationDays);
+    const totalPlannedCost = Number(data.totalPlannedCost);
+    if (!baselineName || !approvedBy || !Number.isInteger(totalDurationDays) || totalDurationDays <= 0 || !Number.isFinite(totalPlannedCost) || totalPlannedCost < 0) {
+      throw new Error('Baseline name, approver, positive duration and planned cost are required.');
+    }
+
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectBaselines);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -774,18 +872,18 @@ export class ProjectControlsRepository {
     const record = {
       id,
       baselineNumber,
-      projectId: data.projectId || 'PRJ-101',
-      baselineName: data.baselineName,
-      approvedBy: data.approvedBy || 'Project Director',
+      projectId: this.resolveProjectId(data.projectId),
+      baselineName,
+      approvedBy,
       approvedDate: data.approvedDate || now.split('T')[0],
       version: data.version || 'V1.0',
       isCurrentActive: true,
-      totalDurationDays: data.totalDurationDays || 180,
-      totalPlannedCost: data.totalPlannedCost || 5000000,
+      totalDurationDays,
+      totalPlannedCost,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -803,21 +901,29 @@ export class ProjectControlsRepository {
 
   public async createCalendar(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
+    const calendarName = String(data.calendarName || '').trim();
+    const workingDaysPerWeek = Number(data.workingDaysPerWeek);
+    const workingHoursPerDay = Number(data.workingHoursPerDay);
+    if (!calendarName || !Number.isInteger(workingDaysPerWeek) || workingDaysPerWeek < 1 || workingDaysPerWeek > 7 || !Number.isFinite(workingHoursPerDay) || workingHoursPerDay <= 0) {
+      throw new Error('Calendar name, working days per week and working hours per day are required and must be valid.');
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
-      projectId: data.projectId || 'PRJ-101',
-      calendarName: data.calendarName,
-      workingDaysPerWeek: data.workingDaysPerWeek || 6,
-      workingHoursPerDay: data.workingHoursPerDay || 8,
+      projectId: this.resolveProjectId(data.projectId),
+      calendarName,
+      workingDaysPerWeek,
+      workingHoursPerDay,
       holidaysJson: data.holidaysJson || '[]',
       isDefault: data.isDefault !== undefined ? data.isDefault : true,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -834,6 +940,7 @@ export class ProjectControlsRepository {
 
   public async createResource(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64Resources);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -850,8 +957,8 @@ export class ProjectControlsRepository {
       capacityPerDay: data.capacityPerDay || 8,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -870,6 +977,7 @@ export class ProjectControlsRepository {
 
   public async assignResource(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
     const totalCost = (data.allocatedQuantity || 1) * (data.unitRate || 0);
@@ -884,8 +992,8 @@ export class ProjectControlsRepository {
       totalCost,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -903,21 +1011,26 @@ export class ProjectControlsRepository {
 
   public async addProgressSnapshot(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
+    const pv = Number(data.plannedValue);
+    const ev = Number(data.earnedValue);
+    const ac = Number(data.actualCost);
+    if (![pv, ev, ac].every((value) => Number.isFinite(value) && value >= 0)) {
+      throw new Error('Planned value, earned value and actual cost are required valid non-negative amounts.');
+    }
+    if (!data.asOfDate) throw new Error('EVM snapshot as-of date is required.');
+
     const id = uuidv4();
     const now = new Date().toISOString();
 
-    const pv = data.plannedValue || 0;
-    const ev = data.earnedValue || 0;
-    const ac = data.actualCost || 0;
-
-    const spi = pv > 0 ? Number((ev / pv).toFixed(2)) : 1.0;
-    const cpi = ac > 0 ? Number((ev / ac).toFixed(2)) : 1.0;
+    const spi = pv > 0 ? Number((ev / pv).toFixed(2)) : 0;
+    const cpi = ac > 0 ? Number((ev / ac).toFixed(2)) : 0;
     const scheduleVariance = ev - pv;
     const costVariance = ev - ac;
 
     const record = {
       id,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       asOfDate: data.asOfDate,
       plannedProgressPercent: data.plannedProgressPercent || 0,
       actualProgressPercent: data.actualProgressPercent || 0,
@@ -930,8 +1043,8 @@ export class ProjectControlsRepository {
       costVariance,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -949,6 +1062,14 @@ export class ProjectControlsRepository {
 
   public async createDelay(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
+    const delayCategory = String(data.delayCategory || '').trim();
+    const delayDescription = String(data.description || '').trim();
+    const delayDays = Number(data.delayDays);
+    if (!delayCategory || !delayDescription || !Number.isInteger(delayDays) || delayDays <= 0) {
+      throw new Error('Delay category, description and a positive delay duration are required.');
+    }
+
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectDelays);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -958,18 +1079,18 @@ export class ProjectControlsRepository {
     const record = {
       id,
       delayNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId || null,
-      delayCategory: data.delayCategory || 'CLIENT',
-      description: data.description,
-      delayDays: data.delayDays || 1,
+      delayCategory,
+      description: delayDescription,
+      delayDays,
       impactOnCriticalPath: data.impactOnCriticalPath || false,
       mitigationPlan: data.mitigationPlan || '',
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -987,6 +1108,7 @@ export class ProjectControlsRepository {
 
   public async createMilestone(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectMilestones);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -996,7 +1118,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       milestoneNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       name: data.name,
       targetDate: data.targetDate,
       actualDate: null,
@@ -1005,8 +1127,8 @@ export class ProjectControlsRepository {
       status: 'PENDING',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1024,32 +1146,45 @@ export class ProjectControlsRepository {
 
   public async createRisk(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectRisks);
     const count = Number(countRes[0]?.count || 0) + 1;
     const riskNumber = `RSK-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
-    const probability = data.probability || 3;
-    const impact = data.impact || 3;
+    const title = String(data.title || '').trim();
+    const category = String(data.category || '').trim();
+    const owner = String(data.owner || '').trim();
+    const probability = Number(data.probability);
+    const impact = Number(data.impact);
+    if (!title || !category || !owner) {
+      throw new Error('Risk title, category and owner are required.');
+    }
+    if (!Number.isInteger(probability) || probability < 1 || probability > 5) {
+      throw new Error('Risk probability must be an integer from 1 to 5.');
+    }
+    if (!Number.isInteger(impact) || impact < 1 || impact > 5) {
+      throw new Error('Risk impact must be an integer from 1 to 5.');
+    }
     const riskScore = probability * impact;
 
     const record = {
       id,
       riskNumber,
-      projectId: data.projectId || 'PRJ-101',
-      title: data.title,
-      category: data.category || 'SCHEDULE',
+      projectId: this.resolveProjectId(data.projectId),
+      title,
+      category,
       probability,
       impact,
       riskScore,
-      mitigationStrategy: data.mitigationStrategy || '',
-      owner: data.owner || 'Planning Manager',
+      mitigationStrategy: String(data.mitigationStrategy || '').trim(),
+      owner,
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1066,6 +1201,7 @@ export class ProjectControlsRepository {
 
   public async createIssue(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectIssues);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1075,7 +1211,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       issueNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId || null,
       title: data.title,
       priority: data.priority || 'MEDIUM',
@@ -1084,8 +1220,8 @@ export class ProjectControlsRepository {
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1103,6 +1239,7 @@ export class ProjectControlsRepository {
 
   public async createChangeRequest(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ChangeRequests);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1112,7 +1249,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       crNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       title: data.title,
       reason: data.reason,
       timeExtensionDays: data.timeExtensionDays || 0,
@@ -1120,8 +1257,8 @@ export class ProjectControlsRepository {
       approvalStatus: 'SUBMITTED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1139,6 +1276,7 @@ export class ProjectControlsRepository {
 
   public async createLookaheadPlan(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64LookaheadPlans);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1148,16 +1286,16 @@ export class ProjectControlsRepository {
     const record = {
       id,
       planNumber,
-      projectId: data.projectId || 'PRJ-101',
-      periodWeeks: data.periodWeeks || 3,
-      startDate: data.startDate,
-      endDate: data.endDate,
+      projectId: this.resolveProjectId(data.projectId),
+      periodWeeks: Number(data.periodWeeks),
+      startDate: String(data.startDate || '').trim(),
+      endDate: String(data.endDate || '').trim(),
       plannedActivitiesCount: data.plannedActivitiesCount || 0,
       readinessStatus: data.readinessStatus || 'READY',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1175,12 +1313,13 @@ export class ProjectControlsRepository {
 
   public async createDailyProgress(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId,
       reportDate: data.reportDate,
       workDoneQty: data.workDoneQty || 0,
@@ -1190,8 +1329,8 @@ export class ProjectControlsRepository {
       remarks: data.remarks || '',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1312,6 +1451,11 @@ export class ProjectControlsRepository {
 
     const ipcs = await commercialRepository.getClientIPCs(resolvedProjectId);
     const realBilledRevenue = ipcs.filter((ipc: any) => ['CERTIFIED', 'PAID'].includes(ipc.status)).reduce((sum: number, ipc: any) => sum + Number(ipc.grossWorkDoneCertified || 0), 0);
+    const executedBoqValue = (boqRows as any[]).reduce((sum, item) => sum + Number(item.executedQty || 0) * Number(item.rate || 0), 0);
+    const contractBoqValue = (boqRows as any[]).reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.rate || 0), 0);
+    const pendingSubcontractBills = projectSubcontractBills
+      .filter((bill: any) => ['SUBMITTED', 'VERIFIED', 'UNDER_MEASUREMENT'].includes(String(bill.status || '').toUpperCase()))
+      .reduce((sum: number, bill: any) => sum + Number(bill.netCertifiedPayable || bill.grossClaimedAmount || 0), 0);
 
     // Project-level actual cost from real operational postings. This is intentionally kept
     // separate from WBS actuals when source records do not carry a WBS ID, avoiding false allocation.
@@ -1515,6 +1659,9 @@ export class ProjectControlsRepository {
         totalActual: projectActualCost,
         totalCertified: realSubcontractCertified,
         totalRevenue: realBilledRevenue,
+        executedBoqValue,
+        contractBoqValue,
+        pendingSubcontractBills,
         totalEarnedValue,
         totalPlannedValue,
         totalWbsAllocatedActualCost: totalActualWbs,

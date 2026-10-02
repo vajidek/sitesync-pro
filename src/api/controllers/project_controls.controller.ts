@@ -34,6 +34,23 @@ function resolveProjectContext(req: Request): string {
 }
 
 
+function withAuthenticatedActor<T extends Record<string, any>>(req: Request, payload: T): T & { createdBy: string; updatedBy: string; createdById: string } {
+  const user = (req as any).user;
+  const actorId = String(user?.id || '').trim();
+  const actorName = String(user?.name || user?.email || '').trim();
+
+  if (!actorId || !actorName) {
+    throw new Error('Authenticated actor identity is required for project-controls writes.');
+  }
+
+  return {
+    ...payload,
+    createdBy: actorName,
+    updatedBy: actorName,
+    createdById: actorId,
+  };
+}
+
 export class ProjectControlsController {
   public async getStats(req: Request, res: Response): Promise<void> {
     try {
@@ -69,7 +86,7 @@ export class ProjectControlsController {
   public async createWbs(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateWbsSchema.parse(req.body);
-      const newWbs = await projectControlsService.createWbs(validated);
+      const newWbs = await projectControlsService.createWbs(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'WBS created successfully', data: newWbs });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -91,7 +108,7 @@ export class ProjectControlsController {
   public async createWorkPackage(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateWorkPackageSchema.parse(req.body);
-      const newPackage = await projectControlsService.createWorkPackage(validated);
+      const newPackage = await projectControlsService.createWorkPackage(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Work package created successfully', data: newPackage });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -112,7 +129,7 @@ export class ProjectControlsController {
   public async createActivity(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateActivitySchema.parse(req.body);
-      const newActivity = await projectControlsService.createActivity(validated);
+      const newActivity = await projectControlsService.createActivity(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Activity created successfully', data: newActivity });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -133,7 +150,7 @@ export class ProjectControlsController {
   public async createRelationship(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateActivityRelationshipSchema.parse(req.body);
-      const newRel = await projectControlsService.createRelationship(validated);
+      const newRel = await projectControlsService.createRelationship(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Relationship created successfully', data: newRel });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -154,7 +171,7 @@ export class ProjectControlsController {
   public async createBaseline(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateBaselineSchema.parse(req.body);
-      const newBaseline = await projectControlsService.createBaseline(validated);
+      const newBaseline = await projectControlsService.createBaseline(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Baseline created successfully', data: newBaseline });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -175,7 +192,7 @@ export class ProjectControlsController {
   public async createCalendar(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateCalendarSchema.parse(req.body);
-      const newCal = await projectControlsService.createCalendar(validated);
+      const newCal = await projectControlsService.createCalendar(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Calendar created successfully', data: newCal });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -195,7 +212,7 @@ export class ProjectControlsController {
   public async createResource(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateResourceSchema.parse(req.body);
-      const newRes = await projectControlsService.createResource(validated);
+      const newRes = await projectControlsService.createResource(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Resource created successfully', data: newRes });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -215,7 +232,7 @@ export class ProjectControlsController {
   public async assignResource(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateResourceAssignmentSchema.parse(req.body);
-      const newAssign = await projectControlsService.assignResource(validated);
+      const newAssign = await projectControlsService.assignResource(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Resource assigned successfully', data: newAssign });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -236,7 +253,7 @@ export class ProjectControlsController {
   public async addProgressSnapshot(req: Request, res: Response): Promise<void> {
     try {
       const validated = UpdateProgressSchema.parse(req.body);
-      const newSnapshot = await projectControlsService.addProgressSnapshot(validated);
+      const newSnapshot = await projectControlsService.addProgressSnapshot(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Progress snapshot recorded', data: newSnapshot });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -257,7 +274,7 @@ export class ProjectControlsController {
   public async createDelay(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateDelaySchema.parse(req.body);
-      const newDelay = await projectControlsService.createDelay(validated);
+      const newDelay = await projectControlsService.createDelay(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Delay record created successfully', data: newDelay });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -278,7 +295,7 @@ export class ProjectControlsController {
   public async createMilestone(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateMilestoneSchema.parse(req.body);
-      const newMs = await projectControlsService.createMilestone(validated);
+      const newMs = await projectControlsService.createMilestone(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Milestone created successfully', data: newMs });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -299,7 +316,7 @@ export class ProjectControlsController {
   public async createRisk(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateRiskSchema.parse(req.body);
-      const newRisk = await projectControlsService.createRisk(validated);
+      const newRisk = await projectControlsService.createRisk(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Risk record created successfully', data: newRisk });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -319,7 +336,7 @@ export class ProjectControlsController {
   public async createIssue(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateIssueSchema.parse(req.body);
-      const newIssue = await projectControlsService.createIssue(validated);
+      const newIssue = await projectControlsService.createIssue(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Issue created successfully', data: newIssue });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -340,7 +357,7 @@ export class ProjectControlsController {
   public async createChangeRequest(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateChangeRequestSchema.parse(req.body);
-      const newCr = await projectControlsService.createChangeRequest(validated);
+      const newCr = await projectControlsService.createChangeRequest(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Change request created successfully', data: newCr });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -361,7 +378,7 @@ export class ProjectControlsController {
   public async createLookaheadPlan(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateLookaheadSchema.parse(req.body);
-      const newPlan = await projectControlsService.createLookaheadPlan(validated);
+      const newPlan = await projectControlsService.createLookaheadPlan(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Lookahead plan created successfully', data: newPlan });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });
@@ -382,7 +399,7 @@ export class ProjectControlsController {
   public async createDailyProgress(req: Request, res: Response): Promise<void> {
     try {
       const validated = CreateDailyProgressSchema.parse(req.body);
-      const newProg = await projectControlsService.createDailyProgress(validated);
+      const newProg = await projectControlsService.createDailyProgress(withAuthenticatedActor(req, validated));
       res.status(201).json({ success: true, message: 'Daily progress recorded', data: newProg });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || error });

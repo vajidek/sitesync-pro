@@ -261,6 +261,9 @@ export class VendorContractService {
   async addContractVariation(data: any, createdBy: string) {
     if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required to create a contract variation.');
     const amount = Number(data.amount);
+    const contract = await this.repository.getContractById(String(data.contractId || '').trim());
+    if (!contract) throw new Error('Contract not found.');
+    const companyId = String(data.companyId || (contract as any).companyId || '').trim();
     if (!data.contractId || !data.title || !data.description || !data.variationType || !Number.isFinite(amount)) {
       throw new Error('Contract, title, description, variation type and amount are required for a variation.');
     }
@@ -296,6 +299,11 @@ export class VendorContractService {
 
     return await this.repository.addContractVariation(variationData);
   }
+
+  async updateContractVariationStatus(id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string, comments?: string) {
+    return await this.repository.updateContractVariationStatus(id, status, approvedBy, comments);
+  }
+
   async addContractPayment(data: any, certifiedBy: string) {
     if (!certifiedBy?.trim()) throw new Error('Authenticated certifier identity is required to create an interim payment certificate.');
     const gross = Number(data.grossAmount);
@@ -338,6 +346,10 @@ export class VendorContractService {
 
     return await this.repository.addContractPayment(paymentData);
   }
+  async updateContractExtensionStatus(id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string, comments?: string) {
+    return await this.repository.updateContractExtensionStatus(id, status, approvedBy, comments);
+  }
+
   async addContractExtension(data: any, approvedBy: string) {
     if (!approvedBy?.trim()) throw new Error('Authenticated approver identity is required for a contract extension request.');
     const extensionDays = Number(data.extensionDays);

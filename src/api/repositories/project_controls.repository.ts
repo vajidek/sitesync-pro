@@ -43,6 +43,11 @@ export class ProjectControlsRepository {
     throw new Error('Explicit projectId is required for project-controls operations outside DEMO mode.');
   }
 
+  private requireWriteActor(data: any): string {
+    const actor = String(data?.createdBy || data?.updatedBy || '').trim();
+    if (!actor) throw new Error('Authenticated actor identity is required for project-controls writes.');
+    return actor;
+  }
   public async ensureProjectControlsTablesExist(): Promise<void> {
     if (ProjectControlsRepository.isTablesEnsured) return;
 
@@ -600,6 +605,7 @@ export class ProjectControlsRepository {
 
   public async createWbs(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectsWbs);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -609,7 +615,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       wbsNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       code: data.code,
       name: data.name,
       description: data.description || '',
@@ -621,8 +627,8 @@ export class ProjectControlsRepository {
       status: 'ACTIVE',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -643,6 +649,7 @@ export class ProjectControlsRepository {
 
   public async createWorkPackage(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64WorkPackages);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -653,19 +660,19 @@ export class ProjectControlsRepository {
       id,
       wpNumber,
       wbsId: data.wbsId,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       code: data.code,
       name: data.name,
       deliverable: data.deliverable || '',
-      responsiblePerson: data.responsiblePerson || 'Project Manager',
+      responsiblePerson: String(data.responsiblePerson || '').trim(),
       estimatedCost: data.estimatedCost || 0,
       plannedStartDate: data.plannedStartDate || null,
       plannedEndDate: data.plannedEndDate || null,
       status: 'PLANNED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -683,6 +690,7 @@ export class ProjectControlsRepository {
 
   public async createActivity(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectActivities);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -692,7 +700,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       activityNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       wbsId: data.wbsId,
       wpId: data.wpId || null,
       activityCode: data.activityCode,
@@ -716,8 +724,8 @@ export class ProjectControlsRepository {
       status: 'NOT_STARTED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -735,6 +743,7 @@ export class ProjectControlsRepository {
 
   public async createRelationship(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
 
@@ -746,8 +755,8 @@ export class ProjectControlsRepository {
       lagDays: data.lagDays || 0,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -765,6 +774,7 @@ export class ProjectControlsRepository {
 
   public async createBaseline(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectBaselines);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -774,9 +784,9 @@ export class ProjectControlsRepository {
     const record = {
       id,
       baselineNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       baselineName: data.baselineName,
-      approvedBy: data.approvedBy || 'Project Director',
+      approvedBy: String(data.approvedBy || actor).trim(),
       approvedDate: data.approvedDate || now.split('T')[0],
       version: data.version || 'V1.0',
       isCurrentActive: true,
@@ -784,8 +794,8 @@ export class ProjectControlsRepository {
       totalPlannedCost: data.totalPlannedCost || 5000000,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -803,12 +813,13 @@ export class ProjectControlsRepository {
 
   public async createCalendar(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       calendarName: data.calendarName,
       workingDaysPerWeek: data.workingDaysPerWeek || 6,
       workingHoursPerDay: data.workingHoursPerDay || 8,
@@ -816,8 +827,8 @@ export class ProjectControlsRepository {
       isDefault: data.isDefault !== undefined ? data.isDefault : true,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -834,6 +845,7 @@ export class ProjectControlsRepository {
 
   public async createResource(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64Resources);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -850,8 +862,8 @@ export class ProjectControlsRepository {
       capacityPerDay: data.capacityPerDay || 8,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -870,6 +882,7 @@ export class ProjectControlsRepository {
 
   public async assignResource(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
     const totalCost = (data.allocatedQuantity || 1) * (data.unitRate || 0);
@@ -884,8 +897,8 @@ export class ProjectControlsRepository {
       totalCost,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -903,6 +916,7 @@ export class ProjectControlsRepository {
 
   public async addProgressSnapshot(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
 
@@ -917,7 +931,7 @@ export class ProjectControlsRepository {
 
     const record = {
       id,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       asOfDate: data.asOfDate,
       plannedProgressPercent: data.plannedProgressPercent || 0,
       actualProgressPercent: data.actualProgressPercent || 0,
@@ -930,8 +944,8 @@ export class ProjectControlsRepository {
       costVariance,
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -949,6 +963,7 @@ export class ProjectControlsRepository {
 
   public async createDelay(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectDelays);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -958,7 +973,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       delayNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId || null,
       delayCategory: data.delayCategory || 'CLIENT',
       description: data.description,
@@ -968,8 +983,8 @@ export class ProjectControlsRepository {
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -987,6 +1002,7 @@ export class ProjectControlsRepository {
 
   public async createMilestone(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectMilestones);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -996,7 +1012,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       milestoneNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       name: data.name,
       targetDate: data.targetDate,
       actualDate: null,
@@ -1005,8 +1021,8 @@ export class ProjectControlsRepository {
       status: 'PENDING',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1024,6 +1040,7 @@ export class ProjectControlsRepository {
 
   public async createRisk(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectRisks);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1037,7 +1054,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       riskNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       title: data.title,
       category: data.category || 'SCHEDULE',
       probability,
@@ -1048,8 +1065,8 @@ export class ProjectControlsRepository {
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1066,6 +1083,7 @@ export class ProjectControlsRepository {
 
   public async createIssue(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectIssues);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1075,7 +1093,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       issueNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId || null,
       title: data.title,
       priority: data.priority || 'MEDIUM',
@@ -1084,8 +1102,8 @@ export class ProjectControlsRepository {
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1103,6 +1121,7 @@ export class ProjectControlsRepository {
 
   public async createChangeRequest(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ChangeRequests);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1112,7 +1131,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       crNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       title: data.title,
       reason: data.reason,
       timeExtensionDays: data.timeExtensionDays || 0,
@@ -1120,8 +1139,8 @@ export class ProjectControlsRepository {
       approvalStatus: 'SUBMITTED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1139,6 +1158,7 @@ export class ProjectControlsRepository {
 
   public async createLookaheadPlan(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64LookaheadPlans);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1148,7 +1168,7 @@ export class ProjectControlsRepository {
     const record = {
       id,
       planNumber,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       periodWeeks: data.periodWeeks || 3,
       startDate: data.startDate,
       endDate: data.endDate,
@@ -1156,8 +1176,8 @@ export class ProjectControlsRepository {
       readinessStatus: data.readinessStatus || 'READY',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };
@@ -1175,12 +1195,13 @@ export class ProjectControlsRepository {
 
   public async createDailyProgress(data: any) {
     await this.ensureProjectControlsTablesExist();
+    const actor = this.requireWriteActor(data);
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
-      projectId: data.projectId || 'PRJ-101',
+      projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId,
       reportDate: data.reportDate,
       workDoneQty: data.workDoneQty || 0,
@@ -1190,8 +1211,8 @@ export class ProjectControlsRepository {
       remarks: data.remarks || '',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: actor,
+      updatedBy: actor,
       deletedAt: null,
       isDeleted: false,
     };

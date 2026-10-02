@@ -11,7 +11,7 @@
     "lint": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "test": "tsx src/tests/system.test.ts && tsx scripts/phase6a_verification.ts && tsx scripts/full_enterprise_verification.ts && tsx scripts/verify_expense_petty_cash.ts && tsx scripts/verify_cross_module_integrations.ts"
+    "test": "tsx src/tests/system.test.ts && tsx scripts/test-governance-comprehensive.ts && tsx scripts/phase6a_verification.ts && tsx scripts/full_enterprise_verification.ts && tsx scripts/verify_expense_petty_cash.ts && tsx scripts/verify_cross_module_integrations.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -6,8 +6,8 @@ export const CreateIncidentSchema = z.object({
   incidentType: z.string().default('FIRST_AID'),
   severity: z.string().default('LOW'),
   location: z.string().min(2, 'Location is required'),
-  projectId: z.string().default('PRJ-101'),
-  projectName: z.string().default('Al Reem Mechanical Piping & Structural Hub'),
+  projectId: z.string().min(1, 'Project is required'),
+  projectName: z.string().min(1, 'Project name is required'),
   incidentDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   injuredPersonName: z.string().optional(),
   injuredPersonRole: z.string().optional(),
@@ -18,7 +18,7 @@ export const CreateIncidentSchema = z.object({
   preventiveAction: z.string().optional(),
   status: z.string().default('REPORTED'),
   investigatorName: z.string().optional(),
-  reportedBy: z.string().default('HSE Officer'),
+  reportedBy: z.string().min(2, 'Reporter is required'),
 });
 
 export const CreateNearMissSchema = z.object({
@@ -31,7 +31,7 @@ export const CreateNearMissSchema = z.object({
   description: z.string().min(5, 'Description is required'),
   preventiveAction: z.string().optional(),
   status: z.string().default('OPEN'),
-  reportedBy: z.string().default('Site Supervisor'),
+  reportedBy: z.string().min(2, 'Reporter is required'),
 });
 
 export const CreateHazardReportSchema = z.object({
@@ -44,7 +44,7 @@ export const CreateHazardReportSchema = z.object({
   assignedTo: z.string().optional(),
   dueDate: z.string().optional(),
   status: z.string().default('IDENTIFIED'),
-  reportedBy: z.string().default('Safety Inspector'),
+  reportedBy: z.string().min(2, 'Reporter is required'),
 });
 
 export const CreateRiskAssessmentSchema = z.object({
@@ -58,7 +58,7 @@ export const CreateRiskAssessmentSchema = z.object({
   additionalControls: z.string().optional(),
   residualSeverity: z.number().min(1).max(5).optional(),
   residualLikelihood: z.number().min(1).max(5).optional(),
-  assessedBy: z.string().default('HSE Lead'),
+  assessedBy: z.string().min(2, 'Assessor is required'),
   reviewDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   status: z.string().default('ACTIVE'),
 });
@@ -72,7 +72,7 @@ export const CreateJsaSchema = z.object({
   jobSteps: z.string().min(5, 'Job steps are required'),
   requiredPpe: z.string().default('Safety Helmet, Shoes, High-Vis Vest, Safety Glasses'),
   permitRequired: z.boolean().default(false),
-  status: z.string().default('APPROVED'),
+  status: z.string().default('DRAFT'),
   approvedBy: z.string().optional(),
 });
 
@@ -131,7 +131,7 @@ export const CreatePpeIssuanceSchema = z.object({
   issueDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   expiryDate: z.string().optional(),
   condition: z.string().default('NEW'),
-  issuedBy: z.string().default('Store Manager'),
+  issuedBy: z.string().min(2, 'Issued by is required'),
 });
 
 export const CreateTrainingRecordSchema = z.object({

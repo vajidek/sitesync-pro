@@ -298,8 +298,8 @@ export class QAQCRepository {
       ) VALUES (
         ${id}, ${itpNum}, ${data.title}, ${data.discipline || 'MECHANICAL'}, ${data.projectId || null},
         ${data.projectName || null}, ${data.revisionNumber || 'R0'},
-        ${data.standardReference || null}, ${data.status || 'DRAFT'}, ${data.preparedBy || null},
-        ${data.approvedBy || 'PENDING_APPROVAL'}, ${now}, ${now}
+        ${data.standardReference || null}, 'DRAFT', ${data.preparedBy || null},
+        NULL, ${now}, ${now}
       )
     `);
 

@@ -7268,6 +7268,40 @@ export const phase69VendorQuotations = pgTable('phase69_vendor_quotations', {
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
 
+// 385A. Vendor Quotation Items
+export const phase69VendorQuotationItems = pgTable('phase69_vendor_quotation_items', {
+  id: text('id').primaryKey(),
+  quotationId: text('quotation_id').notNull(),
+  quotationNumber: text('quotation_number').notNull(),
+  rfqItemId: text('rfq_item_id').notNull(),
+  prItemId: text('pr_item_id'),
+  boqItemId: text('boq_item_id').notNull(),
+  wbsId: text('wbs_id').notNull(),
+  boqItemCode: text('boq_item_code').notNull(),
+  wbsCode: text('wbs_code').notNull(),
+  itemCode: text('item_code').notNull(),
+  description: text('description').notNull(),
+  quotedQuantity: doublePrecision('quoted_quantity').notNull(),
+  uom: text('uom').notNull(),
+  quotedUnitPrice: doublePrecision('quoted_unit_price').notNull(),
+  lineSubtotal: doublePrecision('line_subtotal').notNull(),
+  lineVatAmount: doublePrecision('line_vat_amount').notNull().default(0),
+  lineTotal: doublePrecision('line_total').notNull(),
+  deliveryLeadTimeDays: integer('delivery_lead_time_days').default(0),
+  remarks: text('remarks'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  deletedAt: text('deleted_at'),
+  isDeleted: boolean('is_deleted').notNull().default(false),
+});
+
+CREATE INDEX IF NOT EXISTS idx_p69_quote_items_quote ON phase69_vendor_quotation_items(quotation_id);
+CREATE INDEX IF NOT EXISTS idx_p69_quote_items_rfq_item ON phase69_vendor_quotation_items(rfq_item_id);
+CREATE INDEX IF NOT EXISTS idx_p69_quote_items_boq ON phase69_vendor_quotation_items(boq_item_id);
+CREATE INDEX IF NOT EXISTS idx_p69_quote_items_wbs ON phase69_vendor_quotation_items(wbs_id);
+
 // 386. Quote Comparison
 export const phase69QuoteComparison = pgTable('phase69_quote_comparison', {
   id: text('id').primaryKey(),

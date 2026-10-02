@@ -4,6 +4,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 
 export type DocumentEntityType =
+  | 'LEAVE_REQUEST'
   | 'EMPLOYEE'
   | 'PURCHASE_ORDER'
   | 'GOODS_RECEIPT'
@@ -93,6 +94,19 @@ export interface AllocationResult {
  * Standard System Default Policies
  */
 export const DEFAULT_NUMBERING_POLICIES: Record<string, Omit<DocumentNumberingPolicy, 'id' | 'createdAt' | 'updatedAt'>> = {
+  LEAVE_REQUEST: {
+    entityType: 'LEAVE_REQUEST',
+    scopeType: 'COMPANY',
+    prefix: 'LV',
+    formatPattern: '{PREFIX}-{FY}-{SEQ}',
+    padLength: 4,
+    step: 1,
+    resetFrequency: 'YEARLY',
+    fiscalYearStartMonth: 1,
+    allowManualOverride: true,
+    description: 'Standard leave request numbering policy',
+    isActive: true,
+  },
   EMPLOYEE: {
     entityType: 'EMPLOYEE',
     scopeType: 'COMPANY',

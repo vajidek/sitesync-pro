@@ -58,7 +58,6 @@ export class ProcurementEnterpriseController {
 
   public registerVendor = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -91,7 +90,6 @@ export class ProcurementEnterpriseController {
 
   public createRfq = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -114,7 +112,6 @@ export class ProcurementEnterpriseController {
 
   public submitQuotation = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -137,7 +134,6 @@ export class ProcurementEnterpriseController {
 
   public createPurchaseRequisition = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -159,7 +155,6 @@ export class ProcurementEnterpriseController {
 
   public issuePurchaseOrder = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -182,7 +177,6 @@ export class ProcurementEnterpriseController {
 
   public createContract = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -195,7 +189,6 @@ export class ProcurementEnterpriseController {
 
   public createVariationOrder = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
@@ -218,7 +211,6 @@ export class ProcurementEnterpriseController {
 
   public createGoodsReceipt = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user;
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;

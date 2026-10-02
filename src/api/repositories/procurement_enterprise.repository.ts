@@ -1,5 +1,5 @@
 import { db } from '../../db/index';
-import { sql, eq, desc } from 'drizzle-orm';
+import { sql, eq, desc, and } from 'drizzle-orm';
 import { numberingService } from '../services/numbering.service';
 import {
   phase69VendorMaster,
@@ -1063,85 +1063,168 @@ export class ProcurementEnterpriseRepository {
     }));
   }
 
-  public async createPurchaseOrder(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async createPurchaseOrder(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
+    if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required.');
+
+    const rfqNumber = String(data?.rfqNumber || '').trim();
+    if (!rfqNumber) throw new Error('RFQ is required before a purchase order can be created.');
+
+    const [rfq] = await db.select().from(phase69Rfq)
+      .where(and(eq(phase69Rfq.rfqNumber, rfqNumber), eq(phase69Rfq.isDeleted, false)))
+      .limit(1);
+    if (!rfq) throw new Error('Referenced RFQ was not found.');
+    if (!['EVALUATING', 'CLOSED'].includes(rfq.status)) {
+      throw new Error(`Purchase order cannot be created while RFQ status is ${rfq.status}.`);
+    }
+
+    const projectId = rfq.projectId;
+    const projectName = rfq.projectName;
+    const itemsInput = Array.isArray(data?.items) ? data.items : [];
+    if (!itemsInput.length) throw new Error('At least one BOQ-linked RFQ item is required for a purchase order.');
+
+    const rfqItems = await db.select().from(phase69RfqItems)
+      .where(and(eq(phase69RfqItems.rfqId, rfq.id), eq(phase69RfqItems.isDeleted, false)));
+
+    const acceptedQuotationRows = data.vendorId
+      ? await db.select().from(phase69VendorQuotations)
+          .where(and(eq(phase69VendorQuotations.rfqId, rfq.id), eq(phase69VendorQuotations.vendorId, String(data.vendorId)), eq(phase69VendorQuotations.isDeleted, false)))
+      : [];
+    const acceptedQuotation = acceptedQuotationRows.find((quote) => quote.status === 'ACCEPTED' || quote.isAwarded);
+    if (!acceptedQuotation) {
+      throw new Error('An accepted/awarded vendor quotation is required before issuing a purchase order.');
+    }
+
+    const poItems = [];
+    for (const [index, input] of itemsInput.entries()) {
+      const rfqItem = rfqItems.find((item) => item.id === input.rfqItemId);
+      if (!rfqItem) throw new Error(`PO line ${index + 1} is not linked to an RFQ item.`);
+      if (rfqItem.prItemId !== input.prItemId || rfqItem.boqItemId !== input.boqItemId) {
+        throw new Error(`PO line ${index + 1} must retain the RFQ PR/BOQ references.`);
+      }
+
+      const quantity = Number(input.orderedQuantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`PO quantity for ${rfqItem.boqItemCode} must be greater than zero.`);
+
+      const existingOrders = await db.select({ orderedQuantity: phase69PoItems.orderedQuantity })
+        .from(phase69PoItems)
+        .where(and(eq(phase69PoItems.rfqItemId, rfqItem.id), eq(phase69PoItems.isDeleted, false)));
+
+      const alreadyOrdered = existingOrders.reduce((sum, row) => sum + Number(row.orderedQuantity || 0), 0);
+      const rfqBalance = Number(rfqItem.quantity) - alreadyOrdered;
+      if (quantity > rfqBalance) {
+        throw new Error(`PO quantity for ${rfqItem.boqItemCode} exceeds remaining RFQ quantity ${rfqBalance}.`);
+      }
+
+      poItems.push({
+        prItemId: rfqItem.prItemId,
+        rfqItemId: rfqItem.id,
+        boqItemId: rfqItem.boqItemId,
+        wbsId: rfqItem.wbsId,
+        boqItemCode: rfqItem.boqItemCode,
+        wbsCode: rfqItem.wbsCode,
+        itemCode: rfqItem.itemCode,
+        description: rfqItem.description,
+        orderedQuantity: quantity,
+        uom: rfqItem.uom,
+        unitPrice: Number(input.unitPrice),
+        totalPrice: Number(input.totalPrice ?? quantity * Number(input.unitPrice)),
+        requiredDate: input.requiredDate || rfqItem.requiredDeliveryDate || rfq.targetDeliveryDate,
+      });
+    }
+
+    const companyId = String(data?.companyId || '').trim();
     const now = new Date().toISOString();
-    const id = uuidv4();
-    const poNumber = data.poNumber || (await numberingService.generatePurchaseOrderNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
-      date: now,
-    }));
+    const poNumber = data.poNumber
+      ? String(data.poNumber).trim()
+      : await numberingService.generatePurchaseOrderNumber({
+          companyId: companyId || null,
+          projectId,
+          date: data.poDate || now,
+          allocatedBy: createdBy,
+        });
 
-    const vatAmount = data.vatAmount ?? ((data.subtotal || 0) * 0.05);
-    const totalAmount = data.totalAmount ?? ((data.subtotal || 0) + vatAmount);
+    const currency = String(data?.currency || acceptedQuotation.currency || '').trim().toUpperCase();
+    if (!currency) throw new Error('Currency is required for the purchase order.');
 
-    const newPo = {
-      id,
+    const subtotal = Number(data?.subtotal);
+    const vatRatePercent = Number(data?.vatRatePercent ?? 0);
+    const vatAmount = data?.vatAmount == null ? subtotal * vatRatePercent / 100 : Number(data.vatAmount);
+    const totalAmount = data?.totalAmount == null ? subtotal + vatAmount : Number(data.totalAmount);
+    if (!Number.isFinite(subtotal) || subtotal < 0 || !Number.isFinite(vatRatePercent) || vatRatePercent < 0 || !Number.isFinite(vatAmount) || vatAmount < 0 || !Number.isFinite(totalAmount) || totalAmount <= 0) {
+      throw new Error('PO commercial amounts must be explicitly supplied and valid.');
+    }
+
+    const poId = uuidv4();
+    const poRecord = {
+      id: poId,
       poNumber,
-      prNumber: data.prNumber || null,
-      rfqNumber: data.rfqNumber || null,
-      vendorId: data.vendorId,
-      vendorName: data.vendorName,
-      projectId: data.projectId || 'PRJ-WATER-001',
-      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
-      poDate: data.poDate || now.split('T')[0],
-      deliveryDate: data.deliveryDate,
-      deliveryLocation: data.deliveryLocation || 'Sector 4 Laydown Yard',
-      currency: data.currency || 'AED',
-      subtotal: data.subtotal || 0,
-      vatRatePercent: data.vatRatePercent ?? 5.0,
+      prNumber: rfq.requisitionId ? (await db.select({ prNumber: phase69PurchaseRequisitions.prNumber }).from(phase69PurchaseRequisitions).where(eq(phase69PurchaseRequisitions.id, rfq.requisitionId)).limit(1))[0]?.prNumber || null : null,
+      rfqNumber: rfq.rfqNumber,
+      vendorId: acceptedQuotation.vendorId,
+      vendorName: acceptedQuotation.vendorName,
+      projectId,
+      projectName,
+      poDate: String(data?.poDate || now.split('T')[0]),
+      deliveryDate: String(data?.deliveryDate || rfq.targetDeliveryDate || '').trim(),
+      deliveryLocation: String(data?.deliveryLocation || rfq.deliveryLocation || '').trim(),
+      currency,
+      subtotal,
+      vatRatePercent,
       vatAmount,
       totalAmount,
-      paymentTerms: data.paymentTerms || '60 Days Credit from GRN',
-      incoterms: data.incoterms || 'DDP Site',
-      status: data.status || 'ISSUED',
-      buyerName: data.buyerName || 'Lead Procurement Manager',
-      approvedBy: data.approvedBy || 'VP Operations',
-      isAdvancePaymentRequired: data.isAdvancePaymentRequired ?? false,
-      advancePaymentPercentage: data.advancePaymentPercentage || 0,
-      retentionPercentage: data.retentionPercentage ?? 5.0,
-      performanceGuaranteeRequired: data.performanceGuaranteeRequired ?? false,
-      notes: data.notes || '',
+      paymentTerms: String(data?.paymentTerms || '').trim(),
+      incoterms: String(data?.incoterms || '').trim(),
+      status: 'PENDING_APPROVAL',
+      buyerName: createdBy.trim(),
+      approvedBy: null,
+      isAdvancePaymentRequired: data?.isAdvancePaymentRequired === true,
+      advancePaymentPercentage: Number(data?.advancePaymentPercentage || 0),
+      retentionPercentage: Number(data?.retentionPercentage || 0),
+      performanceGuaranteeRequired: data?.performanceGuaranteeRequired === true,
+      notes: String(data?.notes || ''),
       createdAt: now,
       updatedAt: now,
-      createdBy,
-      updatedBy: createdBy,
+      createdBy: createdBy.trim(),
+      updatedBy: createdBy.trim(),
       isDeleted: false,
     };
 
-    await db.insert(phase69PurchaseOrders).values(newPo);
+    if (!poRecord.deliveryDate || !poRecord.deliveryLocation) throw new Error('PO delivery date and location are required.');
+    if (poRecord.paymentTerms === '' || poRecord.incoterms === '') throw new Error('PO payment and delivery terms must be explicitly selected.');
 
-    if (data.items && Array.isArray(data.items)) {
-      for (let idx = 0; idx < data.items.length; idx++) {
-        const itm = data.items[idx];
-        await db.insert(phase69PoItems).values({
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase69PurchaseOrders.id })
+        .from(phase69PurchaseOrders)
+        .where(eq(phase69PurchaseOrders.poNumber, poNumber))
+        .limit(1);
+      if (duplicate.length) throw new Error(`PO ${poNumber} already exists.`);
+
+      await tx.insert(phase69PurchaseOrders).values(poRecord as any);
+      await tx.insert(phase69PoItems).values(
+        poItems.map((item, index) => ({
           id: uuidv4(),
-          poId: id,
+          poId,
           poNumber,
-          itemNumber: idx + 1,
-          itemCode: itm.itemCode,
-          description: itm.description,
-          orderedQuantity: itm.orderedQuantity,
+          itemNumber: index + 1,
+          ...item,
           receivedQuantity: 0,
-          balanceQuantity: itm.orderedQuantity,
-          uom: itm.uom || 'MTRS',
-          unitPrice: itm.unitPrice,
-          totalPrice: itm.totalPrice || (itm.orderedQuantity * itm.unitPrice),
-          requiredDate: itm.requiredDate || data.deliveryDate,
+          balanceQuantity: item.orderedQuantity,
           itemStatus: 'PENDING_DELIVERY',
           createdAt: now,
           updatedAt: now,
-          createdBy,
-          updatedBy: createdBy,
+          createdBy: createdBy.trim(),
+          updatedBy: createdBy.trim(),
           isDeleted: false,
-        });
-      }
-    }
+        })) as any
+      );
 
-    return this.getPurchaseOrders().then(res => res.find(p => p.id === id));
+      return {
+        ...poRecord,
+        items: poItems,
+      };
+    });
   }
-
   // --- Contracts & Variations ---
   public async getContracts(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

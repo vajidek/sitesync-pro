@@ -503,10 +503,10 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
                   </div>
                   <div className="text-right">
                     <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">
-                      {currency} {kpis.actualLaborCost.toLocaleString()}
+                      {kpis.actualLaborCost == null ? 'Not separately mapped' : `${currency} ${kpis.actualLaborCost.toLocaleString()}`}
                     </span>
                     <p className="text-[10px] text-slate-400">
-                      {((kpis.actualLaborCost / (kpis.totalActualCost || 1)) * 100).toFixed(1)}% of actuals
+                      {kpis.actualLaborCost == null ? 'Separate labour ledger mapping required' : `${((kpis.actualLaborCost / (kpis.totalActualCost || 1)) * 100).toFixed(1)}% of actuals`}
                     </p>
                   </div>
                 </div>
@@ -705,14 +705,14 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
                 <div className="space-y-1">
                   <div className="flex justify-between text-[10px] text-slate-400">
                     <span>Consumption</span>
-                    <span>{((cat.actual / (cat.budget || 1)) * 100).toFixed(1)}%</span>
+                    <span>{cat.budget == null ? 'Not mapped' : `${((cat.actual / (cat.budget || 1)) * 100).toFixed(1)}%`}</span>
                   </div>
                   <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                     <div
                       className="h-full rounded-full"
                       style={{
-                        width: `${Math.min(100, (cat.actual / (cat.budget || 1)) * 100)}%`,
-                        backgroundColor: cat.color,
+                        width: cat.budget == null ? '0%' : `${Math.min(100, (cat.actual / (cat.budget || 1)) * 100)}%`,
+                        backgroundColor: cat.color || 'transparent',
                       }}
                     />
                   </div>

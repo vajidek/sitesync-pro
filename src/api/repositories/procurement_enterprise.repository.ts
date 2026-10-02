@@ -1557,6 +1557,86 @@ export class ProcurementEnterpriseRepository {
       return { ...record, items: resolvedItems };
     });
   }
+  public async updateGoodsReceiptStatus(
+    id: string,
+    status: 'APPROVED' | 'CANCELLED',
+    actorName: string,
+    remarks?: string
+  ): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    if (!actorName?.trim()) throw new Error('Authenticated workflow actor is required.');
+
+    const [grn] = await db.select().from(phase69GoodsReceipts)
+      .where(and(eq(phase69GoodsReceipts.id, id), eq(phase69GoodsReceipts.isDeleted, false)))
+      .limit(1);
+    if (!grn) return null;
+
+    if (status === 'CANCELLED' && ['APPROVED', 'CANCELLED'].includes(grn.status)) {
+      throw new Error(`Goods receipt cannot be cancelled from status ${grn.status}.`);
+    }
+    if (status === 'APPROVED' && !['UNDER_INSPECTION', 'DRAFT'].includes(grn.status)) {
+      throw new Error(`Goods receipt cannot be approved from status ${grn.status}.`);
+    }
+
+    const grnItems = await db.select().from(phase69GoodsReceiptItems)
+      .where(and(eq(phase69GoodsReceiptItems.grnId, grn.id), eq(phase69GoodsReceiptItems.isDeleted, false)));
+    if (status === 'APPROVED' && grnItems.length === 0) {
+      throw new Error('A goods receipt cannot be approved without receipt line items.');
+    }
+
+    return await db.transaction(async (tx) => {
+      if (status === 'APPROVED') {
+        const poItems = await tx.select().from(phase69PoItems)
+          .where(and(eq(phase69PoItems.poId, (await tx.select({ id: phase69PurchaseOrders.id }).from(phase69PurchaseOrders).where(eq(phase69PurchaseOrders.poNumber, grn.poNumber)).limit(1))[0]?.id || ''), eq(phase69PoItems.isDeleted, false)));
+
+        for (const item of grnItems) {
+          const poItem = poItems.find((entry) => entry.id === item.poItemId);
+          if (!poItem) throw new Error(`PO item ${item.poItemId} was not found for GRN approval.`);
+          const accepted = Number(item.acceptedQuantity || 0);
+          const balance = Number(poItem.balanceQuantity || 0);
+          if (accepted > balance) throw new Error(`Accepted GRN quantity exceeds PO balance for ${item.boqItemCode}.`);
+
+          await tx.update(phase69PoItems).set({
+            receivedQuantity: Number(poItem.receivedQuantity || 0) + accepted,
+            balanceQuantity: Math.max(0, balance - accepted),
+            itemStatus: accepted >= balance ? 'FULLY_RECEIVED' : 'PARTIALLY_RECEIVED',
+            updatedAt: new Date().toISOString(),
+          } as any).where(eq(phase69PoItems.id, poItem.id));
+        }
+
+        const refreshedPoItems = await tx.select().from(phase69PoItems)
+          .where(and(eq(phase69PoItems.poId, poItems[0]?.poId || ''), eq(phase69PoItems.isDeleted, false)));
+        const allDelivered = refreshedPoItems.length > 0 && refreshedPoItems.every((item) => Number(item.balanceQuantity || 0) === 0);
+        const someDelivered = refreshedPoItems.some((item) => Number(item.receivedQuantity || 0) > 0);
+
+        await tx.update(phase69PurchaseOrders)
+          .set({
+            status: allDelivered ? 'DELIVERED' : someDelivered ? 'PARTIALLY_DELIVERED' : 'ISSUED',
+            updatedBy: actorName.trim(),
+            updatedAt: new Date().toISOString(),
+          } as any)
+          .where(eq(phase69PurchaseOrders.poNumber, grn.poNumber));
+
+        await tx.update(phase69GoodsReceipts).set({
+          status: 'APPROVED',
+          updatedBy: actorName.trim(),
+          updatedAt: new Date().toISOString(),
+          remarks: remarks ? [grn.remarks, remarks].filter(Boolean).join('\n') : grn.remarks,
+        } as any).where(eq(phase69GoodsReceipts.id, id));
+      } else {
+        await tx.update(phase69GoodsReceipts).set({
+          status: 'CANCELLED',
+          updatedBy: actorName.trim(),
+          updatedAt: new Date().toISOString(),
+          remarks: remarks ? [grn.remarks, remarks].filter(Boolean).join('\n') : grn.remarks,
+        } as any).where(eq(phase69GoodsReceipts.id, id));
+      }
+
+      const [updated] = await tx.select().from(phase69GoodsReceipts).where(eq(phase69GoodsReceipts.id, id)).limit(1);
+      return updated || null;
+    });
+  }
+
   // --- Three-Way Matching & Invoices ---
   public async getThreeWayMatches(): Promise<any[]> {
     await this.ensureProcurementTablesExist();

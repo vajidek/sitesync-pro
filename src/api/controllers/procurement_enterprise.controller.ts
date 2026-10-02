@@ -201,7 +201,7 @@ export class ProcurementEnterpriseController {
       const actor = requireActor(req, res);
       if (!actor) return;
       const status = req.body?.status;
-      const allowed = ['SUBMITTED', 'HOD_APPROVED', 'FINANCE_APPROVED', 'PO_ISSUED', 'REJECTED'];
+      const allowed = ['SUBMITTED', 'HOD_APPROVED', 'FINANCE_APPROVED', 'REJECTED'];
       if (!allowed.includes(status)) {
         res.status(400).json({ success: false, message: 'Invalid purchase requisition workflow status.' });
         return;

@@ -658,8 +658,8 @@ export async function approveDocument(data: {
   const doc = await getDocumentById(data.documentId);
   if (!doc) throw new Error('Document not found.');
   if (doc.createdBy === approverName) throw new Error('Maker-checker violation: document creator cannot approve the same document.');
-  if (!['UNDER_REVIEW', 'RETURNED'].includes(String(doc.workflowStatus).toUpperCase())) {
-    throw new Error(`Document cannot be approved from workflow status ${doc.workflowStatus}.`);
+  if (String(doc.workflowStatus).toUpperCase() !== 'UNDER_REVIEW') {
+    throw new Error(`Document can be approved only after a completed review. Current workflow status: ${doc.workflowStatus}.`);
   }
 
   const latestReviews = await getDocumentReviews(data.documentId);

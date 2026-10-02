@@ -83,14 +83,19 @@ export const createContractSchema = z.object({
   wbsCode: z.string().optional(),
   department: z.string().default('Contracts'),
   contractValue: z.number().min(0),
-  currency: z.string().default('AED'),
+  currency: z.string().trim().min(3, 'Currency is required'),
   startDate: z.string(),
   endDate: z.string(),
-  retentionPercent: z.number().default(10.0),
+  retentionPercent: z.number().min(0).max(100).optional(),
   securityDepositAmount: z.number().default(0),
   performanceGuaranteeAmount: z.number().default(0),
-  ldPercentPerWeek: z.number().default(0.5),
-  maxLdCapPercent: z.number().default(10.0),
+  ldPercentPerWeek: z.number().min(0).optional(),
+  maxLdCapPercent: z.number().min(0).optional(),
+  companyId: z.string().optional(),
+  branchId: z.string().optional(),
+  projectCode: z.string().optional(),
+  companyCode: z.string().optional(),
+  branchCode: z.string().optional(),
   termsAndConditions: z.string().optional(),
   notes: z.string().optional(),
   items: z.array(z.object({
@@ -131,7 +136,7 @@ export const createContractPaymentSchema = z.object({
   retentionDeducted: z.number().default(0),
   advanceAdjusted: z.number().default(0),
   penaltyDeducted: z.number().default(0),
-  certifiedBy: z.string(),
+  certifiedBy: z.string().optional(),
 });
 
 export const createContractExtensionSchema = z.object({
@@ -139,5 +144,5 @@ export const createContractExtensionSchema = z.object({
   extensionDays: z.number().min(1),
   newEndDate: z.string(),
   reason: z.string(),
-  approvedBy: z.string(),
+  approvedBy: z.string().optional(),
 });

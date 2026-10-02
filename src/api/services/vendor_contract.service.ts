@@ -1,4 +1,5 @@
 import { VendorContractRepository } from '../repositories/vendor_contract.repository';
+import { numberingService } from './numbering.service';
 
 export class VendorContractService {
   private repository: VendorContractRepository;
@@ -136,51 +137,78 @@ export class VendorContractService {
     return contract;
   }
 
-  async createContract(data: any, createdBy: string = 'Admin') {
-    const contractNumber = `CNT-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const contractVal = data.contractValue || 0;
-    const retentionPct = data.retentionPercent !== undefined ? data.retentionPercent : 10.0;
-    const retentionAmt = (contractVal * retentionPct) / 100;
+  async createContract(data: any, createdBy: string) {
+    if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required to create a contract.');
+    const contractVal = Number(data.contractValue);
+    const currency = String(data.currency || '').trim().toUpperCase();
+    if (!data.title || !data.vendorId || !data.vendorName || !data.startDate || !data.endDate || !currency) {
+      throw new Error('Contract title, vendor, currency and contract dates are required.');
+    }
+    if (!Number.isFinite(contractVal) || contractVal < 0) throw new Error('Contract value must be a valid non-negative number.');
 
+    const numbering = await numberingService.getNextNumber({
+      entityType: 'CONTRACT',
+      companyId: data.companyId || null,
+      branchId: data.branchId || null,
+      projectId: data.projectId || null,
+      date: data.startDate,
+      allocatedBy: createdBy,
+      manualNumber: data.contractNumber || undefined,
+      companyCode: data.companyCode,
+      branchCode: data.branchCode,
+      projectCode: data.projectCode,
+    });
+
+    const retentionPct = data.retentionPercent == null ? 0 : Number(data.retentionPercent);
+    const securityDepositAmount = data.securityDepositAmount == null ? 0 : Number(data.securityDepositAmount);
+    const performanceGuaranteeAmount = data.performanceGuaranteeAmount == null ? 0 : Number(data.performanceGuaranteeAmount);
+    const ldPercentPerWeek = data.ldPercentPerWeek == null ? 0 : Number(data.ldPercentPerWeek);
+    const maxLdCapPercent = data.maxLdCapPercent == null ? 0 : Number(data.maxLdCapPercent);
+
+    if (!Number.isFinite(retentionPct) || retentionPct < 0 || retentionPct > 100) throw new Error('Retention percentage must be between 0 and 100.');
+    if ([securityDepositAmount, performanceGuaranteeAmount, ldPercentPerWeek, maxLdCapPercent].some((n) => !Number.isFinite(n) || n < 0)) {
+      throw new Error('Security deposit, performance guarantee and LD parameters must be valid non-negative numbers.');
+    }
+
+    const now = new Date().toISOString();
     const contractData = {
       id: `cnt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      contractNumber,
-      title: data.title,
-      contractType: data.contractType || 'SUPPLY',
+      contractNumber: numbering.documentNumber,
+      title: data.title.trim(),
+      contractType: data.contractType,
       vendorId: data.vendorId,
       vendorName: data.vendorName,
       projectId: data.projectId || null,
       projectName: data.projectName || null,
       packageId: data.packageId || null,
       wbsCode: data.wbsCode || null,
-      department: data.department || 'Contracts',
+      department: data.department || null,
       contractValue: contractVal,
       revisedValue: contractVal,
-      currency: data.currency || 'AED',
+      currency,
       startDate: data.startDate,
       endDate: data.endDate,
       revisedEndDate: data.endDate,
       status: 'DRAFT',
       retentionPercent: retentionPct,
-      retentionAmount: retentionAmt,
-      securityDepositAmount: data.securityDepositAmount || 0,
-      performanceGuaranteeAmount: data.performanceGuaranteeAmount || 0,
-      ldPercentPerWeek: data.ldPercentPerWeek || 0.5,
-      maxLdCapPercent: data.maxLdCapPercent || 10.0,
+      retentionAmount: (contractVal * retentionPct) / 100,
+      securityDepositAmount,
+      performanceGuaranteeAmount,
+      ldPercentPerWeek,
+      maxLdCapPercent,
       totalLdPenalties: 0,
-      termsAndConditions: data.termsAndConditions || 'Standard EPC/Turnkey Contract Terms Apply',
-      notes: data.notes || '',
+      termsAndConditions: data.termsAndConditions || null,
+      notes: data.notes || null,
       isActive: true,
       isDeleted: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy,
-      updatedBy: createdBy
+      createdAt: now,
+      updatedAt: now,
+      createdBy: createdBy.trim(),
+      updatedBy: createdBy.trim(),
     };
 
     return await this.repository.createContract(contractData, data.items || []);
   }
-
   async updateContractStatus(id: string, status: string, updatedBy: string, notes?: string) {
     const contract = await this.repository.getContractById(id);
     if (!contract) throw new Error('Contract not found');
@@ -206,75 +234,126 @@ export class VendorContractService {
     return await this.repository.addContractMilestone(milestoneData);
   }
 
-  async addContractVariation(data: any, approvedBy: string = 'Admin') {
-    const variationNumber = `VO-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  async addContractVariation(data: any, createdBy: string) {
+    if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required to create a contract variation.');
+    const amount = Number(data.amount);
+    if (!data.contractId || !data.title || !data.description || !data.variationType || !Number.isFinite(amount)) {
+      throw new Error('Contract, title, description, variation type and amount are required for a variation.');
+    }
+    if (amount < 0) throw new Error('Variation amount must be non-negative.');
+
+    const numbering = await numberingService.getNextNumber({
+      entityType: 'CONTRACT_VARIATION',
+      companyId: data.companyId || null,
+      projectId: data.projectId || null,
+      date: data.variationDate || new Date().toISOString(),
+      allocatedBy: createdBy,
+      manualNumber: data.variationNumber || undefined,
+    });
+
+    const now = new Date().toISOString();
     const variationData = {
       id: `cvar_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       contractId: data.contractId,
-      variationNumber,
-      title: data.title,
-      description: data.description,
-      variationType: data.variationType || 'ADDITION',
-      amount: data.amount,
-      timeExtensionDays: data.timeExtensionDays || 0,
-      status: 'APPROVED',
-      approvedBy,
-      approvedDate: new Date().toISOString().split('T')[0],
-      justification: data.justification || 'Required for project scope enhancement',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      variationNumber: numbering.documentNumber,
+      title: data.title.trim(),
+      description: data.description.trim(),
+      variationType: data.variationType,
+      amount,
+      timeExtensionDays: Number(data.timeExtensionDays || 0),
+      status: 'PROPOSED',
+      approvedBy: null,
+      approvedDate: null,
+      justification: data.justification || null,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: createdBy.trim(),
     };
 
     return await this.repository.addContractVariation(variationData);
   }
+  async addContractPayment(data: any, certifiedBy: string) {
+    if (!certifiedBy?.trim()) throw new Error('Authenticated certifier identity is required to create an interim payment certificate.');
+    const gross = Number(data.grossAmount);
+    if (!data.contractId || !data.billingPeriod || !Number.isFinite(gross) || gross < 0) throw new Error('Contract, billing period and a valid gross amount are required.');
 
-  async addContractPayment(data: any, certifiedBy: string = 'Finance Manager') {
-    const certificateNumber = `IPC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const gross = data.grossAmount || 0;
-    const retDeducted = data.retentionDeducted || (gross * 0.1);
-    const advAdjusted = data.advanceAdjusted || 0;
-    const penDeducted = data.penaltyDeducted || 0;
-    const net = gross - retDeducted - advAdjusted - penDeducted;
+    const retention = Number(data.retentionDeducted || 0);
+    const advance = Number(data.advanceAdjusted || 0);
+    const penalty = Number(data.penaltyDeducted || 0);
+    if ([retention, advance, penalty].some((n) => !Number.isFinite(n) || n < 0)) throw new Error('Payment deductions must be valid non-negative numbers.');
+    if (retention + advance + penalty > gross) throw new Error('Payment deductions cannot exceed the gross amount.');
 
+    const numbering = await numberingService.getNextNumber({
+      entityType: 'PAYMENT',
+      companyId: data.companyId || null,
+      projectId: data.projectId || null,
+      date: data.paymentDate || new Date().toISOString(),
+      allocatedBy: certifiedBy,
+      manualNumber: data.certificateNumber || undefined,
+    });
+
+    const now = new Date().toISOString();
+    const net = gross - retention - advance - penalty;
     const paymentData = {
       id: `cpay_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       contractId: data.contractId,
-      certificateNumber,
+      certificateNumber: numbering.documentNumber,
       billingPeriod: data.billingPeriod,
       grossAmount: gross,
-      retentionDeducted: retDeducted,
-      advanceAdjusted: advAdjusted,
-      penaltyDeducted: penDeducted,
+      retentionDeducted: retention,
+      advanceAdjusted: advance,
+      penaltyDeducted: penalty,
       netPayableAmount: net,
-      status: 'CERTIFIED',
-      paymentDate: new Date().toISOString().split('T')[0],
-      certifiedBy,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      status: 'DRAFT',
+      paymentDate: null,
+      referenceNo: null,
+      certifiedBy: certifiedBy.trim(),
+      createdAt: now,
+      updatedAt: now,
     };
 
     return await this.repository.addContractPayment(paymentData);
   }
+  async addContractExtension(data: any, approvedBy: string) {
+    if (!approvedBy?.trim()) throw new Error('Authenticated approver identity is required for a contract extension request.');
+    const extensionDays = Number(data.extensionDays);
+    if (!data.contractId || !Number.isInteger(extensionDays) || extensionDays < 1 || !data.newEndDate || !data.reason) {
+      throw new Error('Contract, positive extension days, new end date and reason are required.');
+    }
 
-  async addContractExtension(data: any, approvedBy: string = 'Project Director') {
+    const contract = await this.repository.getContractById(data.contractId);
+    if (!contract) throw new Error('Contract not found.');
+
+    const existingExtensions = contract.extensions || [];
+    const extensionNumber = existingExtensions.length + 1;
+    const numbering = await numberingService.getNextNumber({
+      entityType: 'CONTRACT_EXTENSION',
+      companyId: data.companyId || null,
+      projectId: contract.projectId || data.projectId || null,
+      date: data.newEndDate,
+      allocatedBy: approvedBy,
+      manualNumber: data.extensionNumber ? `EOT-${data.extensionNumber}` : undefined,
+    });
+
     const extensionData = {
       id: `cext_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       contractId: data.contractId,
-      extensionNumber: data.extensionNumber || 1,
-      extensionDays: data.extensionDays,
-      originalEndDate: data.originalEndDate || new Date().toISOString().split('T')[0],
+      extensionNumber,
+      extensionDocumentNumber: numbering.documentNumber,
+      extensionDays,
+      originalEndDate: data.originalEndDate || contract.revisedEndDate || contract.endDate,
       newEndDate: data.newEndDate,
-      reason: data.reason,
-      status: 'APPROVED',
-      approvedBy,
-      approvedDate: new Date().toISOString().split('T')[0],
+      reason: data.reason.trim(),
+      status: 'REQUESTED',
+      approvedBy: null,
+      approvedDate: null,
+      requestedBy: approvedBy.trim(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     return await this.repository.addContractExtension(extensionData);
   }
-
   async getDashboardStats() {
     return await this.repository.getVendorContractStats();
   }

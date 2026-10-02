@@ -175,32 +175,36 @@ export class VendorContractRepository {
   }
 
   async createContract(contractData: any, items: any[] = []) {
-    const [newContract] = await db.insert(phase57Contracts).values(contractData).returning();
+    return await db.transaction(async (tx) => {
+      const [newContract] = await tx.insert(phase57Contracts).values(contractData).returning();
+      if (!newContract) throw new Error('Contract could not be created.');
 
-    if (items.length > 0) {
-      const itemVals = items.map(i => ({
-        ...i,
-        id: `citem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      if (items.length > 0) {
+        const itemVals = items.map((item, index) => ({
+          ...item,
+          id: item.id || `citem_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 6)}`,
+          contractId: newContract.id,
+          createdAt: new Date().toISOString(),
+        }));
+        await tx.insert(contractItems).values(itemVals);
+      }
+
+      await tx.insert(contractLogs).values({
+        id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         contractId: newContract.id,
-        createdAt: new Date().toISOString()
-      }));
-      await db.insert(contractItems).values(itemVals);
-    }
+        contractNumber: newContract.contractNumber,
+        actionType: 'CREATE',
+        performedBy: newContract.createdBy || 'Authenticated workflow actor',
+        details: `Created contract ${newContract.contractNumber} valued at ${newContract.currency} ${Number(newContract.contractValue).toLocaleString()}`,
+        createdAt: new Date().toISOString(),
+      });
 
-    // Create initial audit log
-    await db.insert(contractLogs).values({
-      id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      contractId: newContract.id,
-      contractNumber: newContract.contractNumber,
-      actionType: 'CREATE',
-      performedBy: newContract.createdBy || 'System Admin',
-      details: `Created contract ${newContract.contractNumber} valued at ${newContract.currency} ${newContract.contractValue.toLocaleString()}`,
-      createdAt: new Date().toISOString()
+      return {
+        ...newContract,
+        items,
+      };
     });
-
-    return this.getContractById(newContract.id);
   }
-
   async updateContractStatus(id: string, status: string, updatedBy: string, notes?: string) {
     const [c] = await db.select().from(phase57Contracts).where(eq(phase57Contracts.id, id));
     if (!c) return null;
@@ -229,49 +233,159 @@ export class VendorContractRepository {
   }
 
   async addContractVariation(variationData: any) {
-    const [varItem] = await db.insert(contractVariations).values(variationData).returning();
+    const [contract] = await db.select().from(phase57Contracts).where(eq(phase57Contracts.id, variationData.contractId)).limit(1);
+    if (!contract) throw new Error('Contract not found.');
 
-    // If variation is approved, update revised value on contract
-    if (variationData.status === 'APPROVED') {
-      const [c] = await db.select().from(phase57Contracts).where(eq(phase57Contracts.id, variationData.contractId));
-      if (c) {
-        const newRevisedValue = c.revisedValue + variationData.amount;
-        await db.update(phase57Contracts)
-          .set({ revisedValue: newRevisedValue, updatedAt: new Date().toISOString() })
-          .where(eq(phase57Contracts.id, variationData.contractId));
-      }
-    }
+    const [varItem] = await db.insert(contractVariations).values({
+      ...variationData,
+      status: variationData.status || 'PROPOSED',
+      approvedBy: null,
+      approvedDate: null,
+      createdBy: variationData.createdBy || null,
+    }).returning();
+
+    if (!varItem) throw new Error('Contract variation could not be created.');
+
+    await db.insert(contractLogs).values({
+      id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      contractId: contract.id,
+      contractNumber: contract.contractNumber,
+      actionType: 'VARIATION',
+      performedBy: variationData.createdBy || 'Authenticated workflow actor',
+      details: `Submitted variation ${varItem.variationNumber} for ${contract.contractNumber}`,
+      createdAt: new Date().toISOString(),
+    });
 
     return varItem;
   }
 
-  async addContractPayment(paymentData: any) {
-    const [p] = await db.insert(contractPayments).values(paymentData).returning();
+  async updateContractVariationStatus(id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string, comments?: string) {
+    if (!approvedBy?.trim()) throw new Error('Authenticated approver identity is required.');
+    const [variation] = await db.select().from(contractVariations).where(eq(contractVariations.id, id)).limit(1);
+    if (!variation) return null;
+    if (variation.status !== 'PROPOSED') throw new Error(`Variation cannot be ${status.toLowerCase()} from status ${variation.status}.`);
 
-    // Log payment
+    return await db.transaction(async (tx) => {
+      const [contract] = await tx.select().from(phase57Contracts).where(eq(phase57Contracts.id, variation.contractId)).limit(1);
+      if (!contract) throw new Error('Contract not found.');
+
+      const [updated] = await tx.update(contractVariations).set({
+        status,
+        approvedBy: approvedBy.trim(),
+        approvedDate: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString(),
+      }).where(eq(contractVariations.id, id)).returning();
+
+      if (status === 'APPROVED') {
+        await tx.update(phase57Contracts).set({
+          revisedValue: Number(contract.revisedValue || contract.contractValue) + Number(variation.amount),
+          updatedAt: new Date().toISOString(),
+          updatedBy: approvedBy.trim(),
+        }).where(eq(phase57Contracts.id, contract.id));
+      }
+
+      await tx.insert(contractLogs).values({
+        id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        contractId: contract.id,
+        contractNumber: contract.contractNumber,
+        actionType: 'VARIATION',
+        performedBy: approvedBy.trim(),
+        details: `${status} variation ${variation.variationNumber}.${comments ? ` ${comments}` : ''}`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return updated;
+    });
+  }
+  async addContractPayment(paymentData: any) {
+    const [contract] = await db.select().from(phase57Contracts).where(eq(phase57Contracts.id, paymentData.contractId)).limit(1);
+    if (!contract) throw new Error('Contract not found.');
+
+    const [p] = await db.insert(contractPayments).values({
+      ...paymentData,
+      status: paymentData.status || 'DRAFT',
+      paymentDate: null,
+      referenceNo: null,
+    }).returning();
+
+    if (!p) throw new Error('Interim payment certificate could not be created.');
+
     await db.insert(contractLogs).values({
       id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      contractId: paymentData.contractId,
-      contractNumber: paymentData.contractId,
+      contractId: contract.id,
+      contractNumber: contract.contractNumber,
       actionType: 'PAYMENT',
       performedBy: paymentData.certifiedBy,
-      details: `Generated Payment Certificate ${paymentData.certificateNumber} for Net AED ${paymentData.netPayableAmount.toLocaleString()}`,
-      createdAt: new Date().toISOString()
+      details: `Created payment certificate ${p.certificateNumber} for ${contract.currency} ${Number(p.netPayableAmount).toLocaleString()}`,
+      createdAt: new Date().toISOString(),
     });
 
     return p;
   }
-
   async addContractExtension(extensionData: any) {
-    const [ext] = await db.insert(contractExtensions).values(extensionData).returning();
+    const [contract] = await db.select().from(phase57Contracts).where(eq(phase57Contracts.id, extensionData.contractId)).limit(1);
+    if (!contract) throw new Error('Contract not found.');
 
-    await db.update(phase57Contracts)
-      .set({ revisedEndDate: extensionData.newEndDate, updatedAt: new Date().toISOString() })
-      .where(eq(phase57Contracts.id, extensionData.contractId));
+    const [ext] = await db.insert(contractExtensions).values({
+      ...extensionData,
+      status: extensionData.status || 'REQUESTED',
+      approvedBy: null,
+      approvedDate: null,
+    }).returning();
+
+    if (!ext) throw new Error('Contract extension request could not be created.');
+
+    await db.insert(contractLogs).values({
+      id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      contractId: contract.id,
+      contractNumber: contract.contractNumber,
+      actionType: 'EXTEND',
+      performedBy: extensionData.requestedBy || 'Authenticated workflow actor',
+      details: `Submitted extension request for ${contract.contractNumber}: ${ext.extensionDays} day(s)`,
+      createdAt: new Date().toISOString(),
+    });
 
     return ext;
   }
 
+  async updateContractExtensionStatus(id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string, comments?: string) {
+    if (!approvedBy?.trim()) throw new Error('Authenticated approver identity is required.');
+    const [extension] = await db.select().from(contractExtensions).where(eq(contractExtensions.id, id)).limit(1);
+    if (!extension) return null;
+    if (extension.status !== 'REQUESTED') throw new Error(`Extension cannot be ${status.toLowerCase()} from status ${extension.status}.`);
+
+    return await db.transaction(async (tx) => {
+      const [contract] = await tx.select().from(phase57Contracts).where(eq(phase57Contracts.id, extension.contractId)).limit(1);
+      if (!contract) throw new Error('Contract not found.');
+
+      const [updated] = await tx.update(contractExtensions).set({
+        status,
+        approvedBy: approvedBy.trim(),
+        approvedDate: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString(),
+      }).where(eq(contractExtensions.id, id)).returning();
+
+      if (status === 'APPROVED') {
+        await tx.update(phase57Contracts).set({
+          revisedEndDate: extension.newEndDate,
+          updatedAt: new Date().toISOString(),
+          updatedBy: approvedBy.trim(),
+        }).where(eq(phase57Contracts.id, contract.id));
+      }
+
+      await tx.insert(contractLogs).values({
+        id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        contractId: contract.id,
+        contractNumber: contract.contractNumber,
+        actionType: 'EXTEND',
+        performedBy: approvedBy.trim(),
+        details: `${status} extension request ${extension.extensionNumber}.${comments ? ` ${comments}` : ''}`,
+        createdAt: new Date().toISOString(),
+      });
+
+      return updated;
+    });
+  }
   async addContractDocument(docData: any) {
     const [doc] = await db.insert(contractDocuments).values(docData).returning();
     return doc;

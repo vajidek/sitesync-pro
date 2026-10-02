@@ -15,6 +15,20 @@
       "when": 1786871830000,
       "tag": "0001_reconcile_all_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790899200000,
+      "tag": "0002_commercial_erp_persistence",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790899200001,
+      "tag": "0003_contract_workflow_governance",
+      "breakpoints": true
     }
   ]
 }

@@ -3249,6 +3249,7 @@ export const contractVariations = pgTable('contract_variations', {
   amount: doublePrecision('amount').notNull(),
   timeExtensionDays: integer('time_extension_days').default(0).notNull(),
   status: text('status').notNull().default('PROPOSED'), // PROPOSED, APPROVED, REJECTED
+  createdBy: text('created_by'),
   approvedBy: text('approved_by'),
   approvedDate: text('approved_date'),
   justification: text('justification'),
@@ -3261,13 +3262,15 @@ export const contractExtensions = pgTable('contract_extensions', {
   id: text('id').primaryKey(),
   contractId: text('contract_id').notNull(),
   extensionNumber: integer('extension_number').notNull(),
+  extensionDocumentNumber: text('extension_document_number').unique(),
   extensionDays: integer('extension_days').notNull(),
   originalEndDate: text('original_end_date').notNull(),
   newEndDate: text('new_end_date').notNull(),
   reason: text('reason').notNull(),
-  status: text('status').notNull().default('APPROVED'), // REQUESTED, APPROVED, REJECTED
-  approvedBy: text('approved_by').notNull(),
-  approvedDate: text('approved_date').notNull(),
+  status: text('status').notNull().default('REQUESTED'), // REQUESTED, APPROVED, REJECTED
+  requestedBy: text('requested_by'),
+  approvedBy: text('approved_by'),
+  approvedDate: text('approved_date'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

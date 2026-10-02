@@ -55,6 +55,8 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'vendors' | 'scorecards' | 'contracts' | 'variations' | 'documents' | 'analytics'>('vendors');
   const [vendors, setVendors] = useState<VendorItem[]>([]);
   const [contracts, setContracts] = useState<ContractItem[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [currencies, setCurrencies] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -90,13 +92,15 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     contractType: 'MECHANICAL',
     vendorId: '',
     vendorName: '',
-    projectName: 'Dubai Offshore Infrastructure Expansion',
-    contractValue: 500000,
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: '2027-02-28',
-    retentionPercent: 10,
-    securityDepositAmount: 25000,
-    performanceGuaranteeAmount: 50000
+    projectId: '',
+    projectName: '',
+    currency: '',
+    contractValue: '',
+    startDate: '',
+    endDate: '',
+    retentionPercent: '',
+    securityDepositAmount: '',
+    performanceGuaranteeAmount: ''
   });
 
   // New Rating Form
@@ -131,13 +135,17 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
       const token = localStorage.getItem('token');
       const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      const [vRes, cRes] = await Promise.all([
+      const [vRes, cRes, pRes, currRes] = await Promise.all([
         fetch('/api/vendor-management/vendors', { headers: authHeader }).then(r => r.json()),
-        fetch('/api/contracts-engine/contracts', { headers: authHeader }).then(r => r.json())
+        fetch('/api/contracts-engine/contracts', { headers: authHeader }).then(r => r.json()),
+        fetch('/api/projects', { headers: authHeader }).then(r => r.json()),
+        fetch('/api/projects/masters/currencies', { headers: authHeader }).then(r => r.json())
       ]);
 
       if (vRes.success) setVendors(vRes.data || []);
       if (cRes.success) setContracts(cRes.data || []);
+      if (pRes.success) setProjects(pRes.data || []);
+      if (currRes.success) setCurrencies(currRes.data || []);
     } catch (err) {
       console.error('Error fetching Phase 57 data:', err);
     } finally {
@@ -200,16 +208,17 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
         body: JSON.stringify({
           title: contractForm.title,
           contractType: contractForm.contractType,
-          vendorId: contractForm.vendorId || vendors[0]?.id || 'v-001',
-          vendorName: contractForm.vendorName || vendors[0]?.name || 'Emirates Steel LLC',
-          projectName: contractForm.projectName,
+          vendorId: contractForm.vendorId,
+          vendorName: contractForm.vendorName,
+          projectId: contractForm.projectId || undefined,
+          projectName: contractForm.projectName || undefined,
           contractValue: Number(contractForm.contractValue),
-          currency: 'AED',
+          currency: contractForm.currency,
           startDate: contractForm.startDate,
           endDate: contractForm.endDate,
-          retentionPercent: Number(contractForm.retentionPercent),
-          securityDepositAmount: Number(contractForm.securityDepositAmount),
-          performanceGuaranteeAmount: Number(contractForm.performanceGuaranteeAmount)
+          retentionPercent: contractForm.retentionPercent === '' ? undefined : Number(contractForm.retentionPercent),
+          securityDepositAmount: contractForm.securityDepositAmount === '' ? undefined : Number(contractForm.securityDepositAmount),
+          performanceGuaranteeAmount: contractForm.performanceGuaranteeAmount === '' ? undefined : Number(contractForm.performanceGuaranteeAmount)
         })
       }).then(r => r.json());
 
@@ -842,7 +851,57 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
 
             <form onSubmit={handleCreateContract} className="space-y-4 text-sm">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Contract Title</label>
+                              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Vendor *</label>
+                  <select
+                    required
+                    value={contractForm.vendorId}
+                    onChange={(e) => {
+                      const vendor = vendors.find((v) => v.id === e.target.value);
+                      setContractForm({
+                        ...contractForm,
+                        vendorId: e.target.value,
+                        vendorName: vendor?.name || ''
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                  >
+                    <option value="">Select Vendor...</option>
+                    {vendors.map((vendor) => (
+                      <option key={vendor.id} value={vendor.id}>
+                        {vendor.name} ({vendor.vendorCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Project *</label>
+                  <select
+                    required
+                    value={contractForm.projectId}
+                    onChange={(e) => {
+                      const project = projects.find((p) => p.id === e.target.value);
+                      setContractForm({
+                        ...contractForm,
+                        projectId: e.target.value,
+                        projectName: project?.projectName || project?.name || ''
+                      });
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                  >
+                    <option value="">Select Project...</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.projectCode} — {project.projectName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+<label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Contract Title</label>
                 <input
                   type="text"
                   required
@@ -871,18 +930,36 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Contract Value (AED)</label>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Contract Value *</label>
                   <input
                     type="number"
                     required
+                    min="0"
                     value={contractForm.contractValue}
-                    onChange={(e) => setContractForm({ ...contractForm, contractValue: Number(e.target.value) })}
+                    onChange={(e) => setContractForm({ ...contractForm, contractValue: e.target.value })}
                     className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700 font-bold"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Currency *</label>
+                  <select
+                    required
+                    value={contractForm.currency}
+                    onChange={(e) => setContractForm({ ...contractForm, currency: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700 font-bold"
+                  >
+                    <option value="">Select...</option>
+                    {currencies.map((currency: any) => (
+                      <option key={currency.id || currency.code} value={currency.code || currency.currencyCode}>
+                        {currency.code || currency.currencyCode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Start Date</label>
                   <input

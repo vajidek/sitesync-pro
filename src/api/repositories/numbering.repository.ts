@@ -313,6 +313,45 @@ export const DEFAULT_NUMBERING_POLICIES: Record<string, Omit<DocumentNumberingPo
     description: 'Standard Resource Request numbering policy',
     isActive: true,
   },
+  CONTRACT: {
+    entityType: 'CONTRACT',
+    scopeType: 'COMPANY',
+    prefix: 'CNT',
+    formatPattern: '{PREFIX}-{FY}-{SEQ}',
+    padLength: 4,
+    step: 1,
+    resetFrequency: 'YEARLY',
+    fiscalYearStartMonth: 1,
+    allowManualOverride: false,
+    description: 'Construction/vendor contract numbering policy',
+    isActive: true,
+  },
+  CONTRACT_VARIATION: {
+    entityType: 'CONTRACT_VARIATION',
+    scopeType: 'COMPANY',
+    prefix: 'VO',
+    formatPattern: '{PREFIX}-{FY}-{SEQ}',
+    padLength: 4,
+    step: 1,
+    resetFrequency: 'YEARLY',
+    fiscalYearStartMonth: 1,
+    allowManualOverride: false,
+    description: 'Contract variation order numbering policy',
+    isActive: true,
+  },
+  CONTRACT_EXTENSION: {
+    entityType: 'CONTRACT_EXTENSION',
+    scopeType: 'COMPANY',
+    prefix: 'EOT',
+    formatPattern: '{PREFIX}-{FY}-{SEQ}',
+    padLength: 4,
+    step: 1,
+    resetFrequency: 'YEARLY',
+    fiscalYearStartMonth: 1,
+    allowManualOverride: false,
+    description: 'Contract extension numbering policy',
+    isActive: true,
+  },
 };
 
 export class NumberingRepository {
@@ -585,14 +624,14 @@ export class NumberingRepository {
     let scopedProjectId: string | null = null;
 
     if (policy.scopeType === 'COMPANY') {
-      scopedCompanyId = params.companyId || 'cmp-101';
+      scopedCompanyId = params.companyId || null;
     } else if (policy.scopeType === 'BRANCH') {
       scopedCompanyId = params.companyId || 'cmp-101';
-      scopedBranchId = params.branchId || 'main';
+      scopedBranchId = params.branchId || null;
     } else if (policy.scopeType === 'PROJECT') {
       scopedCompanyId = params.companyId || 'cmp-101';
       scopedBranchId = params.branchId || null;
-      scopedProjectId = params.projectId || 'PRJ-101';
+      scopedProjectId = params.projectId || null;
     }
 
     const prefix = params.customPrefix || policy.prefix;

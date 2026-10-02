@@ -144,6 +144,32 @@ export class ProcurementEnterpriseController {
     }
   };
 
+  public updatePurchaseRequisitionStatus = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const status = req.body?.status;
+      const allowed = ['SUBMITTED', 'HOD_APPROVED', 'FINANCE_APPROVED', 'PO_ISSUED', 'REJECTED'];
+      if (!allowed.includes(status)) {
+        res.status(400).json({ success: false, message: 'Invalid purchase requisition workflow status.' });
+        return;
+      }
+      const result = await this.service.updatePurchaseRequisitionStatus(
+        req.params.id,
+        status,
+        actor.name,
+        req.body?.remarks
+      );
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Purchase requisition not found.' });
+        return;
+      }
+      res.status(200).json({ success: true, data: result, message: `Purchase requisition moved to ${status}` });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  };
+
   public getPurchaseOrders = async (req: Request, res: Response): Promise<void> => {
     try {
       const pos = await this.service.getPurchaseOrders();

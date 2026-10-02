@@ -603,6 +603,10 @@ export interface Phase56PRItem {
   id: string;
   prId: string;
   materialId?: string;
+  boqItemId: string;
+  wbsId: string;
+  boqItemCode: string;
+  wbsCode: string;
   materialCode: string;
   materialName: string;
   quantity: number;
@@ -645,6 +649,10 @@ export interface Phase56RFQItem {
   id: string;
   rfqId: string;
   prItemId?: string;
+  boqItemId: string;
+  wbsId: string;
+  boqItemCode: string;
+  wbsCode: string;
   materialId?: string;
   materialCode: string;
   materialName: string;

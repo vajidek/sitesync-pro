@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { commercialRepository } from '../repositories/commercial.repository';
+import { authenticateJWT, requireRoles } from '../middleware/auth.middleware';
 
 const router = Router();
+
+router.use(authenticateJWT);
 
 // --- Tenders ---
 router.get('/tenders', async (req: Request, res: Response) => {
@@ -13,7 +16,7 @@ router.get('/tenders', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/tenders', async (req: Request, res: Response) => {
+router.post('/tenders', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), async (req: Request, res: Response) => {
   try {
     const created = await commercialRepository.createTender(req.body);
     res.status(201).json({ success: true, data: created, message: 'Commercial tender registered successfully' });
@@ -22,7 +25,7 @@ router.post('/tenders', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/tenders/:id/status', async (req: Request, res: Response) => {
+router.put('/tenders/:id/status', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const { status, quotedBidAmount, awardDetails } = req.body;
     const updated = await commercialRepository.updateTenderStatus(req.params.id, status, quotedBidAmount, awardDetails);
@@ -45,7 +48,7 @@ router.get('/rate-analyses', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/rate-analyses', async (req: Request, res: Response) => {
+router.post('/rate-analyses', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), async (req: Request, res: Response) => {
   try {
     const created = await commercialRepository.createRateAnalysis(req.body);
     res.status(201).json({ success: true, data: created, message: 'BOQ rate analysis calculated & saved' });
@@ -64,7 +67,7 @@ router.get('/subcontracts', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/subcontracts', async (req: Request, res: Response) => {
+router.post('/subcontracts', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const created = await commercialRepository.createSubcontract(req.body);
     res.status(201).json({ success: true, data: created, message: 'Subcontract agreement executed' });
@@ -84,7 +87,7 @@ router.get('/subcontract-bills', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/subcontract-bills', async (req: Request, res: Response) => {
+router.post('/subcontract-bills', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), async (req: Request, res: Response) => {
   try {
     const created = await commercialRepository.createSubcontractBill(req.body);
     res.status(201).json({ success: true, data: created, message: 'Subcontractor RA Bill recorded & submitted' });
@@ -93,7 +96,7 @@ router.post('/subcontract-bills', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/subcontract-bills/:id/certify', async (req: Request, res: Response) => {
+router.put('/subcontract-bills/:id/certify', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const { certifiedAmount, status } = req.body;
     const certified = await commercialRepository.certifySubcontractBill(req.params.id, Number(certifiedAmount), status);
@@ -115,7 +118,7 @@ router.get('/variations', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/variations', async (req: Request, res: Response) => {
+router.post('/variations', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), async (req: Request, res: Response) => {
   try {
     const created = await commercialRepository.createVariationOrder(req.body);
     res.status(201).json({ success: true, data: created, message: 'Variation order registered' });
@@ -124,7 +127,7 @@ router.post('/variations', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/variations/:id/status', async (req: Request, res: Response) => {
+router.put('/variations/:id/status', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const { status, approvedAmount } = req.body;
     const updated = await commercialRepository.updateVariationStatus(req.params.id, status, approvedAmount !== undefined ? Number(approvedAmount) : undefined);
@@ -146,7 +149,7 @@ router.get('/client-ipcs', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/client-ipcs', async (req: Request, res: Response) => {
+router.post('/client-ipcs', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), async (req: Request, res: Response) => {
   try {
     const created = await commercialRepository.createClientIPC(req.body);
     res.status(201).json({ success: true, data: created, message: 'Client Interim Payment Certificate created' });
@@ -155,7 +158,7 @@ router.post('/client-ipcs', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/client-ipcs/:id/certify', async (req: Request, res: Response) => {
+router.put('/client-ipcs/:id/certify', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const { certifiedAmount, status } = req.body;
     const certified = await commercialRepository.certifyClientIPC(req.params.id, Number(certifiedAmount), status);

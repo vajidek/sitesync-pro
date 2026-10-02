@@ -1235,6 +1235,24 @@ export class ProcurementRepository {
         createdAt: now,
       });
 
+      if (approved) {
+        const costRows = await tx.select().from(procurementCostControlsTable)
+          .where(eq(procurementCostControlsTable.projectId, po.projectId)).limit(1);
+
+        if (costRows.length > 0) {
+          const c = costRows[0];
+          const newCommitted = Number(c.committedPOUSD || 0) + Number(po.netAmountUSD || 0);
+          const newRemaining = Number(c.totalBudgetUSD || 0) - (Number(c.totalSpentUSD || 0) + newCommitted);
+          await tx.update(procurementCostControlsTable)
+            .set({
+              committedPOUSD: newCommitted,
+              remainingBudgetUSD: newRemaining,
+              costVarianceUSD: newRemaining,
+            } as any)
+            .where(eq(procurementCostControlsTable.id, c.id));
+        }
+      }
+
       await tx.insert(procurementLogs).values({
         id: `plog-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         entityType: 'PO',

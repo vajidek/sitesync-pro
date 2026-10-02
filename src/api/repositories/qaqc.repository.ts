@@ -23,6 +23,11 @@ import {
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 
+function requireFields(data: any, fields: string[], context: string): void {
+  const missing = fields.filter((field) => data?.[field] === undefined || data?.[field] === null || String(data[field]).trim() === '');
+  if (missing.length) throw new Error(`${context} requires: ${missing.join(', ')}.`);
+}
+
 export class QAQCRepository {
   private static isTablesEnsured = false;
 
@@ -151,6 +156,7 @@ export class QAQCRepository {
   }
 
   public async createInspection(data: any) {
+    requireFields(data, ['title','projectId','location'], 'Inspection');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -206,6 +212,7 @@ export class QAQCRepository {
   }
 
   public async createNcr(data: any) {
+    requireFields(data, ['projectId','title','description','location','issuedTo','issuedBy','targetCloseDate'], 'NCR');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -278,6 +285,7 @@ export class QAQCRepository {
   }
 
   public async createItp(data: any) {
+    requireFields(data, ['title','projectId','projectName','preparedBy'], 'ITP');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -291,7 +299,7 @@ export class QAQCRepository {
         ${id}, ${itpNum}, ${data.title}, ${data.discipline || 'MECHANICAL'}, ${data.projectId || null},
         ${data.projectName || null}, ${data.revisionNumber || 'R0'},
         ${data.standardReference || null}, ${data.status || 'DRAFT'}, ${data.preparedBy || null},
-        ${data.approvedBy || null}, ${now}, ${now}
+        ${data.approvedBy || 'PENDING_APPROVAL'}, ${now}, ${now}
       )
     `);
 
@@ -308,6 +316,7 @@ export class QAQCRepository {
   }
 
   public async createMaterialInspection(data: any) {
+    requireFields(data, ['materialName','supplierName','quantityReceived','unitOfMeasure','inspectionDate'], 'Material inspection');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -340,6 +349,7 @@ export class QAQCRepository {
   }
 
   public async createSiteTest(data: any) {
+    requireFields(data, ['testType','locationChainage','testedByLab','sampleDate','testDate','requiredValue','obtainedValue'], 'Site test');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -370,6 +380,7 @@ export class QAQCRepository {
   }
 
   public async createWeldingInspection(data: any) {
+    requireFields(data, ['jointNumber','welderId','pipeDiameterInch','pipeMaterial','wpsNumber','fitupStatus','visualStatus','ndtMethod'], 'Welding inspection');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -401,6 +412,7 @@ export class QAQCRepository {
   }
 
   public async createHydroTest(data: any) {
+    requireFields(data, ['lineOrTankNumber','testMedium','designPressureBar','testPressureBar','testDurationHours','holdingTimeMinutes','pressureDropObservedBar','allowableDropBar'], 'Hydro test');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -432,6 +444,7 @@ export class QAQCRepository {
   }
 
   public async createPressureTest(data: any) {
+    requireFields(data, ['equipmentPipelineRef','testMedium','testPressureBar','gaugeCalibCertRef','startPressureBar','endPressureBar'], 'Pressure test');
     await this.ensureQAQCTablesExist();
     const id = uuidv4();
     const now = new Date().toISOString();

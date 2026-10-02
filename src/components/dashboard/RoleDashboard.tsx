@@ -6,7 +6,6 @@ import { UserRole } from '../../types';
 import { safeJson } from '../../lib/safeFetch';
 import { EnterpriseRoleWorkspace } from './EnterpriseRoleWorkspace';
 import { MyActionsCenter } from './MyActionsCenter';
-import { RoleWorkspaceViews } from './RoleWorkspaceViews';
 import { 
   ROLE_CONFIG,
   CREATOR_INFO,
@@ -64,7 +63,7 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
   const [punchedIn, setPunchedIn] = useState(false);
   const [siteLogSubmitted, setSiteLogSubmitted] = useState(false);
   const [logNotes, setLogNotes] = useState('');
-  const [viewMode, setViewMode] = useState<'workspace' | 'legacy'>('workspace');
+  const viewMode = 'workspace' as const;
   const [projects, setProjects] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
@@ -429,54 +428,13 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
         </div>
       )}
 
-      {/* View Mode Toggle Command Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 rounded-2xl bg-slate-900 text-white border border-slate-800 shadow-md gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-extrabold text-indigo-300 uppercase tracking-wider shrink-0">Enterprise View Mode:</span>
-          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 uppercase tracking-wider shrink-0">
-            {viewMode === 'workspace' ? '13 Role-Centric Workspaces Active' : 'Legacy Module View Active'}
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700/80">
-          <button
-            onClick={() => setViewMode('workspace')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-              viewMode === 'workspace'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Role Workspaces
-          </button>
-          {isDemo && (
-            <button
-              onClick={() => setViewMode('legacy')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-                viewMode === 'legacy'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Legacy View
-            </button>
-          )}
-        </div>
-      </div>
-
       {/* Unified My Actions Center (Action Required, My Requests, Recent Activity) */}
       <MyActionsCenter
         onNavigateTab={onNavigateToTab}
         onOpenQuickExpense={() => setIsQuickExpenseModalOpen(true)}
       />
 
-      {/* Role-Centric Landing Workspace (Employee, Supervisor, PM, Store, Procurement, Finance, HR, Admin) */}
-      <RoleWorkspaceViews
-        activeRole={activeRole || 'WORKER'}
-        onNavigateTab={onNavigateToTab}
-        onOpenQuickExpense={() => setIsQuickExpenseModalOpen(true)}
-      />
-
+      {/* Primary user workspace: single canonical EnterpriseRoleWorkspace. Legacy demo code remains dormant below without a UI toggle. */}
       {viewMode === 'workspace' ? (
         <EnterpriseRoleWorkspace
           onNavigateToTab={onNavigateToTab}

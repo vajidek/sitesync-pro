@@ -280,7 +280,6 @@ export class VendorContractRepository {
       const now = new Date().toISOString();
 
       const [varItem] = await tx.insert(contractVariations).values({
-        ...variationData,
         id: variationData.id,
         contractId: contract.id,
         projectId,
@@ -634,7 +633,6 @@ export class VendorContractRepository {
 
       const now = new Date().toISOString();
       const [ext] = await tx.insert(contractExtensions).values({
-        ...extensionData,
         projectId: extensionData.projectId || contract.projectId || null,
         wbsId: extensionData.wbsId || null,
         causeType: extensionData.causeType || null,

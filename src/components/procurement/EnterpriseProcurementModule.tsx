@@ -137,7 +137,8 @@ export const EnterpriseProcurementModule: React.FC = () => {
         grnRes,
         matchesRes,
         scorecardsRes,
-        prRes
+        prRes,
+        pRes
       ] = await Promise.all([
         safeFetchJson<any>('/api/procurement-enterprise/stats'),
         safeFetchJson<any>('/api/procurement-enterprise/vendors'),

@@ -1130,55 +1130,38 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
                 </div>
 
                 <div className="relative pl-4 border-l-2 border-slate-200 dark:border-slate-800 space-y-3 py-1">
-                  
-                  {/* Activity Item 1 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Material Requisition Approved
+                  {isDemo ? (
+                    <>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Material Requisition Approved</div>
+                        <div className="text-[11px] text-slate-500">Req #REQ-4091 ($14,500) approved by Senior Manager</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Stores & PO</div>
+                      </div>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">{liveProjects[0]?.name ? liveProjects[0].name + ' Milestone Complete' : 'Project Milestone Complete'}</div>
+                        <div className="text-[11px] text-slate-500">Pier 12 concrete pour signed off by QA Incharge</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Engineering</div>
+                      </div>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Inventory Fastener Issue Pass</div>
+                        <div className="text-[11px] text-slate-500">M24 Bolts issued to Grid A-4 Assembly</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Store Keeper</div>
+                      </div>
+                      <div className="relative space-y-0.5">
+                        <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white dark:ring-slate-900" />
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">Day Shift Safety Clearance</div>
+                        <div className="text-[11px] text-slate-500">Site Safety Audit passed with 0 incidents</div>
+                        <div className="text-[10px] text-slate-400 font-mono">Demo activity • Safety</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="p-5 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                      Live activity and audit events will appear here once the activity feed is connected.
                     </div>
-                    <div className="text-[11px] text-slate-500">
-                      Req #REQ-4091 ($14,500) approved by Senior Manager
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">10 mins ago • Stores & PO</div>
-                  </div>
-
-                  {/* Activity Item 2 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      {liveProjects[0]?.name ? `${liveProjects[0].name} Milestone Complete` : (isDemo ? 'Peruvannamuzhi WTP Milestone Complete' : 'Project Structural Milestone Complete')}
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Pier 12 concrete pour signed off by QA Incharge
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">42 mins ago • Engineering</div>
-                  </div>
-
-                  {/* Activity Item 3 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Inventory Fastener Issue Pass
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      M24 Bolts issued to Grid A-4 Assembly
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">1 hour ago • Store Keeper</div>
-                  </div>
-
-                  {/* Activity Item 4 */}
-                  <div className="relative space-y-0.5">
-                    <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-500 ring-4 ring-white dark:ring-slate-900" />
-                    <div className="text-xs font-bold text-slate-900 dark:text-white">
-                      Day Shift Safety Clearance
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      Site Safety Audit passed with 0 incidents
-                    </div>
-                    <div className="text-[10px] text-slate-400 font-mono">2 hours ago • Safety HSE</div>
-                  </div>
-
+                  )}
                 </div>
               </DSCard>
 
@@ -1193,8 +1176,8 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
                   {activeWorkspace.notifications.length === 0 ? (
                     <div className="p-4 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 space-y-1">
                       <CheckSquare className="w-5 h-5 text-emerald-500 mx-auto opacity-80" />
-                      <div className="font-semibold text-xs text-slate-700 dark:text-slate-300">No Active System Alerts</div>
-                      <p className="text-[11px] text-slate-400">All system events are operating within normal parameters.</p>
+                      <div className="font-semibold text-xs text-slate-700 dark:text-slate-300">No live system alerts available</div>
+                      <p className="text-[11px] text-slate-400">An empty feed does not imply that all systems are clear.</p>
                     </div>
                   ) : (
                     activeWorkspace.notifications.map((notif) => (
@@ -1245,9 +1228,9 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
             {activeWorkspace.tasks.length === 0 ? (
               <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 space-y-2">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto opacity-80" />
-                <div className="font-bold text-sm text-slate-900 dark:text-white">No Assigned Tasks Outstanding</div>
+                <div className="font-bold text-sm text-slate-900 dark:text-white">No live tasks available</div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                  All assigned operational tasks for {activeWorkspace.name} are up to date and verified.
+                  No transactional task records are currently available for {activeWorkspace.name}.
                 </p>
               </div>
             ) : (

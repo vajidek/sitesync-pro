@@ -11,7 +11,7 @@ import {
 import { db } from '../../db';
 import { eq, and, ilike, or, desc, sql } from 'drizzle-orm';
 import { pgTable, text, boolean, integer, doublePrecision, jsonb } from 'drizzle-orm/pg-core';
-import { vehicles, equipments } from '../../db/schema';
+import { vehicles, equipments, projects, projectWbs, boqItems, costCodes } from '../../db/schema';
 import { Pool } from 'pg';
 import { isDemoSeedAllowed } from '../config/env';
 
@@ -1319,11 +1319,15 @@ class FleetRepository {
     await ensureFleetSeeded();
 
     const assetId = String(data.assetId || '').trim();
-    const assetType = String(data.assetType || '').trim().toUpperCase();
+    const rawAssetType = String(data.assetType || '').trim().toUpperCase();
+    if (rawAssetType !== 'VEHICLE' && rawAssetType !== 'EQUIPMENT') {
+      throw new Error('Asset type must be VEHICLE or EQUIPMENT.');
+    }
+    const assetType: import('../types/fleet').AssetType = rawAssetType;
     const performedBy = String(data.performedBy || '').trim();
     const serviceDate = String(data.serviceDate || '').trim();
 
-    if (!assetId || !['VEHICLE', 'EQUIPMENT'].includes(assetType) || !performedBy || !serviceDate) {
+    if (!assetId || !performedBy || !serviceDate) {
       throw new Error('Asset, asset type, service date and performer identity are required.');
     }
     if (data.costAmount != null) {
@@ -1447,7 +1451,11 @@ class FleetRepository {
     await ensureFleetSeeded();
 
     const assetId = String(data.assetId || '').trim();
-    const assetType = String(data.assetType || '').trim().toUpperCase();
+    const rawAssetType = String(data.assetType || '').trim().toUpperCase();
+    if (rawAssetType !== 'VEHICLE' && rawAssetType !== 'EQUIPMENT') {
+      throw new Error('Asset type must be VEHICLE or EQUIPMENT.');
+    }
+    const assetType: import('../types/fleet').AssetType = rawAssetType;
     const filledById = String(data.filledById || '').trim();
     const filledByName = String(data.filledByName || '').trim();
     const projectId = String(data.projectId || '').trim();
@@ -1458,7 +1466,7 @@ class FleetRepository {
 
     const qty = Number(data.quantityLiters);
     const price = Number(data.unitPrice);
-    if (!assetId || !['VEHICLE', 'EQUIPMENT'].includes(assetType) || !filledById || !filledByName || !projectId) {
+    if (!assetId || !filledById || !filledByName || !projectId) {
       throw new Error('Asset, asset type, project and authenticated fuel-entry identity are required.');
     }
     if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {

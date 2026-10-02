@@ -519,19 +519,21 @@ export const EnterpriseProcurementModule: React.FC = () => {
         {/* Executive KPI Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 mt-6 pt-6 border-t border-slate-800/80">
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/60 rounded-xl p-3.5">
-            <span className="text-xs text-slate-400 font-medium">Total Spend (AED)</span>
+            <span className="text-xs text-slate-400 font-medium">Approved PO Value (AED)</span>
             <div className="text-xl font-bold text-white mt-1">
-              AED {(stats?.totalSpendAed ? (stats.totalSpendAed / 1000000).toFixed(1) : '116.9')}M
+              AED {stats?.approvedPurchaseOrderValueAed != null
+                ? (Number(stats.approvedPurchaseOrderValueAed) / 1000000).toFixed(1)
+                : '—'}M
             </div>
-            <span className="text-[11px] text-emerald-400 flex items-center gap-0.5 mt-1">
-              <TrendingUp className="w-3 h-3" /> +8.4% Cost Saved
+            <span className="text-[11px] text-slate-400 flex items-center gap-0.5 mt-1">
+              <FileCheck2 className="w-3 h-3" /> Canonical procurement value
             </span>
           </div>
 
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/60 rounded-xl p-3.5">
             <span className="text-xs text-slate-400 font-medium">Active Vendors</span>
             <div className="text-xl font-bold text-white mt-1">
-              {stats?.activeVendorsCount || vendors.length || 4} Prequalified
+              {stats?.activeVendorsCount ?? vendors.length ?? 0} Prequalified
             </div>
             <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-1">
               <ShieldCheck className="w-3 h-3 text-emerald-400" /> Tier 1 Certified
@@ -541,7 +543,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/60 rounded-xl p-3.5">
             <span className="text-xs text-slate-400 font-medium">Active RFQs</span>
             <div className="text-xl font-bold text-white mt-1">
-              {stats?.activeRfqsCount || rfqs.length || 1} In Bidding
+              {stats?.activeRfqsCount ?? rfqs.filter((rfq) => ['PUBLISHED','EVALUATION','EVALUATION_STAGE'].includes(rfq.status)).length} In Bidding
             </div>
             <span className="text-[11px] text-indigo-400 flex items-center gap-1 mt-1">
               <Scale className="w-3 h-3" /> L1 Comparison
@@ -551,7 +553,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/60 rounded-xl p-3.5">
             <span className="text-xs text-slate-400 font-medium">Open Purchase Orders</span>
             <div className="text-xl font-bold text-white mt-1">
-              {stats?.openPosCount || purchaseOrders.length || 1} Issued
+              {stats?.openPosCount ?? purchaseOrders.filter((po) => ['PENDING_APPROVAL','ISSUED','PARTIALLY_DELIVERED','DELIVERED','INVOICED'].includes(po.status)).length} Open
             </div>
             <span className="text-[11px] text-blue-400 flex items-center gap-1 mt-1">
               <Clock className="w-3 h-3" /> On Track
@@ -561,7 +563,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/60 rounded-xl p-3.5">
             <span className="text-xs text-slate-400 font-medium">Active Contracts</span>
             <div className="text-xl font-bold text-white mt-1">
-              AED {(stats?.totalContractValueAed ? (stats.totalContractValueAed / 1000000).toFixed(1) : '19.8')}M
+              AED {stats?.totalContractValueAed != null ? (Number(stats.totalContractValueAed) / 1000000).toFixed(1) : '—'}M
             </div>
             <span className="text-[11px] text-amber-400 flex items-center gap-1 mt-1">
               <Briefcase className="w-3 h-3" /> Subcontract EPC
@@ -571,10 +573,10 @@ export const EnterpriseProcurementModule: React.FC = () => {
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/60 rounded-xl p-3.5">
             <span className="text-xs text-slate-400 font-medium">3-Way Match Rate</span>
             <div className="text-xl font-bold text-emerald-400 mt-1">
-              {stats?.autoMatchedInvoicesPercent || 100}%
+              {stats?.autoMatchedInvoicesPercent != null ? `${stats.autoMatchedInvoicesPercent}%` : '—'}
             </div>
             <span className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
-              <CheckCircle2 className="w-3 h-3" /> Zero Discrepancy
+              <CheckCircle2 className="w-3 h-3" /> {stats?.autoMatchedInvoicesPercent != null ? 'Measured match rate' : 'No match data'}
             </span>
           </div>
         </div>

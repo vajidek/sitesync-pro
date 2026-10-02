@@ -1131,6 +1131,11 @@ export class HrmsRepository {
       throw new Error(`Payroll cannot be calculated because finalized attendance is missing for ${missingFinalization.length} employee(s): ${sample}`);
     }
 
+    return await db.transaction(async (tx) => {
+      const db = tx;
+
+    // ERP-TRACE: HR-LOAN-ATOMIC-P1 — recovery, payslip generation, payroll run state and audit commit as one transaction.
+    // A failure anywhere must roll back the full calculation rather than leaving partial loan or payslip state.
     // Fetch active loans for automatic recovery
     const allLoans = await db.select().from(phase70Loans).where(and(eq(phase70Loans.isDeleted, false), eq(phase70Loans.status, 'ACTIVE')));
 
@@ -1394,7 +1399,7 @@ export class HrmsRepository {
         statutoryRulesApplied: activeRules.length,
         remarks,
       }),
-    });
+ , tx);
 
     return {
       periodId,
@@ -1417,7 +1422,10 @@ export class HrmsRepository {
         timestamp: governanceRun.makerTimestamp,
       },
     };
+    });
   }
+
+
 
   // --- STATUTORY GOVERNANCE & MAKER-CHECKER WORKFLOW METHODS ---
 

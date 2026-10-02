@@ -491,6 +491,55 @@ export async function createDocumentVersion(data: {
   return getDocumentById(data.documentId);
 }
 
+export async function checkinDocument(documentId: string, user: string, newVersionName?: string, fileUrl?: string, changeSummary?: string) {
+  await ensureDocumentTablesExist();
+  const actor = String(user || '').trim();
+  if (!actor) throw new Error('Authenticated check-in actor identity is required.');
+
+  const doc = await getDocumentById(documentId);
+  if (!doc) throw new Error('Document not found.');
+  if (!doc.isCheckedOut) throw new Error('Document is not currently checked out.');
+  if (doc.checkedOutBy !== actor) throw new Error('Only the current checkout owner can check in this document.');
+
+  const now = new Date().toISOString();
+  const [checkout] = await db.select().from(phase61DocumentCheckouts)
+    .where(and(eq(phase61DocumentCheckouts.documentId, documentId), eq(phase61DocumentCheckouts.isCheckedIn, false)))
+    .orderBy(desc(phase61DocumentCheckouts.checkedOutAt))
+    .limit(1);
+
+  if (newVersionName && fileUrl) {
+    await createDocumentVersion({
+      documentId,
+      versionName: newVersionName,
+      fileUrl,
+      fileSizeBytes: doc.fileSizeBytes,
+      changeSummary: changeSummary || 'Checked-in revision',
+      isMajorVersion: false,
+      uploadedBy: actor,
+    });
+  }
+
+  await db.update(phase61DocumentFiles).set({
+    isCheckedOut: false,
+    checkedOutBy: null,
+    checkedOutAt: null,
+    updatedAt: now,
+    updatedBy: actor,
+  }).where(eq(phase61DocumentFiles.id, documentId));
+
+  if (checkout) {
+    await db.update(phase61DocumentCheckouts).set({
+      isCheckedIn: true,
+      checkedInAt: now,
+      status: 'COMPLETED',
+      updatedAt: now,
+      updatedBy: actor,
+    }).where(eq(phase61DocumentCheckouts.id, checkout.id));
+  }
+
+  await logAudit(documentId, actor, 'CHECKIN', { newVersionName: newVersionName || null });
+  return getDocumentById(documentId);
+}
 export async function checkoutDocument(documentId: string, user: string, notes?: string, expectedDate?: string) {
   await ensureDocumentTablesExist();
   const actor = String(user || '').trim();

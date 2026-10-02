@@ -462,10 +462,13 @@ export class HrmsController {
       const actor = getAuthenticatedActor(req, res);
       if (!actor) return;
 
+      const role = String((req as any).user?.role || '').trim().toUpperCase();
+      const isPrivilegedLoanAdmin = ['ADMIN', 'MANAGER'].includes(role);
+
       const loan = await this.service.applyLoan({
         ...req.body,
-        employeeId: req.body?.employeeId || actor.userId,
-        employeeName: req.body?.employeeName || actor.userName,
+        employeeId: isPrivilegedLoanAdmin && req.body?.employeeId ? req.body.employeeId : actor.userId,
+        employeeName: isPrivilegedLoanAdmin && req.body?.employeeName ? req.body.employeeName : actor.userName,
         userId: actor.userId,
         userName: actor.userName,
       });

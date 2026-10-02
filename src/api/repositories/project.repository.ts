@@ -1274,27 +1274,58 @@ export class ProjectRepository {
 
   async createDailyProgress(data: Partial<DbDailyProgress>): Promise<DbDailyProgress> {
     await ensureProjectSeeded();
+
+    const projectId = String(data.projectId || '').trim();
+    const siteId = String(data.siteId || '').trim();
+    const workCategory = String(data.workCategory || '').trim();
+    const description = String(data.description || '').trim();
+    const createdById = String(data.createdById || '').trim();
+    const createdByName = String(data.createdByName || '').trim();
+    const completion = Number(data.completionPercentage);
+
+    if (!projectId || !siteId || !workCategory || !description || !createdById || !createdByName) {
+      throw new Error('Project, site, work category, description and authenticated creator identity are required.');
+    }
+    if (!Number.isFinite(completion) || completion < 0 || completion > 100) {
+      throw new Error('Completion percentage must be between 0 and 100.');
+    }
+
+    const [project] = await db.select({ id: projects.id, isActive: projects.isActive })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (!project || !project.isActive) throw new Error('Project not found or inactive.');
+
+    const [site] = await db.select({ id: sites.id, projectId: sites.projectId, isActive: sites.isActive })
+      .from(sites)
+      .where(eq(sites.id, siteId))
+      .limit(1);
+    if (!site || !site.isActive || site.projectId !== projectId) {
+      throw new Error('Site not found, inactive, or outside the selected project.');
+    }
+
     const now = new Date().toISOString();
     const newRecord = {
       id: genId('dpr'),
-      projectId: data.projectId!,
-      siteId: data.siteId!,
+      projectId,
+      siteId,
       date: data.date || new Date().toISOString().slice(0, 10),
-      workCategory: data.workCategory || 'General Execution',
-      description: data.description || '',
-      completionPercentage: Number(data.completionPercentage) || 0,
+      workCategory,
+      description,
+      completionPercentage: completion,
       remarks: data.remarks || '',
       photos: data.photos || [],
       documents: data.documents || [],
-      createdById: data.createdById || 'usr-inc-003',
-      createdByName: data.createdByName || 'Site Incharge',
-      verifiedById: data.verifiedById ?? null,
-      verifiedByName: data.verifiedByName ?? null,
-      approvedById: data.approvedById ?? null,
-      approvedByName: data.approvedByName ?? null,
+      createdById,
+      createdByName,
+      verifiedById: null,
+      verifiedByName: null,
+      approvedById: null,
+      approvedByName: null,
       status: 'SUBMITTED',
       createdAt: now,
     };
+
     await db.insert(dailyProgress).values(newRecord);
     return mapDailyProgressRow(newRecord);
   }
@@ -1305,20 +1336,51 @@ export class ProjectRepository {
     actionUser: { id: string; name: string }
   ): Promise<DbDailyProgress | null> {
     await ensureProjectSeeded();
+
+    if (!actionUser?.id || !actionUser?.name?.trim()) {
+      throw new Error('Authenticated workflow actor identity is required.');
+    }
+
     const [existing] = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id));
     if (!existing) return null;
+
+    if (status === 'VERIFIED') {
+      if (existing.status !== 'SUBMITTED') {
+        throw new Error(`Progress can be verified only from SUBMITTED status. Current status: ${existing.status}`);
+      }
+      if (existing.createdById === actionUser.id) {
+        throw new Error('Maker-checker violation: progress creator cannot verify the same entry.');
+      }
+    }
+
+    if (status === 'APPROVED') {
+      if (existing.status !== 'VERIFIED') {
+        throw new Error(`Progress can be approved only after verification. Current status: ${existing.status}`);
+      }
+      if (existing.createdById === actionUser.id || existing.verifiedById === actionUser.id) {
+        throw new Error('Maker-checker violation: progress creator or verifier cannot approve the same entry.');
+      }
+    }
+
+    if (status === 'REJECTED') {
+      if (!['SUBMITTED', 'VERIFIED'].includes(existing.status)) {
+        throw new Error(`Progress cannot be rejected from status ${existing.status}`);
+      }
+      if (existing.createdById === actionUser.id && existing.status === 'SUBMITTED') {
+        throw new Error('Maker-checker violation: creator cannot reject their own submitted progress.');
+      }
+    }
 
     const payload: Record<string, any> = { status };
     if (status === 'VERIFIED') {
       payload.verifiedById = actionUser.id;
-      payload.verifiedByName = actionUser.name;
+      payload.verifiedByName = actionUser.name.trim();
     } else if (status === 'APPROVED') {
       payload.approvedById = actionUser.id;
-      payload.approvedByName = actionUser.name;
+      payload.approvedByName = actionUser.name.trim();
     }
 
-    await db.update(dailyProgress).set(payload).where(eq(dailyProgress.id, id));
-    const [updated] = await db.select().from(dailyProgress).where(eq(dailyProgress.id, id));
+    const [updated] = await db.update(dailyProgress).set(payload).where(eq(dailyProgress.id, id)).returning();
     return updated ? mapDailyProgressRow(updated) : null;
   }
 

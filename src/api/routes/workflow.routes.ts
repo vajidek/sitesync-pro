@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { WorkflowController } from '../controllers/workflow.controller';
-import { authenticateJWT } from '../middleware/auth.middleware';
+import { authenticateJWT, requireRoles } from '../middleware/auth.middleware';
 
 export function createWorkflowRouter(): Router {
   const router = Router();
@@ -12,22 +12,22 @@ export function createWorkflowRouter(): Router {
   router.get('/stats', controller.getWorkflowStats);
 
   // States & Transitions (Both direct and nested under workflows)
-  router.post('/states', controller.createState);
-  router.delete('/states/:stateId', controller.deleteState);
-  router.post('/transitions', controller.createTransition);
-  router.delete('/transitions/:transitionId', controller.deleteTransition);
+  router.post('/states', requireRoles('ADMIN'), controller.createState);
+  router.delete('/states/:stateId', requireRoles('ADMIN'), controller.deleteState);
+  router.post('/transitions', requireRoles('ADMIN'), controller.createTransition);
+  router.delete('/transitions/:transitionId', requireRoles('ADMIN'), controller.deleteTransition);
 
   // Specific workflow routes
   router.get('/:id/states', controller.getStates);
   router.get('/:id/transitions', controller.getTransitions);
-  router.post('/:id/duplicate', controller.duplicateWorkflow);
-  router.post('/:id/publish', controller.publishWorkflow);
-  router.put('/:id', controller.updateWorkflow);
+  router.post('/:id/duplicate', requireRoles('ADMIN'), controller.duplicateWorkflow);
+  router.post('/:id/publish', requireRoles('ADMIN'), controller.publishWorkflow);
+  router.put('/:id', requireRoles('ADMIN'), controller.updateWorkflow);
   router.get('/:id', controller.getWorkflowById);
 
   // Workflows CRUD
   router.get('/', controller.getWorkflows);
-  router.post('/', controller.createWorkflow);
+  router.post('/', requireRoles('ADMIN'), controller.createWorkflow);
 
   // Instances & Submissions
   router.post('/instances', controller.submitWorkflowInstance);
@@ -44,7 +44,7 @@ export function createWorkflowRouter(): Router {
 
   // Delegations
   router.get('/delegations', controller.getDelegations);
-  router.post('/delegations', controller.createDelegation);
+  router.post('/delegations', requireRoles('ADMIN'), controller.createDelegation);
 
   // Escalations
   router.get('/escalations', controller.getEscalations);
@@ -55,13 +55,13 @@ export function createWorkflowRouter(): Router {
 
   // Notifications & Announcements
   router.get('/notifications', controller.getNotifications);
-  router.post('/notifications', controller.createNotification);
+  router.post('/notifications', requireRoles('ADMIN'), controller.createNotification);
   router.get('/announcements', controller.getAnnouncements);
-  router.post('/announcements', controller.createAnnouncement);
+  router.post('/announcements', requireRoles('ADMIN'), controller.createAnnouncement);
 
   // Universal Governance Policy Engine
   router.get('/policy/:codeOrEntity', controller.getWorkflowPolicy);
-  router.put('/policy/:codeOrEntity', controller.updateWorkflowPolicy);
+  router.put('/policy/:codeOrEntity', requireRoles('ADMIN'), controller.updateWorkflowPolicy);
   router.post('/policy/evaluate', controller.evaluateEligibility);
   router.get('/policy/chain/:entityType/:entityId', controller.getApprovalChain);
 

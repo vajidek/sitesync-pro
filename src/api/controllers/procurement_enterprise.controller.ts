@@ -5,6 +5,7 @@ import {
   createPurchaseRequisitionSchema,
   createPurchaseOrderSchema,
   createGoodsReceiptSchema,
+  createQuotationSchema,
 } from '../validators/procurement_enterprise.validator';
 function requireActor(req: Request, res: Response): { id?: string; name: string } | null {
   const user = (req as any).user;
@@ -122,10 +123,11 @@ export class ProcurementEnterpriseController {
       const actor = requireActor(req, res);
       if (!actor) return;
       const createdBy = actor.name;
-      const quote = await this.service.submitQuotation(req.body, createdBy);
+      const payload = createQuotationSchema.parse(req.body);
+      const quote = await this.service.submitQuotation(payload, createdBy);
       res.status(201).json({ success: true, data: quote, message: 'Vendor quotation submitted successfully' });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(error?.name === 'ZodError' ? 400 : 500).json({ success: false, message: error.message });
     }
   };
 

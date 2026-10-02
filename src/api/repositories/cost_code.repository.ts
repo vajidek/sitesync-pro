@@ -24,7 +24,7 @@ export interface CostCodeRecord {
 
 class CostCodeRepository {
   async list(params?: { companyId?: string; projectId?: string; wbsId?: string; includeInactive?: boolean }) {
-    const predicates = [];
+    const predicates: any[] = [];
     if (params?.companyId) predicates.push(eq(costCodes.companyId, params.companyId));
     if (params?.projectId) predicates.push(or(isNull(costCodes.projectId), eq(costCodes.projectId, params.projectId)));
     if (params?.wbsId) predicates.push(or(isNull(costCodes.wbsId), eq(costCodes.wbsId, params.wbsId)));

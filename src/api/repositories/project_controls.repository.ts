@@ -36,6 +36,13 @@ import { isDemoSeedAllowed } from '../config/env';
 export class ProjectControlsRepository {
   private static isTablesEnsured = false;
 
+  private resolveProjectId(projectId?: string): string {
+    const resolved = String(projectId || '').trim();
+    if (resolved) return resolved;
+    if (isDemoSeedAllowed()) return 'PRJ-101';
+    throw new Error('Explicit projectId is required for project-controls operations outside DEMO mode.');
+  }
+
   public async ensureProjectControlsTablesExist(): Promise<void> {
     if (ProjectControlsRepository.isTablesEnsured) return;
 
@@ -585,8 +592,9 @@ export class ProjectControlsRepository {
   // --- CRUD Methods ---
 
   // 1. WBS
-  public async getWbsList(projectId: string = 'PRJ-101') {
+  public async getWbsList(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectsWbs).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -624,8 +632,9 @@ export class ProjectControlsRepository {
   }
 
   // 2. Work Packages
-  public async getWorkPackages(wbsId?: string, projectId: string = 'PRJ-101') {
+  public async getWorkPackages(wbsId?: string, projectId?: string) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     if (wbsId) {
       return db.select().from(phase64WorkPackages).where(sql`wbs_id = ${wbsId} AND is_deleted = false`);
     }
@@ -666,8 +675,9 @@ export class ProjectControlsRepository {
   }
 
   // 3. Project Activities & CPM
-  public async getActivities(projectId: string = 'PRJ-101') {
+  public async getActivities(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectActivities).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -717,8 +727,9 @@ export class ProjectControlsRepository {
   }
 
   // 4. Relationships
-  public async getRelationships(projectId: string = 'PRJ-101') {
+  public async getRelationships(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ActivityRelationships).where(sql`is_deleted = false`);
   }
 
@@ -746,8 +757,9 @@ export class ProjectControlsRepository {
   }
 
   // 5. Baselines
-  public async getBaselines(projectId: string = 'PRJ-101') {
+  public async getBaselines(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectBaselines).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -783,8 +795,9 @@ export class ProjectControlsRepository {
   }
 
   // 6. Calendars
-  public async getCalendars(projectId: string = 'PRJ-101') {
+  public async getCalendars(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectCalendars).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -882,8 +895,9 @@ export class ProjectControlsRepository {
   }
 
   // 8. EVM Progress Snapshots
-  public async getProgress(projectId: string = 'PRJ-101') {
+  public async getProgress(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectProgress).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -927,8 +941,9 @@ export class ProjectControlsRepository {
   }
 
   // 9. Delays & Constraints
-  public async getDelays(projectId: string = 'PRJ-101') {
+  public async getDelays(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectDelays).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -964,8 +979,9 @@ export class ProjectControlsRepository {
   }
 
   // 10. Milestones
-  public async getMilestones(projectId: string = 'PRJ-101') {
+  public async getMilestones(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectMilestones).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -1000,8 +1016,9 @@ export class ProjectControlsRepository {
   }
 
   // 11. Risks & Issues
-  public async getRisks(projectId: string = 'PRJ-101') {
+  public async getRisks(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectRisks).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -1041,8 +1058,9 @@ export class ProjectControlsRepository {
     return record;
   }
 
-  public async getIssues(projectId: string = 'PRJ-101') {
+  public async getIssues(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ProjectIssues).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -1077,8 +1095,9 @@ export class ProjectControlsRepository {
   }
 
   // 12. Change Requests
-  public async getChangeRequests(projectId: string = 'PRJ-101') {
+  public async getChangeRequests(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64ChangeRequests).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -1112,8 +1131,9 @@ export class ProjectControlsRepository {
   }
 
   // 13. Lookahead Plans
-  public async getLookaheadPlans(projectId: string = 'PRJ-101') {
+  public async getLookaheadPlans(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64LookaheadPlans).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -1147,8 +1167,9 @@ export class ProjectControlsRepository {
   }
 
   // 14. Daily, Weekly, Monthly Progress Records
-  public async getDailyProgress(projectId: string = 'PRJ-101') {
+  public async getDailyProgress(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64DailyProgress).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
@@ -1179,19 +1200,22 @@ export class ProjectControlsRepository {
     return record;
   }
 
-  public async getWeeklyProgress(projectId: string = 'PRJ-101') {
+  public async getWeeklyProgress(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64WeeklyProgress).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
-  public async getMonthlyProgress(projectId: string = 'PRJ-101') {
+  public async getMonthlyProgress(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
     return db.select().from(phase64MonthlyProgress).where(sql`project_id = ${projectId} AND is_deleted = false`);
   }
 
   // 15. Stats / Dashboard KPIs
-  public async getStats(projectId: string = 'PRJ-101') {
+  public async getStats(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
+    projectId = this.resolveProjectId(projectId);
 
     const wbsCount = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectsWbs).where(sql`project_id = ${projectId} AND is_deleted = false`);
     const actCount = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectActivities).where(sql`project_id = ${projectId} AND is_deleted = false`);

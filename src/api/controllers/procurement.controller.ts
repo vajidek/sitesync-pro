@@ -252,7 +252,8 @@ export class ProcurementController {
 
   createPurchaseOrder = async (req: Request, res: Response) => {
     try {
-      const body = createPoSchema.parse(req.body);
+      const today = new Date().toISOString().slice(0, 10);
+      const body = createPoSchema.parse({ ...req.body, poDate: req.body?.poDate || today });
       const user = (req as any).user;
       const actorId = String(user?.id || '').trim();
       const actorName = String(user?.name || user?.email || '').trim();
@@ -260,12 +261,28 @@ export class ProcurementController {
         return res.status(401).json({ success: false, message: 'Authenticated procurement actor is required.' });
       }
 
-      const subtotal = body.subtotal ?? 0;
+      const subtotal = body.subtotal ?? body.items.reduce((sum: number, item: any) => sum + Number(item.totalPrice || 0), 0);
       const discount = body.discountAmount ?? 0;
       const tax = body.taxAmount ?? 0;
       const netAmount = body.totalAmount;
+      const lineSubtotal = body.items.reduce((sum: number, item: any) => sum + Number(item.totalPrice || 0), 0);
+      const computedSubtotal = body.items.reduce((sum: number, item: any) => sum + Number(item.orderedQty || 0) * Number(item.unitPrice || 0), 0);
+      if (Math.abs(lineSubtotal - computedSubtotal) >= 0.01) {
+        throw new Error('PO line totals do not match ordered quantity × unit price.');
+      }
+      if (Math.abs(subtotal - lineSubtotal) >= 0.01) {
+        throw new Error('PO subtotal does not match the line-item totals.');
+      }
+      if (Math.abs(netAmount - (subtotal - discount + tax)) >= 0.01) {
+        throw new Error('PO total amount must equal subtotal − discount + tax.');
+      }
+      const companyId = String(user?.companyId || '').trim();
+      if (!companyId) {
+        throw new Error('Company context is required to generate the Purchase Order number.');
+      }
       const po = await this.service.createPurchaseOrder({
         ...body,
+        companyId,
         subtotalUSD: subtotal,
         discountUSD: discount,
         gstUSD: tax,

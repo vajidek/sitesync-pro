@@ -12,49 +12,11 @@ import { adminRepository } from '../repositories/admin.repository';
 
 const router = Router();
 
-// Graceful Authentication: Uses verified token identity when provided, with fallback for seamless preview
-const gracefulAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    try {
-      const payload = verifyAccessToken(token);
-      const user = await userRepository.findById(payload.userId);
-      if (user && user.isActive) {
-        const role = await roleRepository.findById(user.roleId);
-        const permissions = await adminRepository.getUserEffectivePermissions(user.id, user.roleId);
-        req.user = {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: role ? role.code : payload.role,
-          roleId: user.roleId,
-          department: user.department,
-          phone: user.phone,
-          permissions,
-        };
-        req.token = token;
-        return next();
-      }
-    } catch {
-      // Proceed to default fallback
-    }
-  }
+// All Master Data operations require a real authenticated user.
+// No fallback identities are permitted: master data changes and reads are security-sensitive.
+import { authenticateJWT } from '../middleware/auth.middleware';
 
-  req.user = {
-    id: 'usr-admin',
-    email: 'admin@sitesyncpro.com',
-    name: 'Enterprise Data Steward Admin',
-    role: 'ADMIN',
-    roleId: 'role-admin',
-    department: 'Enterprise Data Governance',
-    phone: '+971 50 123 4567',
-    permissions: ['ALL'],
-  };
-  return next();
-};
 
-router.use(gracefulAuth);
 
 // 1. Dashboard & Domains
 router.get('/dashboard-stats', (req, res) => masterDataController.getDashboardStats(req, res));

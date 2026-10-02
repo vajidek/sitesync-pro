@@ -233,12 +233,13 @@ export interface GoodsReceiptNote {
   vendorName: string;
   projectId: string;
   projectName: string;
+  warehouseId: string;
   warehouseName: string;
   receivedDate: string;
   challanNo: string;
   challanDate: string;
   inspectedByName: string;
-  qualityStatus: 'Passed' | 'Passed with Partial Rejection' | 'Failed Quality Audit';
+  qualityStatus: 'PENDING_INSPECTION' | 'Passed' | 'Passed with Partial Rejection' | 'Failed Quality Audit';
   items: GRNItem[];
   stockUpdated: boolean;
   remarks: string;

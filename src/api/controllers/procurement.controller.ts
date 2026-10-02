@@ -361,15 +361,34 @@ export class ProcurementController {
 
   createGrn = async (req: Request, res: Response) => {
     try {
-      const grn = await this.service.createGrn(req.body);
+      const user = (req as any).user;
+      const actorId = String(user?.id || user?.userId || '').trim();
+      const actorName = String(user?.name || user?.fullName || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated GRN receiver identity is required.' });
+        return;
+      }
+      const warehouseId = String(req.body?.warehouseId || '').trim();
+      if (!warehouseId) {
+        res.status(400).json({ success: false, message: 'Warehouse selection is required for GRN posting.' });
+        return;
+      }
+      const grn = await this.service.createGrn({
+        ...req.body,
+        warehouseId,
+        inspectedByName: actorName,
+        inspectedById: actorId,
+      });
       logger.info(`[Procurement Controller] Registered GRN ${grn.grnNumber} for PO ${grn.poNumber}`);
       res.status(201).json({
         success: true,
-        message: `GRN ${grn.grnNumber} created. Store inventory stock successfully incremented!`,
+        message: grn.stockUpdated
+          ? `GRN ${grn.grnNumber} created and approved quantities posted to stock.`
+          : `GRN ${grn.grnNumber} created and held pending quality approval.`,
         data: grn,
       });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to record GRN' });
+      res.status(500).json({ success: false, message: err.message || 'Failed to record GRN' });
     }
   };
 

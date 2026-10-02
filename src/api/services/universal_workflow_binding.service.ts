@@ -60,6 +60,17 @@ export class UniversalWorkflowBindingService {
    * Creates workflow instance, initial task, and logs enterprise audit event.
    */
   public async bindOperationalTransaction(params: WorkflowBindParams) {
+    const requesterId = String(params.requester?.id || '').trim();
+    const requesterName = String(params.requester?.name || '').trim();
+    const requesterRole = String(params.requester?.role || '').trim();
+    const companyId = String((params.dataContext as any)?.companyId || '').trim();
+
+    if (!requesterId || !requesterName || !requesterRole) {
+      throw new Error('Authenticated workflow requester identity (id, name and role) is required.');
+    }
+    if (!companyId) {
+      throw new Error('Company context is required to bind an operational transaction to workflow.');
+    }
     const workflowCode = workflowPolicyEngine.resolveWorkflowCode(params.entityType);
     const policy = await workflowPolicyEngine.getWorkflowConfig(workflowCode);
 
@@ -68,8 +79,8 @@ export class UniversalWorkflowBindingService {
       entityNumber: params.entityNumber,
       projectId: params.projectId || (params.dataContext as any)?.projectId,
       department: params.department || (params.dataContext as any)?.department,
-      requesterRole: params.requester.role || 'INITIATOR',
-      requesterId: params.requester.id,
+      requesterRole,
+      requesterId,
       requesterEmail: params.requester.email,
       idempotencyKey: params.idempotencyKey,
       policyVersion: policy.version,
@@ -93,11 +104,11 @@ export class UniversalWorkflowBindingService {
 
     // Record Enterprise Audit Event
     await enterpriseAuditRepository.logEvent({
-      companyId: (params.dataContext as any)?.companyId || 'cmp-101',
-      userId: params.requester.id,
+      companyId,
+      userId: requesterId,
       userEmail: params.requester.email,
       userRole: params.requester.role,
-      userName: params.requester.name,
+      userName: requesterName,
       actionType: 'SUBMIT',
       entityType: params.entityType.toUpperCase(),
       entityId: params.entityId,
@@ -197,6 +208,13 @@ export class UniversalWorkflowBindingService {
    * Executes a workflow transition with strict Maker-Checker and Governance validation.
    */
   public async executeWorkflowTransition(params: WorkflowTransitionParams) {
+    const actorId = String(params.user?.id || '').trim();
+    const actorName = String(params.user?.name || '').trim();
+    const actorRole = String(params.user?.role || '').trim();
+
+    if (!actorId || !actorName || !actorRole) {
+      throw new Error('Authenticated workflow actor identity (id, name and role) is required.');
+    }
     const workflowCode = workflowPolicyEngine.resolveWorkflowCode(params.entityType);
     const policy = await workflowPolicyEngine.getWorkflowConfig(workflowCode);
 
@@ -214,6 +232,9 @@ export class UniversalWorkflowBindingService {
       .limit(1);
 
     const instance = instRows[0];
+    if (!instance) {
+      throw new Error('Workflow instance not found. Submit the transaction to workflow before requesting a transition.');
+    }
     let parsedContext: any = {};
     if (instance?.dataContextJson) {
       try {
@@ -324,9 +345,9 @@ export class UniversalWorkflowBindingService {
         fromState,
         toState,
         actionTaken: actionUpper,
-        performedByUserId: params.user.id,
-        performedByUserName: params.user.name,
-        performedByUserRole: params.user.role || 'USER',
+        performedByUserId: actorId,
+        performedByUserName: actorName,
+        performedByUserRole: actorRole,
         department: params.user.department || parsedContext.department,
         comments: params.remarks || `${actionUpper} performed`,
         digitalSignature: params.digitalSignature || null,

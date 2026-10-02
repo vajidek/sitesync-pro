@@ -1582,8 +1582,8 @@ export class HrmsRepository {
       const res = await db.execute(query);
       const rows = res?.rows || [];
 
-      // If empty for Aug 2026, auto-populate initial finalization snapshot from active employees
-      if (rows.length === 0 && (monthYear === '2026-08' || periodId === 'pp-2026-08' || !monthYear)) {
+      // Synthetic attendance finalization is DEMO-only.
+      if (rows.length === 0 && isDemoSeedAllowed() && (monthYear === '2026-08' || periodId === 'pp-2026-08' || !monthYear)) {
         return this.seedDefaultAttendanceFinalization('pp-2026-08', '2026-08');
       }
 
@@ -1674,12 +1674,19 @@ export class HrmsRepository {
   }): Promise<any[]> {
     await this.ensureHrmsTablesExist();
     const now = new Date().toISOString();
-    const periodId = data.periodId || 'pp-2026-08';
-    const monthYear = data.monthYear || '2026-08';
-    const finalizedBy = data.finalizedBy || 'HR Operations Supervisor';
+    const periodId = String(data.periodId || '').trim();
+    const monthYear = String(data.monthYear || '').trim();
+    const finalizedBy = String(data.finalizedBy || '').trim();
+
+    if (!periodId || !monthYear || !finalizedBy) {
+      throw new Error('Attendance period, month and authenticated finalizer identity are required.');
+    }
 
     let employeeSnapshots = data.records;
     if (!employeeSnapshots || employeeSnapshots.length === 0) {
+      if (!isDemoSeedAllowed()) {
+        throw new Error('Attendance finalization requires the verified employee snapshot. Synthetic finalization is disabled outside DEMO mode.');
+      }
       const employees = await this.getEmployees();
       employeeSnapshots = employees.map((emp) => {
         const isSite = emp.id === 'emp-002' || emp.id === 'emp-003';

@@ -1,5 +1,6 @@
 import { VendorContractRepository } from '../repositories/vendor_contract.repository';
 import { numberingService } from './numbering.service';
+import { projectRepository } from '../repositories/project.repository';
 
 export class VendorContractService {
   private repository: VendorContractRepository;
@@ -141,16 +142,39 @@ export class VendorContractService {
     if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required to create a contract.');
     const contractVal = Number(data.contractValue);
     const currency = String(data.currency || '').trim().toUpperCase();
-    if (!data.title || !data.vendorId || !data.vendorName || !data.startDate || !data.endDate || !currency) {
+    if (!data.title || !data.vendorId || !data.startDate || !data.endDate || !currency) {
       throw new Error('Contract title, vendor, currency and contract dates are required.');
     }
     if (!Number.isFinite(contractVal) || contractVal < 0) throw new Error('Contract value must be a valid non-negative number.');
 
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+      throw new Error('Contract end date must be later than the start date.');
+    }
+
+    const vendor = await this.repository.getVendorById(String(data.vendorId).trim());
+    if (!vendor || vendor.status !== 'ACTIVE' || ['BLOCKED', 'BLACKLISTED'].includes(String(vendor.classification || '').toUpperCase())) {
+      throw new Error('Selected vendor is not active/eligible for contract creation.');
+    }
+
+    let projectId = String(data.projectId || '').trim();
+    let projectName = String(data.projectName || '').trim();
+    let companyId = String(data.companyId || '').trim();
+
+    if (projectId) {
+      const project = await projectRepository.findProjectById(projectId);
+      if (!project || !project.isActive) throw new Error('Selected project is not active or does not exist.');
+      projectName = project.projectName;
+      if (!companyId) companyId = String(project.companyId || '').trim();
+      if (!companyId) throw new Error('Company context is not configured on the selected project.');
+    }
+
     const numbering = await numberingService.getNextNumber({
       entityType: 'CONTRACT',
-      companyId: data.companyId || null,
+      companyId: companyId || null,
       branchId: data.branchId || null,
-      projectId: data.projectId || null,
+      projectId: projectId || null,
       date: data.startDate,
       allocatedBy: createdBy,
       manualNumber: data.contractNumber || undefined,
@@ -177,9 +201,9 @@ export class VendorContractService {
       title: data.title.trim(),
       contractType: data.contractType,
       vendorId: data.vendorId,
-      vendorName: data.vendorName,
-      projectId: data.projectId || null,
-      projectName: data.projectName || null,
+      vendorName: vendor.name,
+      projectId: projectId || null,
+      projectName: projectName || null,
       packageId: data.packageId || null,
       wbsCode: data.wbsCode || null,
       department: data.department || null,
@@ -244,7 +268,7 @@ export class VendorContractService {
 
     const numbering = await numberingService.getNextNumber({
       entityType: 'CONTRACT_VARIATION',
-      companyId: data.companyId || null,
+      companyId: companyId || null,
       projectId: data.projectId || null,
       date: data.variationDate || new Date().toISOString(),
       allocatedBy: createdBy,

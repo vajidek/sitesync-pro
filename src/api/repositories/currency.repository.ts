@@ -2,6 +2,7 @@ import { db } from '../../db';
 import { currencies, exchangeRates, auditLogs, projects, companies } from '../../db/schema';
 import { eq, and, desc, sql, asc, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { isDemoSeedAllowed } from '../config/env';
 
 export interface CurrencyItem {
   id: string;
@@ -36,6 +37,7 @@ export class CurrencyRepository {
    * Seed standard currencies and historical exchange rates if empty or heal base currency
    */
   async ensureCurrenciesSeeded(): Promise<void> {
+    if (!isDemoSeedAllowed()) return;
     try {
       const now = new Date().toISOString();
       const existing = await db.select().from(currencies);
@@ -119,34 +121,9 @@ export class CurrencyRepository {
     await this.ensureCurrenciesSeeded();
     const baseRows = await db.select().from(currencies).where(eq(currencies.isBaseCurrency, true));
     if (baseRows.length > 0) return baseRows[0];
-    
-    // Check if INR exists
-    const inr = await this.getCurrencyByCode('INR');
-    if (inr) return inr;
 
-    // Fallback: check company currency or first currency
-    const comp = await db.select().from(companies).limit(1);
-    if (comp.length > 0 && comp[0].currency) {
-      const match = await this.getCurrencyByCode(comp[0].currency);
-      if (match) return match;
-    }
-
-    const all = await this.getAllCurrencies(true);
-    return all[0] || {
-      id: 'cur-default',
-      code: 'INR',
-      name: 'Indian Rupee',
-      symbol: '₹',
-      exchangeRate: 1.0,
-      decimalPrecision: 2,
-      isBaseCurrency: true,
-      displayOrder: 1,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    throw new Error('Enterprise base currency is not configured. Configure an active base currency before financial reporting.');
   }
-
   /**
    * Controlled administrative operation to set enterprise base reporting currency
    */

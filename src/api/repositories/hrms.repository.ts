@@ -1097,7 +1097,7 @@ export class HrmsRepository {
         id,
         slipNumber: payslipNumber,
         payrollRunId: `prun-${resolvedPeriodId}`,
-        periodId: periodId,
+        periodId: resolvedPeriodId,
         employeeId: emp.id,
         employeeCode: emp.employeeCode || `EMP-${emp.id}`,
         employeeName: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee',
@@ -1136,7 +1136,7 @@ export class HrmsRepository {
     // Upsert or register in hrPayrollRuns governance table
     const runNumber = `PRUN-${payrollMonth.replace('-', '')}-${String(payslipsCreated.length).padStart(3, '0')}`;
     const [governanceRun] = await db.insert(hrPayrollRuns).values({
-      id: `prun-${periodId}`,
+      id: `prun-${resolvedPeriodId}`,
       runNumber,
       payrollMonth,
       jurisdiction,
@@ -1199,7 +1199,7 @@ export class HrmsRepository {
     await this.recordAuditLog({
       actionType: 'PAYROLL_CALCULATED',
       entityType: 'PAYROLL_PERIOD',
-      entityId: periodId,
+      entityId: resolvedPeriodId,
       referenceNumber: governanceRun.runNumber,
       performedBy: options.makerUserName || 'Payroll Officer',
       detailsJson: JSON.stringify({
@@ -1213,7 +1213,7 @@ export class HrmsRepository {
     });
 
     return {
-      periodId,
+      periodId: resolvedPeriodId,
       runId: governanceRun.id,
       runNumber: governanceRun.runNumber,
       generatedPayslips: payslipsCreated.length,

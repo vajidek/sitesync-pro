@@ -421,12 +421,18 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { neftBatchReference } = req.body;
-      const user = (req as any).user || { id: 'usr-disburse-01', name: 'Treasury Officer' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll disbursement actor is required.' });
+        return;
+      }
       const updated = await this.service.disbursePayrollRun(
         id,
         {
-          userId: user.id || user.userId || 'usr-disburse-01',
-          userName: user.name || user.fullName || 'Treasury Officer',
+          userId: actorId,
+          userName: actorName,
         },
         neftBatchReference
       );
@@ -444,12 +450,18 @@ export class HrmsController {
         res.status(400).json({ success: false, message: 'A mandatory reason is required to place an employee payroll on hold' });
         return;
       }
-      const user = (req as any).user || { id: 'usr-hr-01', name: 'HR Payroll Specialist' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll actor is required.' });
+        return;
+      }
       const updated = await this.service.holdPayslip(
         id,
         {
-          userId: user.id || user.userId || 'usr-hr-01',
-          userName: user.name || user.fullName || 'HR Payroll Specialist',
+          userId: actorId,
+          userName: actorName,
         },
         reason
       );
@@ -463,12 +475,22 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-      const user = (req as any).user || { id: 'usr-hr-01', name: 'HR Payroll Specialist' };
+      if (!reason) {
+        res.status(400).json({ success: false, message: 'A mandatory reason is required to release a payroll hold.' });
+        return;
+      }
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll actor is required.' });
+        return;
+      }
       const updated = await this.service.unholdPayslip(
         id,
         {
-          userId: user.id || user.userId || 'usr-hr-01',
-          userName: user.name || user.fullName || 'HR Payroll Specialist',
+          userId: actorId,
+          userName: actorName,
         },
         reason
       );
@@ -516,10 +538,16 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { remarks } = req.body;
-      const user = (req as any).user || { id: 'usr-admin-01', name: 'HR/Finance Director' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated loan approver identity is required.' });
+        return;
+      }
       const loan = await this.service.approveLoan(
         id,
-        { userId: user.id, userName: user.name || 'HR/Finance Director' },
+        { userId: actorId, userName: actorName },
         remarks
       );
       res.status(200).json({ success: true, data: loan });
@@ -545,10 +573,14 @@ export class HrmsController {
   public simulateLoanRecovery = async (req: Request, res: Response): Promise<void> => {
     try {
       const { employeeId, payableDutyDays, grossSalary } = req.body;
+      if (!employeeId || payableDutyDays == null) {
+        res.status(400).json({ success: false, message: 'Employee ID and payable duty days are required for loan recovery simulation.' });
+        return;
+      }
       const result = await this.service.simulateLoanRecovery(
         employeeId,
-        Number(payableDutyDays || 26),
-        grossSalary ? Number(grossSalary) : 75000
+        Number(payableDutyDays),
+        grossSalary == null ? undefined : Number(grossSalary)
       );
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {

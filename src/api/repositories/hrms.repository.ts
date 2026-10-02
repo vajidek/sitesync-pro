@@ -980,7 +980,7 @@ export class HrmsRepository {
               ${`prun-${periodId}`}, ${periodId}, ${payrollMonth}, ${payableDutyDays}, ${anyLoan.repaymentRate},
               ${calculatedInstallment}, ${openingBal}, ${actualDeduction}, ${closingBal},
               ${anyLoan.repaymentMethod || 'PER_DUTY_DAY'}, ${`REC-${payrollMonth}-${loan.loanCode}`},
-              ${options.makerUserName || 'Payroll Engine'}, ${now}, ${now}
+              ${options.makerUserName}, ${now}, ${now}
             )
           `);
 

@@ -99,11 +99,17 @@ router.post('/subcontract-bills', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), 
 router.put('/subcontract-bills/:id/certify', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const { certifiedAmount, status } = req.body;
-    const certified = await commercialRepository.certifySubcontractBill(req.params.id, Number(certifiedAmount), status);
+    const user = (req as any).user;
+    const actor = {
+      id: String(user?.id || ''),
+      name: String(user?.name || user?.email || ''),
+      role: String(user?.role || ''),
+    };
+    const certified = await commercialRepository.certifySubcontractBill(req.params.id, Number(certifiedAmount), status, actor);
     if (!certified) return res.status(404).json({ success: false, error: 'Subcontract bill not found' });
     res.json({ success: true, data: certified, message: 'Subcontract bill certified successfully' });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 
@@ -161,11 +167,17 @@ router.post('/client-ipcs', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), async 
 router.put('/client-ipcs/:id/certify', requireRoles('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
   try {
     const { certifiedAmount, status } = req.body;
-    const certified = await commercialRepository.certifyClientIPC(req.params.id, Number(certifiedAmount), status);
+    const user = (req as any).user;
+    const actor = {
+      id: String(user?.id || ''),
+      name: String(user?.name || user?.email || ''),
+      role: String(user?.role || ''),
+    };
+    const certified = await commercialRepository.certifyClientIPC(req.params.id, Number(certifiedAmount), status, actor);
     if (!certified) return res.status(404).json({ success: false, error: 'Client IPC record not found' });
     res.json({ success: true, data: certified, message: 'Client IPC certified successfully' });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(400).json({ success: false, error: error.message });
   }
 });
 

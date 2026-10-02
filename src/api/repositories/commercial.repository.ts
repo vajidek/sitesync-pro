@@ -895,8 +895,9 @@ export class CommercialRepository {
 
   // --- Subcontract certification ---
 
-  public async certifySubcontractBill(id: string, certifiedAmount: number, status = 'CERTIFIED'): Promise<CommercialSubcontractBill | null> {
+  public async certifySubcontractBill(id: string, certifiedAmount: number, status = 'CERTIFIED', actor?: { id: string; name: string; role: string }): Promise<CommercialSubcontractBill | null> {
     await this.ensureCommercialPersistence();
+    if (!actor?.id?.trim() || !actor?.name?.trim() || !actor?.role?.trim()) throw new Error('Authenticated certification actor is required.');
     const [bill] = await db.select().from(commercialSubcontractBills).where(eq(commercialSubcontractBills.id, id)).limit(1);
     if (!bill) return null;
     if (!['SUBMITTED', 'UNDER_MEASUREMENT'].includes(bill.status)) throw new Error(`Subcontract bill cannot be certified from status ${bill.status}.`);
@@ -913,6 +914,10 @@ export class CommercialRepository {
         totalAmount: net,
         taxAmount: 0,
         dueDate: certDate,
+        projectId: (bill as any).projectId,
+        projectName: (bill as any).projectName,
+        createdBy: actor.name,
+
       });
       const lines: any[] = [
         { accountCode: '5020', accountName: 'Subcontractor Works Incurred', debitAmount: cert, creditAmount: 0, lineDescription: `Certified subcontract bill ${bill.billNumber}` },
@@ -924,7 +929,7 @@ export class CommercialRepository {
       const debits = lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0);
       const credits = lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0);
       if (Math.abs(debits - credits) > 0.01) throw new Error('Subcontract certification journal is not balanced.');
-      await financeRepository.createJournalEntry({ voucherType: 'SUBCONTRACT_JOURNAL', postingDate: certDate, referenceNumber: bill.billNumber, narration: `Commercial subcontract certification ${bill.billNumber}` }, lines);
+      await financeRepository.createJournalEntry({ voucherType: 'SUBCONTRACT_JOURNAL', postingDate: certDate, referenceNumber: bill.billNumber, narration: `Commercial subcontract certification ${bill.billNumber}`, postedBy: actor.name, createdBy: actor.name }, lines);
     }
 
     const [updated] = await db.update(commercialSubcontractBills).set({
@@ -932,7 +937,7 @@ export class CommercialRepository {
       retentionAmount,
       netCertifiedPayable: net,
       status,
-      certifiedBy: status === 'CERTIFIED' ? 'Authenticated workflow actor' : null,
+      certifiedBy: status === 'CERTIFIED' ? actor.name : null,
       certifiedDate: status === 'CERTIFIED' ? certDate : null,
       updatedAt: new Date().toISOString(),
     }).where(eq(commercialSubcontractBills.id, id)).returning();
@@ -1035,8 +1040,9 @@ export class CommercialRepository {
     return (await this.getClientIPCs(data.projectId)).find((i) => i.id === id)!;
   }
 
-  public async certifyClientIPC(id: string, certifiedAmount: number, status = 'CERTIFIED'): Promise<CommercialClientIPC | null> {
+  public async certifyClientIPC(id: string, certifiedAmount: number, status = 'CERTIFIED', actor?: { id: string; name: string; role: string }): Promise<CommercialClientIPC | null> {
     await this.ensureCommercialPersistence();
+    if (!actor?.id?.trim() || !actor?.name?.trim() || !actor?.role?.trim()) throw new Error('Authenticated certification actor is required.');
     const [current] = await db.select().from(commercialClientIpcs).where(eq(commercialClientIpcs.id, id)).limit(1);
     if (!current) return null;
     if (!['SUBMITTED', 'CONSULTANT_CHECKED'].includes(current.status)) throw new Error(`Client IPC cannot be certified from status ${current.status}.`);
@@ -1054,6 +1060,7 @@ export class CommercialRepository {
         totalAmount: net,
         taxAmount: current.statutoryTds || 0,
         dueDate: current.dueDate || certDate,
+        createdBy: actor.name,
       });
       const lines: any[] = [
         { accountCode: '1030', accountName: 'Accounts Receivable Control', debitAmount: net, creditAmount: 0, lineDescription: `Net certified receivable for ${current.ipcNumber}` },
@@ -1066,7 +1073,7 @@ export class CommercialRepository {
       const debits = lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0);
       const credits = lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0);
       if (Math.abs(debits - credits) > 0.01) throw new Error('Client IPC journal is not balanced.');
-      await financeRepository.createJournalEntry({ voucherType: 'REVENUE_JOURNAL', postingDate: certDate, referenceNumber: current.ipcNumber, narration: `Client IPC revenue recognition ${current.ipcNumber}` }, lines);
+      await financeRepository.createJournalEntry({ voucherType: 'REVENUE_JOURNAL', postingDate: certDate, referenceNumber: current.ipcNumber, narration: `Client IPC revenue recognition ${current.ipcNumber}`, postedBy: actor.name, createdBy: actor.name }, lines);
     }
 
     const [updated] = await db.update(commercialClientIpcs).set({

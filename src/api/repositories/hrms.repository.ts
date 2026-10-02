@@ -897,8 +897,12 @@ export class HrmsRepository {
     const reason = String(data?.reason || '').trim();
     const actorId = String(data?.requestedByUserId || data?.userId || '').trim();
     const actorName = String(data?.requestedByUserName || data?.userName || '').trim();
+    const actorRole = String(data?.requestedByUserRole || '').trim().toUpperCase();
     if (!data?.companyId && !isDemoSeedAllowed()) throw new Error('Company context is required for leave request numbering outside DEMO mode.');
     if (!employeeId || !leaveTypeId || !startDate || !endDate || !reason || !actorId || !actorName) throw new Error('Employee, leave type, dates, reason and authenticated requester identity are required.');
+    if (actorId !== employeeId && !['ADMIN', 'MANAGER', 'INCHARGE'].includes(actorRole)) {
+      throw new Error('You can submit leave only for your own employee context.');
+    }
     if (new Date(startDate) > new Date(endDate)) throw new Error('Leave end date cannot be before start date.');
 
     const [employee] = await db.select().from(phase70EmployeeMaster).where(and(eq(phase70EmployeeMaster.id, employeeId), eq(phase70EmployeeMaster.isDeleted, false))).limit(1);
@@ -932,6 +936,63 @@ export class HrmsRepository {
   },
 
 
+
+  // ERP-TRACE: leave approval uses a controlled maker/checker transition.
+  public async reviewLeave(
+    id: string,
+    status: string,
+    remarks: string | undefined,
+    actor: { userId: string; userName: string }
+  ): Promise<any | null> {
+    await this.ensureHrmsTablesExist();
+
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    const targetStatus = String(status || '').trim().toUpperCase();
+    const approvalRemarks = String(remarks || '').trim();
+
+    if (!actorId || !actorName) throw new Error('Authenticated leave reviewer identity is required.');
+    if (!['APPROVED', 'REJECTED', 'CANCELLED'].includes(targetStatus)) {
+      throw new Error('Leave review status must be APPROVED, REJECTED or CANCELLED.');
+    }
+
+    return await db.transaction(async (tx) => {
+      const [existing] = await tx.select().from(phase70LeaveRequests)
+        .where(and(eq(phase70LeaveRequests.id, id), eq(phase70LeaveRequests.isDeleted, false)))
+        .limit(1);
+
+      if (!existing) return null;
+      if (existing.status !== 'PENDING') {
+        throw new Error(`Leave request cannot be reviewed from status ${existing.status}.`);
+      }
+      if (existing.employeeId === actorId) {
+        throw new Error('Maker-checker violation: leave requester cannot approve or reject the same request.');
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(phase70LeaveRequests).set({
+        status: targetStatus,
+        approvalRemarks: approvalRemarks || null,
+        approvedBy: actorName,
+        reviewedAt: now,
+        updatedAt: now,
+        updatedBy: actorName,
+      }).where(eq(phase70LeaveRequests.id, id)).returning();
+
+      if (!updated) return null;
+
+      await this.recordAuditLog({
+        actionType: targetStatus === 'APPROVED' ? 'LEAVE_REQUEST_APPROVED' : targetStatus === 'REJECTED' ? 'LEAVE_REQUEST_REJECTED' : 'LEAVE_REQUEST_CANCELLED',
+        entityType: 'LEAVE_REQUEST',
+        entityId: id,
+        referenceNumber: updated.requestNumber,
+        performedBy: actorName,
+        detailsJson: JSON.stringify({ actorId, previousStatus: existing.status, status: targetStatus, remarks: approvalRemarks }),
+      }, tx);
+
+      return updated;
+    });
+  }
 
   // 7. Holidays
   public async getHolidays(year: number = 2026): Promise<any[]> {

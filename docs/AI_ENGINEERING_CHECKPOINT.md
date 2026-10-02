@@ -26,14 +26,13 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 Completed above. Do not repeat those items.
 
 ## Current unfinished area
-1. HR / Attendance / Payroll production hardening:
-   - raw biometric punches immutable;
-   - anomaly handling and verifier workflow;
-   - finalized attendance drives payroll;
-   - no fake actors/default salary or attendance values;
-   - payroll posting/audit integrity.
-2. Store → Site → BOQ/Cost Code traceability gaps that remain after existing MIV controls.
-3. Then continue Measurement/Billing follow-on controls, QA/QC, HSE, Documents/CDE, Claims, UI/UX consolidation, and CI/testing.
+HR/Attendance/Payroll core hardening is complete above. Do not repeat it.
+
+## Current unfinished area
+1. HR master-data hardening: remove remaining fallback actors/codes and enforce authenticated audit context for employee/leave/salary/loan writes.
+2. HR loan recovery failure semantics and transaction integrity during payroll calculation.
+3. Store → Site → BOQ/Cost Code traceability gaps that remain after existing MIV controls.
+4. QA/QC, HSE, Documents/CDE, Claims, UI/UX consolidation, and CI/testing.
 
 ## Safe marking rule
 Prefer this checkpoint file. It does not affect ERP runtime behavior. Use source-code comments only when truly useful.

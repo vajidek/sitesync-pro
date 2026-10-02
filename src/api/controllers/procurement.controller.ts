@@ -505,26 +505,49 @@ export class ProcurementController {
 
   createMeasurementEntry = async (req: Request, res: Response) => {
     try {
-      const mb = await this.service.createMeasurementEntry(req.body);
-      logger.info(`[Procurement Controller] Measurement Book entry ${mb.mbNumber} logged. Updated BOQ Executed Qty.`);
+      const user = (req as any).user;
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorName) {
+        return res.status(401).json({ success: false, message: 'Authenticated measurement recorder is required.' });
+      }
+
+      const mb = await this.service.createMeasurementEntry({
+        ...req.body,
+        status: 'Draft',
+        recordedByName: actorName,
+        verifiedByName: undefined,
+        approvedByName: undefined,
+      });
+
+      logger.info(`[Procurement Controller] Measurement Book entry ${mb.mbNumber} recorded by ${actorName}.`);
       res.status(201).json({
         success: true,
-        message: 'Measurement Book entry approved and BOQ executed progress synchronized!',
+        message: 'Measurement Book entry recorded and awaiting verification',
         data: mb,
       });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to record Measurement Book entry' });
+      logger.error(`Error creating Measurement Book entry: ${err.message}`);
+      res.status(400).json({ success: false, message: err.message || 'Failed to record Measurement Book entry' });
     }
   };
 
   updateMeasurementStatus = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { status, verifiedByName, approvedByName, verifiedBy, approvedBy } = req.body;
+      const status = String(req.body?.status || '').trim();
+      const user = (req as any).user;
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorName) {
+        return res.status(401).json({ success: false, message: 'Authenticated workflow actor is required.' });
+      }
+      if (!status) {
+        return res.status(400).json({ success: false, message: 'Measurement status is required.' });
+      }
+
       const updated = await this.service.updateMeasurementStatus(id, {
         status,
-        verifiedByName: verifiedByName || verifiedBy,
-        approvedByName: approvedByName || approvedBy,
+        verifiedByName: ['Verified', 'Verified by Site Incharge'].includes(status) ? actorName : undefined,
+        approvedByName: ['Approved', 'Approved by Project Manager'].includes(status) ? actorName : undefined,
       });
 
       if (!updated) {
@@ -537,7 +560,8 @@ export class ProcurementController {
         data: updated,
       });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to update measurement status' });
+      logger.error(`Error updating Measurement Book status: ${err.message}`);
+      res.status(400).json({ success: false, message: err.message || 'Failed to update measurement status' });
     }
   };
 

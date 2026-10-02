@@ -118,15 +118,32 @@ export const approveContractSchema = z.object({
   comments: z.string().optional(),
 });
 
+const changeEvidenceSchema = z.object({
+  documentId: z.string().min(1),
+  evidenceType: z.enum(['NOTICE', 'DRAWING', 'INSTRUCTION', 'SITE_RECORD', 'PHOTO', 'MEASUREMENT', 'CORRESPONDENCE', 'OTHER']),
+  notes: z.string().optional(),
+});
+
 export const createContractVariationSchema = z.object({
-  contractId: z.string(),
-  title: z.string(),
-  description: z.string(),
+  contractId: z.string().min(1),
+  projectId: z.string().optional(),
+  wbsId: z.string().optional(),
+  boqItemId: z.string().optional(),
+  costCodeId: z.string().optional(),
+  companyId: z.string().optional(),
+  title: z.string().min(1),
+  description: z.string().min(1),
   variationType: z.enum(['ADDITION', 'OMISSION', 'SCOPE_CHANGE', 'PRICE_REVISION']).default('ADDITION'),
-  amount: z.number(),
-  timeExtensionDays: z.number().default(0),
+  amount: z.number().finite().nonnegative(),
+  claimedAmount: z.number().finite().nonnegative().optional(),
+  timeExtensionDays: z.number().int().nonnegative().default(0),
+  claimedTimeExtensionDays: z.number().int().nonnegative().optional(),
+  noticeDate: z.string().optional(),
+  eventDate: z.string().optional(),
+  changeEventReference: z.string().optional(),
+  clientReference: z.string().optional(),
   justification: z.string().optional(),
-  approvedBy: z.string().optional(),
+  evidenceDocuments: z.array(changeEvidenceSchema).default([]),
 });
 
 export const createContractPaymentSchema = z.object({
@@ -140,9 +157,53 @@ export const createContractPaymentSchema = z.object({
 });
 
 export const createContractExtensionSchema = z.object({
-  contractId: z.string(),
-  extensionDays: z.number().min(1),
-  newEndDate: z.string(),
-  reason: z.string(),
-  approvedBy: z.string().optional(),
+  contractId: z.string().min(1),
+  projectId: z.string().optional(),
+  wbsId: z.string().optional(),
+  companyId: z.string().optional(),
+  extensionDays: z.number().int().min(1),
+  newEndDate: z.string().min(1),
+  originalEndDate: z.string().optional(),
+  causeType: z.string().optional(),
+  changeEventReference: z.string().optional(),
+  noticeDate: z.string().optional(),
+  eventDate: z.string().optional(),
+  reason: z.string().min(1),
+  evidenceDocuments: z.array(changeEvidenceSchema).default([]),
+});
+
+
+export const createContractClaimSchema = z.object({
+  contractId: z.string().min(1),
+  projectId: z.string().optional(),
+  wbsId: z.string().optional(),
+  boqItemId: z.string().optional(),
+  costCodeId: z.string().optional(),
+  companyId: z.string().optional(),
+  claimType: z.enum(['DELAY', 'DISRUPTION', 'COST', 'TIME', 'TIME_AND_COST', 'OTHER']),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  eventDate: z.string().optional(),
+  noticeDate: z.string().optional(),
+  claimedAmount: z.number().finite().nonnegative().default(0),
+  claimedDays: z.number().int().nonnegative().default(0),
+  clientReference: z.string().optional(),
+  changeEventReference: z.string().optional(),
+  evidenceDocuments: z.array(changeEvidenceSchema).default([]),
+});
+
+export const updateContractClaimStatusSchema = z.object({
+  status: z.enum(['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'SETTLED', 'CLOSED']),
+  approvedAmount: z.number().finite().nonnegative().optional(),
+  approvedDays: z.number().int().nonnegative().optional(),
+  rejectionReason: z.string().optional(),
+});
+
+export const linkContractChangeEvidenceSchema = z.object({
+  contractId: z.string().min(1),
+  entityType: z.enum(['VARIATION', 'EXTENSION', 'CLAIM']),
+  entityId: z.string().min(1),
+  documentId: z.string().min(1),
+  evidenceType: z.enum(['NOTICE', 'DRAWING', 'INSTRUCTION', 'SITE_RECORD', 'PHOTO', 'MEASUREMENT', 'CORRESPONDENCE', 'OTHER']),
+  notes: z.string().optional(),
 });

@@ -260,7 +260,14 @@ export class VendorContractController {
       const validated = updateContractClaimStatusSchema.parse(req.body);
       const user = (req as any).user;
       const actor = String(user?.name || user?.email || '').trim();
+      const role = String(user?.role || '').toUpperCase();
       if (!actor) throw new Error('Authenticated claim workflow actor identity is required.');
+
+      const privilegedStatuses = new Set(['APPROVED', 'SETTLED', 'CLOSED']);
+      if (privilegedStatuses.has(validated.status) && !['ADMIN', 'MANAGER'].includes(role)) {
+        return res.status(403).json({ success: false, message: 'Manager or Admin approval is required for this claim action.' });
+      }
+
       const claim = await service.updateContractClaimStatus(req.params.id, validated.status, actor, {
         approvedAmount: validated.approvedAmount,
         approvedDays: validated.approvedDays,

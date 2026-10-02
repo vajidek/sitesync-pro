@@ -12,6 +12,15 @@ import {
   shareDocumentSchema,
 } from '../validators/document.validator';
 
+function getAuthenticatedActor(req: Request, res: Response): string | null {
+  const user = (req as any).user;
+  const actor = String(user?.name || user?.fullName || user?.email || '').trim();
+  if (!actor) {
+    res.status(401).json({ success: false, message: 'Authenticated document actor identity is required.' });
+    return null;
+  }
+  return actor;
+}
 export class DocumentController {
   async getStats(req: Request, res: Response) {
     try {
@@ -103,8 +112,9 @@ export class DocumentController {
 
   async createDocument(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = createDocumentSchema.parse(req.body);
-      const user = (req as any).user?.name || 'System Administrator';
       const doc = await documentService.createDocument({ ...validated, createdBy: user });
       res.status(201).json({ success: true, data: doc });
     } catch (e: any) {
@@ -114,8 +124,9 @@ export class DocumentController {
 
   async updateDocument(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = updateDocumentSchema.parse(req.body);
-      const user = (req as any).user?.name || 'System Administrator';
       const doc = await documentService.updateDocument(req.params.id, { ...validated, updatedBy: user });
       res.json({ success: true, data: doc });
     } catch (e: any) {
@@ -125,7 +136,8 @@ export class DocumentController {
 
   async deleteDocument(req: Request, res: Response) {
     try {
-      const user = (req as any).user?.name || 'System Administrator';
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       await documentService.deleteDocument(req.params.id, user);
       res.json({ success: true, message: 'Document soft deleted successfully' });
     } catch (e: any) {
@@ -135,7 +147,8 @@ export class DocumentController {
 
   async toggleFavorite(req: Request, res: Response) {
     try {
-      const user = (req as any).user?.name || 'System Administrator';
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const isFav = await documentService.toggleFavorite(req.params.id, user);
       res.json({ success: true, isFavorite: isFav });
     } catch (e: any) {
@@ -146,8 +159,13 @@ export class DocumentController {
   async archiveDocument(req: Request, res: Response) {
     try {
       const { reason } = req.body;
-      const user = (req as any).user?.name || 'System Administrator';
-      await documentService.archiveDocument(req.params.id, reason || 'Manual Archive', user);
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
+      if (!String(reason || '').trim()) {
+        res.status(400).json({ success: false, message: 'Archive reason is required.' });
+        return;
+      }
+      await documentService.archiveDocument(req.params.id, String(reason).trim(), user);
       res.json({ success: true, message: 'Document archived successfully' });
     } catch (e: any) {
       res.status(500).json({ success: false, message: e.message });
@@ -156,7 +174,8 @@ export class DocumentController {
 
   async restoreDocument(req: Request, res: Response) {
     try {
-      const user = (req as any).user?.name || 'System Administrator';
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       await documentService.restoreDocument(req.params.id, user);
       res.json({ success: true, message: 'Document restored successfully' });
     } catch (e: any) {
@@ -175,8 +194,9 @@ export class DocumentController {
 
   async createVersion(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = createVersionSchema.parse(req.body);
-      const user = (req as any).user?.name || 'System Administrator';
       const doc = await documentService.addVersion({ ...validated, uploadedBy: user });
       res.status(201).json({ success: true, data: doc });
     } catch (e: any) {
@@ -186,8 +206,9 @@ export class DocumentController {
 
   async checkoutDocument(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = checkoutDocumentSchema.parse(req.body);
-      const user = (req as any).user?.name || 'System Administrator';
       await documentService.checkoutDocument(validated.documentId, user, validated.checkoutNotes, validated.expectedCheckInDate);
       res.json({ success: true, message: 'Document checked out successfully' });
     } catch (e: any) {
@@ -197,8 +218,14 @@ export class DocumentController {
 
   async reviewDocument(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = reviewDocumentSchema.parse(req.body);
-      await documentService.reviewDocument(validated);
+      const review = {
+        ...validated,
+        reviewerName: user,
+      };
+      await documentService.reviewDocument(review);
       res.json({ success: true, message: 'Document review submitted successfully' });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -207,8 +234,13 @@ export class DocumentController {
 
   async approveDocument(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = approvalDocumentSchema.parse(req.body);
-      await documentService.approveDocument(validated);
+      await documentService.approveDocument({
+        ...validated,
+        approverName: user,
+      });
       res.json({ success: true, message: 'Document approval decision logged successfully' });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -255,8 +287,9 @@ export class DocumentController {
 
   async shareDocument(req: Request, res: Response) {
     try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
       const validated = shareDocumentSchema.parse(req.body);
-      const user = (req as any).user?.name || 'System Administrator';
       const share = await documentService.shareDocument({ ...validated, createdBy: user });
       res.status(201).json({ success: true, data: share });
     } catch (e: any) {

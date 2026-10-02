@@ -627,6 +627,81 @@ public async createNearMiss(data: any) {
     });
   }
 
+  // ERP-TRACE: HSE-P1 — risk assessment approval uses maker-checker and approval history.
+  public async reviewRiskAssessment(
+    id: string,
+    decision: 'ACTIVE' | 'REJECTED',
+    actor: { userId: string; userName: string }
+  ): Promise<any | null> {
+    await this.ensureHSETablesExist();
+
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated risk assessment reviewer identity is required.');
+
+    return await db.transaction(async (tx) => {
+      const [assessment] = await tx.select().from(phase63RiskAssessments)
+        .where(and(eq(phase63RiskAssessments.id, id), eq(phase63RiskAssessments.isDeleted, false)))
+        .limit(1);
+
+      if (!assessment) return null;
+      if (assessment.status !== 'PENDING_APPROVAL') {
+        throw new Error(`Risk assessment cannot be reviewed from status ${assessment.status}.`);
+      }
+      if (
+        assessment.createdBy.trim().toLowerCase() === actorName.toLowerCase() ||
+        assessment.assessedBy.trim().toLowerCase() === actorName.toLowerCase()
+      ) {
+        throw new Error('Maker-checker violation: risk assessor/creator cannot approve or reject the same assessment.');
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(phase63RiskAssessments).set({
+        status: decision,
+        updatedAt: now,
+        updatedBy: actorName,
+      }).where(eq(phase63RiskAssessments.id, id)).returning();
+
+      if (!updated) return null;
+
+      await tx.insert(phase63HseApprovals).values({
+        id: uuidv4(),
+        referenceType: 'RISK_ASSESSMENT',
+        referenceId: id,
+        approvalStage: 'HSE_APPROVER',
+        approverUser: actorName,
+        decision: decision === 'ACTIVE' ? 'APPROVED' : 'REJECTED',
+        comments: decision === 'ACTIVE' ? 'Risk assessment approved.' : 'Risk assessment rejected.',
+        signedAt: now,
+        digitalStampRef: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+        updatedBy: actorName,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      await tx.insert(phase63HseLogs).values({
+        id: uuidv4(),
+        actionType: decision === 'ACTIVE' ? 'RISK_ASSESSMENT_APPROVED' : 'RISK_ASSESSMENT_REJECTED',
+        module: 'HSE',
+        entityId: id,
+        performedBy: actorName,
+        details: `Risk assessment transitioned to ${decision}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actorName,
+        updatedBy: actorName,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return updated;
+    });
+  }
+
   // ERP-TRACE: HSE-P1 — JSA creation is actor-bound, collision-safe and approval-ready.
   public async createJsa(data: any) {
     requireFields(data, ['jobTitle','location','supervisorName','jsaDate','jobSteps','requiredPpe','createdBy'], 'JSA');

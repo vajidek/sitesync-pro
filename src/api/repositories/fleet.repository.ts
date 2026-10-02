@@ -1318,34 +1318,55 @@ class FleetRepository {
   async createMaintenanceRecord(data: Partial<MaintenanceRecord>): Promise<MaintenanceRecord> {
     await ensureFleetSeeded();
 
+    const assetId = String(data.assetId || '').trim();
+    const assetType = String(data.assetType || '').trim().toUpperCase();
+    const performedBy = String(data.performedBy || '').trim();
+    const serviceDate = String(data.serviceDate || '').trim();
+
+    if (!assetId || !['VEHICLE', 'EQUIPMENT'].includes(assetType) || !performedBy || !serviceDate) {
+      throw new Error('Asset, asset type, service date and performer identity are required.');
+    }
+
+    if (data.costAmount != null) {
+      const cost = Number(data.costAmount);
+      if (!Number.isFinite(cost) || cost < 0) throw new Error('Maintenance cost must be a valid non-negative amount.');
+    }
+
+    if (assetType === 'VEHICLE') {
+      const [asset] = await db.select().from(fleetVehiclesTable).where(eq(fleetVehiclesTable.id, assetId)).limit(1);
+      if (!asset || asset.status === 'DECOMMISSIONED') throw new Error('Vehicle asset not found or unavailable.');
+    } else {
+      const [asset] = await db.select().from(fleetEquipmentTable).where(eq(fleetEquipmentTable.id, assetId)).limit(1);
+      if (!asset || asset.status === 'DECOMMISSIONED') throw new Error('Equipment asset not found or unavailable.');
+    }
+
     const record: MaintenanceRecord = {
       id: data.id || `maint-${Math.random().toString(36).substring(2, 8)}`,
       maintenanceCode: data.maintenanceCode || `MNT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-      assetType: data.assetType || 'VEHICLE',
-      assetId: data.assetId || 'veh-101',
-      assetName: data.assetName || 'Asset',
-      assetCode: data.assetCode || 'REG-001',
+      assetType,
+      assetId,
+      assetName: data.assetName,
+      assetCode: data.assetCode,
       maintenanceType: data.maintenanceType || 'PREVENTIVE',
       category: data.category || 'GENERAL_SERVICE',
-      serviceDate: data.serviceDate || new Date().toISOString().split('T')[0],
+      serviceDate,
       completionDate: data.completionDate,
-      odometerKm: data.odometerKm ? Number(data.odometerKm) : undefined,
-      runningHours: data.runningHours ? Number(data.runningHours) : undefined,
-      costAmount: Number(data.costAmount) || 0,
-      vendorName: data.vendorName || 'Authorized Service Station',
-      invoiceNumber: data.invoiceNumber || '',
-      description: data.description || 'Routine service maintenance.',
-      performedBy: data.performedBy || 'Technician',
+      odometerKm: data.odometerKm == null ? undefined : Number(data.odometerKm),
+      runningHours: data.runningHours == null ? undefined : Number(data.runningHours),
+      costAmount: data.costAmount == null ? 0 : Number(data.costAmount),
+      vendorName: data.vendorName,
+      invoiceNumber: data.invoiceNumber,
+      description: data.description,
+      performedBy,
       status: data.status || 'SCHEDULED',
       nextServiceDueDate: data.nextServiceDueDate,
-      nextServiceDueKm: data.nextServiceDueKm ? Number(data.nextServiceDueKm) : undefined,
-      nextServiceDueHours: data.nextServiceDueHours ? Number(data.nextServiceDueHours) : undefined,
+      nextServiceDueKm: data.nextServiceDueKm == null ? undefined : Number(data.nextServiceDueKm),
+      nextServiceDueHours: data.nextServiceDueHours == null ? undefined : Number(data.nextServiceDueHours),
       createdAt: new Date().toISOString(),
     };
 
     await db.insert(fleetMaintenanceTable).values(record as any).onConflictDoNothing();
 
-    // Update asset status if breakdown or maintenance
     if (record.assetType === 'VEHICLE') {
       if (record.status === 'IN_PROGRESS' || record.status === 'SCHEDULED') {
         const newStatus = record.maintenanceType === 'BREAKDOWN' ? 'BREAKDOWN' : 'MAINTENANCE';
@@ -1364,7 +1385,6 @@ class FleetRepository {
 
     return record;
   }
-
   // ====================================================
   // FUEL METHODS
   // ====================================================
@@ -1504,26 +1524,51 @@ class FleetRepository {
   async createTripLog(data: Partial<TripLog>): Promise<TripLog> {
     await ensureFleetSeeded();
 
+    const vehicleId = String(data.vehicleId || '').trim();
+    const driverId = String(data.driverId || '').trim();
+    const origin = String(data.origin || '').trim();
+    const destination = String(data.destination || '').trim();
+    const startTime = String(data.startTime || '').trim();
+    const startOdometerKm = Number(data.startOdometerKm);
+
+    if (!vehicleId || !driverId || !origin || !destination || !startTime) {
+      throw new Error('Vehicle, driver, origin, destination and start time are required.');
+    }
+    if (!Number.isFinite(startOdometerKm) || startOdometerKm < 0) {
+      throw new Error('A valid starting odometer reading is required.');
+    }
+
+    const [vehicle] = await db.select().from(fleetVehiclesTable).where(eq(fleetVehiclesTable.id, vehicleId)).limit(1);
+    if (!vehicle || vehicle.status === 'DECOMMISSIONED') throw new Error('Vehicle not found or unavailable.');
+
+    const [driver] = await db.select().from(fleetDriversTable).where(eq(fleetDriversTable.id, driverId)).limit(1);
+    if (!driver || driver.status !== 'ACTIVE') throw new Error('Driver not found or inactive.');
+
+    const endOdo = data.endOdometerKm == null ? undefined : Number(data.endOdometerKm);
+    if (endOdo != null && (!Number.isFinite(endOdo) || endOdo < startOdometerKm)) {
+      throw new Error('Ending odometer cannot be below the starting odometer.');
+    }
+
     const trip: TripLog = {
       id: data.id || `trip-${Math.random().toString(36).substring(2, 8)}`,
       tripCode: data.tripCode || `TRP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      vehicleId: data.vehicleId || 'veh-101',
-      vehicleNumber: data.vehicleNumber || 'KA-01-EQ-9842',
-      driverId: data.driverId || 'drv-201',
-      driverName: data.driverName || 'Ramesh Kumar',
-      origin: data.origin || 'Main Yard',
-      destination: data.destination || 'Project Site #1',
+      vehicleId,
+      vehicleNumber: data.vehicleNumber || vehicle.vehicleNumber,
+      driverId,
+      driverName: data.driverName || driver.driverName,
+      origin,
+      destination,
       projectId: data.projectId,
       projectName: data.projectName,
       siteId: data.siteId,
       siteName: data.siteName,
-      purpose: data.purpose || 'MATERIAL_TRANSPORT',
-      startTime: data.startTime || new Date().toISOString(),
+      purpose: data.purpose || 'OTHER',
+      startTime,
       endTime: data.endTime,
-      startOdometerKm: Number(data.startOdometerKm) || 45000,
-      endOdometerKm: data.endOdometerKm ? Number(data.endOdometerKm) : undefined,
-      distanceKm: data.distanceKm ? Number(data.distanceKm) : undefined,
-      fuelUsedLiters: data.fuelUsedLiters ? Number(data.fuelUsedLiters) : undefined,
+      startOdometerKm,
+      endOdometerKm: endOdo,
+      distanceKm: data.distanceKm == null ? undefined : Number(data.distanceKm),
+      fuelUsedLiters: data.fuelUsedLiters == null ? undefined : Number(data.fuelUsedLiters),
       gatePassRef: data.gatePassRef,
       notes: data.notes || '',
       status: data.status || 'ONGOING',
@@ -1533,7 +1578,6 @@ class FleetRepository {
     await db.insert(fleetTripLogsTable).values(trip as any).onConflictDoNothing();
     return trip;
   }
-
   // ====================================================
   // NOTIFICATION & ALERT METHODS
   // ====================================================
@@ -1555,6 +1599,7 @@ class FleetRepository {
     const allDrivers = (await db.select().from(fleetDriversTable)) as unknown as Driver[];
     const allFuel = (await db.select().from(fleetFuelLogsTable)) as unknown as FuelLog[];
     const allMaint = (await db.select().from(fleetMaintenanceTable)) as unknown as MaintenanceRecord[];
+    const allTrips = (await db.select().from(fleetTripLogsTable)) as unknown as TripLog[];
     const allNotifs = (await db.select().from(fleetNotificationsTable)) as unknown as FleetNotification[];
 
     const totalVehicles = allVehicles.length;
@@ -1568,9 +1613,52 @@ class FleetRepository {
     const totalDrivers = allDrivers.length;
     const activeDrivers = allDrivers.filter(d => d.status === 'ACTIVE').length;
 
-    const totalFuelSpendThisMonth = allFuel.reduce((acc, f) => acc + (f.totalCost || 0), 0);
-    const totalFuelLitersThisMonth = allFuel.reduce((acc, f) => acc + (f.quantityLiters || 0), 0);
-    const totalMaintenanceCostThisMonth = allMaint.reduce((acc, m) => acc + (m.costAmount || 0), 0);
+    const totalFuelSpendThisMonth = allFuel.reduce((acc, f) => acc + Number(f.totalCost || 0), 0);
+    const totalFuelLitersThisMonth = allFuel.reduce((acc, f) => acc + Number(f.quantityLiters || 0), 0);
+    const totalMaintenanceCostThisMonth = allMaint.reduce((acc, m) => acc + Number(m.costAmount || 0), 0);
+
+    const mileageSamples = allFuel
+      .map(f => Number(f.mileageCalculated))
+      .filter(v => Number.isFinite(v) && v > 0);
+    const avgMileage = mileageSamples.length
+      ? mileageSamples.reduce((sum, value) => sum + value, 0) / mileageSamples.length
+      : 0;
+
+    const projectFuelMap = new Map<string, { projectId: string; projectName: string; spend: number; liters: number }>();
+    for (const fuel of allFuel) {
+      if (!fuel.projectId || fuel.projectId === 'ALL') continue;
+      const row = projectFuelMap.get(fuel.projectId) || {
+        projectId: fuel.projectId,
+        projectName: fuel.projectName || fuel.projectId,
+        spend: 0,
+        liters: 0,
+      };
+      row.spend += Number(fuel.totalCost || 0);
+      row.liters += Number(fuel.quantityLiters || 0);
+      projectFuelMap.set(fuel.projectId, row);
+    }
+
+    const projectFuelBreakdown = Array.from(projectFuelMap.values())
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 20);
+
+    const utilizationByCategory = new Map<string, number>();
+    const tripCounts = new Map<string, number>();
+    for (const trip of allTrips) {
+      const key = trip.vehicleNumber || trip.vehicleId;
+      tripCounts.set(key, (tripCounts.get(key) || 0) + 1);
+    }
+    for (const vehicle of allVehicles) {
+      const category = vehicle.vehicleType || 'OTHER';
+      const previous = utilizationByCategory.get(category) || 0;
+      const trips = tripCounts.get(vehicle.vehicleNumber) || 0;
+      utilizationByCategory.set(category, previous + trips);
+    }
+    const totalVehicleTrips = Array.from(tripCounts.values()).reduce((sum, count) => sum + count, 0);
+    const utilizationRates = Array.from(utilizationByCategory.entries()).map(([category, trips]) => ({
+      category,
+      ratePercent: totalVehicles > 0 ? Math.min(100, Number(((trips / Math.max(1, totalVehicleTrips)) * 100).toFixed(1))) : 0,
+    }));
 
     return {
       totalVehicles,
@@ -1583,20 +1671,11 @@ class FleetRepository {
       activeDrivers,
       totalFuelSpendThisMonth,
       totalFuelLitersThisMonth,
-      avgVehicleMileageKmPerLiter: 3.1,
+      avgVehicleMileageKmPerLiter: Number(avgMileage.toFixed(2)),
       totalMaintenanceCostThisMonth,
-      pendingExpiriesCount: allNotifs.length,
-      projectFuelBreakdown: [
-        { projectId: 'proj-001', projectName: 'Metro Rail Line Extension - Phase 2', spend: 97125, liters: 1050 },
-        { projectId: 'proj-002', projectName: 'Highway Bypass Viaduct Project', spend: 46250, liters: 500 },
-      ],
-      utilizationRates: [
-        { category: 'Tippers & Dumpers', ratePercent: 88 },
-        { category: 'Heavy Excavators', ratePercent: 92 },
-        { category: 'Mobile & Tower Cranes', ratePercent: 78 },
-        { category: 'Site Pickups & Utility', ratePercent: 85 },
-        { category: 'Silent Generators', ratePercent: 95 },
-      ]
+      pendingExpiriesCount: allNotifs.filter(n => ['HIGH', 'CRITICAL'].includes(n.urgency)).length,
+      projectFuelBreakdown,
+      utilizationRates,
     };
   }
 }

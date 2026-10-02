@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createProjectSchema = z.object({
-  projectCode: z.string().optional(),
+  projectCode: z.string().trim().min(2, 'Project code is required'),
   projectName: z.string().min(2, 'Project name must be at least 2 characters'),
   shortName: z.string().optional(),
   projectCategoryId: z.string().optional(),
@@ -42,7 +42,7 @@ export const createProjectSchema = z.object({
   budget: z.number().min(0, 'Budget must be non-negative'),
   actualSpent: z.number().optional(),
   progressPercentage: z.number().min(0).max(100).optional(),
-  currency: z.string().optional(),
+  currency: z.string().trim().min(3, 'Currency is required'),
   status: z.string().optional(),
   priority: z.string().optional(),
   projectManagerId: z.string().optional(),
@@ -50,6 +50,7 @@ export const createProjectSchema = z.object({
   projectSupervisorId: z.string().optional(),
   description: z.string().optional(),
   remarks: z.string().optional(),
+  createInitialSite: z.boolean().optional(),
 });
 
 export const updateProjectSchema = createProjectSchema.partial();

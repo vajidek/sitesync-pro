@@ -177,10 +177,11 @@ export class ProjectController {
     try {
       const validated = createDailyProgressSchema.parse(req.body);
       const user = req.user;
+      if (!user) throw new Error('Authenticated user context is required to create daily progress.');
       const log = await projectService.createDailyProgress({
         ...validated,
-        createdById: user?.id || 'usr-inc-003',
-        createdByName: user?.name || 'Site Incharge',
+        createdById: user.id,
+        createdByName: user.name,
       });
       res.status(201).json({ success: true, data: log, message: 'Daily work progress logged' });
     } catch (err) {
@@ -192,7 +193,8 @@ export class ProjectController {
     try {
       const { id } = req.params;
       const { status } = req.body;
-      const user = req.user || { id: 'usr-admin-001', name: 'Admin Approver' };
+      const user = req.user;
+      if (!user) throw new Error('Authenticated user context is required to verify or approve progress.');
       const updated = await projectService.updateProgressStatus(id, status, { id: user.id, name: user.name });
       res.json({ success: true, data: updated, message: `Work log status updated to ${status}` });
     } catch (err) {
@@ -215,9 +217,10 @@ export class ProjectController {
     try {
       const validated = createTaskSchema.parse(req.body);
       const user = req.user;
+      if (!user) throw new Error('Authenticated user context is required to create a task.');
       const task = await projectService.createTask({
         ...validated,
-        createdById: user?.id || 'usr-mgr-002',
+        createdById: user.id,
       });
       res.status(201).json({ success: true, data: task, message: 'Task created' });
     } catch (err) {
@@ -240,7 +243,8 @@ export class ProjectController {
     try {
       const { id } = req.params;
       const { comment } = req.body;
-      const user = req.user || { id: 'usr-inc-003', name: 'Site Supervisor' };
+      const user = req.user;
+      if (!user) throw new Error('Authenticated user context is required to comment on a task.');
       const commentObj = await projectService.addTaskComment(id, user.id, user.name, comment);
       res.status(201).json({ success: true, data: commentObj });
     } catch (err) {

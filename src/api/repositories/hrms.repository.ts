@@ -1398,8 +1398,7 @@ export class HrmsRepository {
         currency,
         statutoryRulesApplied: activeRules.length,
         remarks,
-      }),
- , tx);
+      }, tx);
 
     return {
       periodId,

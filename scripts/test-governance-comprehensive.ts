@@ -40,19 +40,19 @@ async function runComprehensiveGovernanceVerification() {
     verificationRequired: false,
     approvalRequired: false,
     isActive: true,
-  });
+  }, 'System Admin', 'usr-adm-01');
   const res1_init = await workflowPolicyEngine.evaluateEligibility({
     user: engineer,
     entityType: 'WF-GOV-01',
     action: 'INITIATE',
-  });
+  }, 'System Admin', 'usr-adm-01');
   assert(res1_init.isEligible === true, 'Admin-configurable Verification OFF & Approval OFF allows direct initiation');
 
   const res1_appr = await workflowPolicyEngine.evaluateEligibility({
     user: engineer,
     entityType: 'WF-GOV-01',
     action: 'APPROVE',
-  });
+  }, 'System Admin', 'usr-adm-01');
   assert(res1_appr.isEligible === true && res1_appr.currentStage === 'DIRECT_EXECUTION', 'Direct Execution bypasses approval gate');
 
   // -------------------------------------------------------------
@@ -63,20 +63,20 @@ async function runComprehensiveGovernanceVerification() {
     verificationRequired: true,
     approvalRequired: false,
     verifierRoles: ['SUPERVISOR'],
-  });
+  }, 'System Admin', 'usr-adm-01');
   const res3_sup = await workflowPolicyEngine.evaluateEligibility({
     user: supervisor,
     entityType: 'WF-GOV-02',
     action: 'VERIFY',
     instance: { requesterId: engineer.id },
-  });
+  }, 'System Admin', 'usr-adm-01');
   assert(res3_sup.isEligible === true, 'Verification Only: Configured supervisor is authorized to verify');
 
   const res3_appr = await workflowPolicyEngine.evaluateEligibility({
     user: engineer,
     entityType: 'WF-GOV-02',
     action: 'APPROVE',
-  });
+  }, 'System Admin', 'usr-adm-01');
   assert(res3_appr.isEligible === true, 'Verification Only: Approval requirement is bypassed');
 
   // -------------------------------------------------------------
@@ -87,13 +87,13 @@ async function runComprehensiveGovernanceVerification() {
     verificationRequired: false,
     approvalRequired: true,
     approverRoles: ['MANAGER'],
-  });
+  }, 'System Admin', 'usr-adm-01');
   const res4_verify = await workflowPolicyEngine.evaluateEligibility({
     user: supervisor,
     entityType: 'WF-GOV-03',
     action: 'VERIFY',
     instance: { requesterId: engineer.id },
-  });
+  }, 'System Admin', 'usr-adm-01');
   assert(res4_verify.isEligible === false, 'Approval Only: Verification is disabled and rejected');
 
   const res4_appr = await workflowPolicyEngine.evaluateEligibility({
@@ -101,7 +101,7 @@ async function runComprehensiveGovernanceVerification() {
     entityType: 'WF-GOV-03',
     action: 'APPROVE',
     instance: { requesterId: engineer.id },
-  });
+  }, 'System Admin', 'usr-adm-01');
   assert(res4_appr.isEligible === true, 'Approval Only: Configured Manager can directly approve');
 
   // -------------------------------------------------------------
@@ -113,13 +113,13 @@ async function runComprehensiveGovernanceVerification() {
     approvalRequired: true,
     verifierRoles: ['SUPERVISOR'],
     approverRoles: ['MANAGER', 'DIRECTOR'],
-  });
+  }, 'System Admin', 'usr-adm-01');
   const res5_v = await workflowPolicyEngine.evaluateEligibility({
     user: supervisor,
     entityType: 'WF-GOV-04',
     action: 'VERIFY',
     instance: { requesterId: engineer.id },
-  });
+  }, 'System Admin', 'usr-adm-01');
   const res5_a = await workflowPolicyEngine.evaluateEligibility({
     user: manager,
     entityType: 'WF-GOV-04',

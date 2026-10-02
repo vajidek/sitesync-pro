@@ -39,6 +39,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [vendors, setVendors] = useState<any[]>([]);
   const [rfqs, setRfqs] = useState<any[]>([]);
+  const [purchaseRequisitions, setPurchaseRequisitions] = useState<any[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
   const [goodsReceipts, setGoodsReceipts] = useState<any[]>([]);
@@ -73,17 +74,18 @@ export const EnterpriseProcurementModule: React.FC = () => {
 
   const [newRfq, setNewRfq] = useState({
     title: '',
-    projectId: 'PRJ-WATER-001',
-    projectName: 'Metropolitan Water Pipeline Network Expansion Phase-4',
-    category: 'PIPES_FITTINGS',
-    submissionDeadline: '2026-09-15',
-    targetDeliveryDate: '2026-10-30',
-    deliveryLocation: 'Sector 4 Zone B Laydown Yard',
-    estimatedBudgetAed: 15000000,
-    buyerName: 'Senior Procurement Specialist',
-    items: [
-      { itemCode: 'MAT-PIPE-01', description: 'Ductile Iron Pipe DN1200 K9 Class', quantity: 5000, uom: 'MTRS', targetUnitPrice: 1250 }
-    ]
+    requisitionId: '',
+    projectId: '',
+    projectName: '',
+    category: '',
+    issueDate: new Date().toISOString().split('T')[0],
+    submissionDeadline: '',
+    targetDeliveryDate: '',
+    deliveryLocation: '',
+    estimatedBudgetAed: 0,
+    buyerName: '',
+    termsAndConditions: '',
+    items: [] as any[],
   });
 
   const [newPo, setNewPo] = useState({
@@ -117,7 +119,8 @@ export const EnterpriseProcurementModule: React.FC = () => {
         contractsRes,
         grnRes,
         matchesRes,
-        scorecardsRes
+        scorecardsRes,
+        prRes
       ] = await Promise.all([
         safeFetchJson<any>('/api/procurement-enterprise/stats'),
         safeFetchJson<any>('/api/procurement-enterprise/vendors'),
@@ -127,6 +130,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
         safeFetchJson<any>('/api/procurement-enterprise/goods-receipts'),
         safeFetchJson<any>('/api/procurement-enterprise/three-way-matching'),
         safeFetchJson<any>('/api/procurement-enterprise/scorecards'),
+        safeFetchJson<any>('/api/procurement-enterprise/purchase-requisitions'),
       ]);
 
       if (statsRes?.data) setStats(statsRes.data);
@@ -137,6 +141,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
       if (grnRes?.data) setGoodsReceipts(grnRes.data);
       if (matchesRes?.data) setThreeWayMatches(matchesRes.data);
       if (scorecardsRes?.data) setScorecards(scorecardsRes.data);
+      if (prRes?.data) setPurchaseRequisitions(prRes.data);
     } catch (e) {
       console.error('Error loading enterprise procurement data:', e);
     } finally {
@@ -177,16 +182,84 @@ export const EnterpriseProcurementModule: React.FC = () => {
     }
   };
 
+  const approvedPurchaseRequisitions = purchaseRequisitions.filter((pr) =>
+    ['HOD_APPROVED', 'FINANCE_APPROVED', 'PO_ISSUED'].includes(pr.status)
+  );
+
+  const handleSelectRfqRequisition = (requisitionId: string) => {
+    const pr = approvedPurchaseRequisitions.find((item) => item.id === requisitionId);
+    if (!pr) {
+      setNewRfq({
+        title: '',
+        requisitionId: '',
+        projectId: '',
+        projectName: '',
+        category: '',
+        issueDate: new Date().toISOString().split('T')[0],
+        submissionDeadline: '',
+        targetDeliveryDate: '',
+        deliveryLocation: '',
+        estimatedBudgetAed: 0,
+        buyerName: '',
+        termsAndConditions: '',
+        items: [],
+      });
+      return;
+    }
+
+    const items = (pr.items || []).map((item: any) => ({
+      prItemId: item.id,
+      boqItemId: item.boqItemId,
+      wbsId: item.wbsId,
+      itemCode: item.materialCode,
+      description: item.description,
+      specification: item.specification || '',
+      quantity: Number(item.quantity || 0),
+      uom: item.uom,
+      targetUnitPrice: Number(item.estimatedUnitPrice || 0),
+      requiredDeliveryDate: item.requiredDate || pr.requiredDate,
+    }));
+
+    setNewRfq((current) => ({
+      ...current,
+      requisitionId: pr.id,
+      projectId: pr.projectId,
+      projectName: pr.projectName,
+      title: current.title || pr.title,
+      estimatedBudgetAed: items.reduce((sum: number, item: any) => sum + item.quantity * item.targetUnitPrice, 0),
+      category: current.category || 'GENERAL_PROCUREMENT',
+      items,
+    }));
+  };
+
   const handleCreateRfq = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await safeFetchJson('/api/procurement-enterprise/rfq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRfq),
+        body: JSON.stringify({
+          ...newRfq,
+          buyerName: undefined,
+        }),
       });
       setIsRfqModalOpen(false);
-      loadData();
+      setNewRfq({
+        title: '',
+        requisitionId: '',
+        projectId: '',
+        projectName: '',
+        category: '',
+        issueDate: new Date().toISOString().split('T')[0],
+        submissionDeadline: '',
+        targetDeliveryDate: '',
+        deliveryLocation: '',
+        estimatedBudgetAed: 0,
+        buyerName: '',
+        termsAndConditions: '',
+        items: [],
+      });
+      await loadData();
     } catch (err) {
       console.error('Failed to create RFQ:', err);
     }
@@ -1324,77 +1397,184 @@ export const EnterpriseProcurementModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Create RFQ */}
+      {/* Modal: Create RFQ from approved PR */}
       {isRfqModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Create Sourcing RFQ Package</h3>
-            <form onSubmit={handleCreateRfq} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">RFQ Package Title</label>
-                <input
-                  required
-                  type="text"
-                  value={newRfq.title}
-                  onChange={e => setNewRfq({ ...newRfq, title: e.target.value })}
-                  placeholder="Supply of High-Pressure Ductile Iron Valves & Couplings"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                />
-              </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5 my-8">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Create RFQ from Approved Purchase Requisition</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Procurement lineage is inherited from the selected PR. BOQ/WBS references cannot be edited here.
+              </p>
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
+            {approvedPurchaseRequisitions.length === 0 ? (
+              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
+                No approved purchase requisition is available for RFQ creation. Complete the configured PR approval workflow first.
+              </div>
+            ) : (
+              <form onSubmit={handleCreateRfq} className="space-y-4 text-xs">
                 <div>
-                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Submission Deadline</label>
-                  <input
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Approved Purchase Requisition *</label>
+                  <select
                     required
-                    type="date"
-                    value={newRfq.submissionDeadline}
-                    onChange={e => setNewRfq({ ...newRfq, submissionDeadline: e.target.value })}
+                    value={newRfq.requisitionId}
+                    onChange={(e) => handleSelectRfqRequisition(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
+                  >
+                    <option value="">Select approved PR...</option>
+                    {approvedPurchaseRequisitions.map((pr) => (
+                      <option key={pr.id} value={pr.id}>
+                        {pr.prNumber} — {pr.title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">RFQ Package Title *</label>
+                    <input
+                      required
+                      type="text"
+                      value={newRfq.title}
+                      onChange={(e) => setNewRfq({ ...newRfq, title: e.target.value })}
+                      placeholder="Sourcing package title"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Category *</label>
+                    <input
+                      required
+                      type="text"
+                      value={newRfq.category}
+                      onChange={(e) => setNewRfq({ ...newRfq, category: e.target.value })}
+                      placeholder="Category"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Project</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={newRfq.projectName}
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Issue Date *</label>
+                    <input
+                      required
+                      type="date"
+                      value={newRfq.issueDate}
+                      onChange={(e) => setNewRfq({ ...newRfq, issueDate: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Estimated Value</label>
+                    <input
+                      type="number"
+                      readOnly
+                      value={newRfq.estimatedBudgetAed}
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Submission Deadline *</label>
+                    <input
+                      required
+                      type="date"
+                      value={newRfq.submissionDeadline}
+                      onChange={(e) => setNewRfq({ ...newRfq, submissionDeadline: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Target Delivery *</label>
+                    <input
+                      required
+                      type="date"
+                      value={newRfq.targetDeliveryDate}
+                      onChange={(e) => setNewRfq({ ...newRfq, targetDeliveryDate: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Delivery Location *</label>
+                    <input
+                      required
+                      type="text"
+                      value={newRfq.deliveryLocation}
+                      onChange={(e) => setNewRfq({ ...newRfq, deliveryLocation: e.target.value })}
+                      placeholder="Project/site delivery location"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Target Delivery</label>
-                  <input
-                    required
-                    type="date"
-                    value={newRfq.targetDeliveryDate}
-                    onChange={e => setNewRfq({ ...newRfq, targetDeliveryDate: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold">BOQ / WBS Procurement Lines</label>
+                    <span className="text-[11px] text-slate-500">{newRfq.items.length} line(s)</span>
+                  </div>
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] uppercase text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left">WBS</th>
+                          <th className="px-3 py-2 text-left">BOQ Item</th>
+                          <th className="px-3 py-2 text-left">Description</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2 text-left">UOM</th>
+                          <th className="px-3 py-2 text-right">Target Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {newRfq.items.map((item: any) => (
+                          <tr key={item.prItemId}>
+                            <td className="px-3 py-2 font-mono text-slate-500">{item.wbsCode || item.wbsId}</td>
+                            <td className="px-3 py-2 font-mono font-semibold text-blue-600 dark:text-blue-400">{item.itemCode}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.description}</td>
+                            <td className="px-3 py-2 text-right font-semibold">{item.quantity.toLocaleString()}</td>
+                            <td className="px-3 py-2">{item.uom}</td>
+                            <td className="px-3 py-2 text-right">{Number(item.targetUnitPrice || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Estimated Budget (AED)</label>
-                <input
-                  required
-                  type="number"
-                  value={newRfq.estimatedBudgetAed}
-                  onChange={e => setNewRfq({ ...newRfq, estimatedBudgetAed: Number(e.target.value) })}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsRfqModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold shadow hover:bg-blue-500"
-                >
-                  Publish RFQ to Market
-                </button>
-              </div>
-            </form>
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsRfqModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newRfq.requisitionId || newRfq.items.length === 0}
+                    className="px-4 py-2 bg-blue-600 disabled:opacity-50 text-white rounded-xl font-semibold shadow hover:bg-blue-500"
+                  >
+                    Save RFQ Draft
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
-      )}
+      )})}
     </div>
   );
 };

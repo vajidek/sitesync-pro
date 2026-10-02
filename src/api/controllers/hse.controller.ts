@@ -221,6 +221,27 @@ export class HSEController {
     }
   };
 
+  public reviewWorkPermit = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const decision = String(req.body?.decision || '').trim().toUpperCase() as 'APPROVED' | 'SUSPENDED' | 'CLOSED';
+      if (!['APPROVED', 'SUSPENDED', 'CLOSED'].includes(decision)) {
+        res.status(400).json({ success: false, message: 'Invalid work permit decision.' });
+        return;
+      }
+
+      const result = await this.service.reviewWorkPermit(String(req.params.id), decision, actor);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Work permit not found.' });
+        return;
+      }
+      res.json({ success: true, data: result });
+    } catch (err: any) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  };
+
   // Safety Inspections
   public getSafetyInspections = async (req: Request, res: Response): Promise<void> => {
     try {

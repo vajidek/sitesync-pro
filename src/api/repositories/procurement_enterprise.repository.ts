@@ -817,9 +817,15 @@ export class ProcurementEnterpriseRepository {
     await this.ensureProcurementTablesExist();
     const now = new Date().toISOString();
     const id = uuidv4();
+    const companyId = String(data.companyId || '').trim();
+    const projectId = String(data.projectId || '').trim();
+    const projectName = String(data.projectName || '').trim();
+    if (!companyId || !projectId || !projectName) {
+      throw new Error('Company, project and project name are required for a purchase order.');
+    }
     const poNumber = data.poNumber || (await numberingService.generatePurchaseOrderNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
+      companyId,
+      projectId,
       date: now,
     }));
 
@@ -833,8 +839,12 @@ export class ProcurementEnterpriseRepository {
       rfqNumber: data.rfqNumber || null,
       vendorId: data.vendorId,
       vendorName: data.vendorName,
-      projectId: data.projectId || 'PRJ-WATER-001',
-      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
+      projectId,
+      projectName,
+      wbsId: data.wbsId || null,
+      boqItemId: data.boqItemId || null,
+      costCodeId: data.costCodeId || null,
+      costCode: data.costCode || null,
       poDate: data.poDate || now.split('T')[0],
       deliveryDate: data.deliveryDate,
       deliveryLocation: data.deliveryLocation || 'Sector 4 Laydown Yard',
@@ -872,6 +882,10 @@ export class ProcurementEnterpriseRepository {
           itemNumber: idx + 1,
           itemCode: itm.itemCode,
           description: itm.description,
+          wbsId: itm.wbsId || data.wbsId || null,
+          boqItemId: itm.boqItemId || data.boqItemId || null,
+          costCodeId: itm.costCodeId || data.costCodeId || null,
+          costCode: itm.costCode || data.costCode || null,
           orderedQuantity: itm.orderedQuantity,
           receivedQuantity: 0,
           balanceQuantity: itm.orderedQuantity,

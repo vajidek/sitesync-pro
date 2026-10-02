@@ -11050,6 +11050,7 @@ export const procurementGrns = pgTable('procurement_grns', {
   vendorName: text('vendor_name'),
   projectId: text('project_id'),
   projectName: text('project_name'),
+  warehouseId: text('warehouse_id'),
   warehouseName: text('warehouse_name'),
   receivedDate: text('received_date'),
   challanNo: text('challan_no'),

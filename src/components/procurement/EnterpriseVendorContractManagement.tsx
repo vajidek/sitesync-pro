@@ -52,7 +52,7 @@ interface ContractItem {
 }
 
 export const EnterpriseVendorContractManagement: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'vendors' | 'scorecards' | 'contracts' | 'variations' | 'documents' | 'analytics'>('vendors');
+  const [activeTab, setActiveTab] = useState<'vendors' | 'scorecards' | 'contracts' | 'variations' | 'claims' | 'documents' | 'analytics'>('vendors');
   const [vendors, setVendors] = useState<VendorItem[]>([]);
   const [contracts, setContracts] = useState<ContractItem[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -119,9 +119,14 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     title: '',
     description: '',
     variationType: 'ADDITION',
-    amount: 50000,
-    timeExtensionDays: 7,
-    justification: 'Additional client requirements'
+    amount: 0,
+    timeExtensionDays: 0,
+    justification: '',
+    wbsId: '',
+    boqItemId: '',
+    costCodeId: '',
+    changeEventReference: '',
+    clientReference: ''
   });
 
   // Fetch initial data
@@ -132,7 +137,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       const [vRes, cRes, pRes, currRes] = await Promise.all([
@@ -156,7 +161,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const handleCreateVendor = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/vendor-management/vendors', {
         method: 'POST',
         headers: {
@@ -198,7 +203,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/contracts-engine/contracts', {
         method: 'POST',
         headers: {
@@ -235,7 +240,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedVendor) return;
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/vendor-management/vendors/rate', {
         method: 'POST',
         headers: {
@@ -267,7 +272,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedContract) return;
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/contracts-engine/contracts/variation', {
         method: 'POST',
         headers: {
@@ -276,12 +281,21 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
         },
         body: JSON.stringify({
           contractId: selectedContract.id,
+          projectId: selectedContract.projectId,
+          projectName: selectedContract.projectName,
           title: variationForm.title,
           description: variationForm.description,
           variationType: variationForm.variationType,
           amount: Number(variationForm.amount),
+          claimedAmount: Number(variationForm.amount),
           timeExtensionDays: Number(variationForm.timeExtensionDays),
-          justification: variationForm.justification
+          claimedTimeExtensionDays: Number(variationForm.timeExtensionDays),
+          justification: variationForm.justification || undefined,
+          wbsId: variationForm.wbsId || undefined,
+          boqItemId: variationForm.boqItemId || undefined,
+          costCodeId: variationForm.costCodeId || undefined,
+          changeEventReference: variationForm.changeEventReference || undefined,
+          clientReference: variationForm.clientReference || undefined
         })
       }).then(r => r.json());
 
@@ -447,9 +461,19 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <TrendingUp className="w-4 h-4" /> Variation Orders & Payments
+          <TrendingUp className="w-4 h-4" /> Variation Orders, EOT & Payments
         </button>
 
+        <button
+          onClick={() => setActiveTab('claims')}
+          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
+            activeTab === 'claims'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" /> Contract Claims
+        </button>
         <button
           onClick={() => setActiveTab('analytics')}
           className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
@@ -718,6 +742,10 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
         </div>
       )}
 
+      {/* Contract Claims */}
+      {activeTab === 'claims' && (
+        <ContractClaimsWorkspace contracts={contracts} />
+      )}
       {/* Modal: Register Vendor */}
       {isVendorModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
@@ -1095,11 +1123,25 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Variation Description *</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Describe the changed scope, reason and affected work."
+                  value={variationForm.description}
+                  onChange={(e) => setVariationForm({ ...variationForm, description: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Additional Amount (AED)</label>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Claimed Amount ({selectedContract.currency || 'currency'}) *</label>
                   <input
                     type="number"
+                    min="0"
+                    step="0.01"
                     required
                     value={variationForm.amount}
                     onChange={(e) => setVariationForm({ ...variationForm, amount: Number(e.target.value) })}
@@ -1108,14 +1150,52 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Time Extension (Days)</label>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Claimed Time Extension (Days)</label>
                   <input
                     type="number"
+                    min="0"
                     value={variationForm.timeExtensionDays}
                     onChange={(e) => setVariationForm({ ...variationForm, timeExtensionDays: Number(e.target.value) })}
                     className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
                   />
                 </div>
+
+                <input
+                  value={variationForm.wbsId}
+                  onChange={(e) => setVariationForm({ ...variationForm, wbsId: e.target.value })}
+                  placeholder="WBS ID (optional)"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.boqItemId}
+                  onChange={(e) => setVariationForm({ ...variationForm, boqItemId: e.target.value })}
+                  placeholder="BOQ Item ID (optional)"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.costCodeId}
+                  onChange={(e) => setVariationForm({ ...variationForm, costCodeId: e.target.value })}
+                  placeholder="Cost Code ID (optional)"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.changeEventReference}
+                  onChange={(e) => setVariationForm({ ...variationForm, changeEventReference: e.target.value })}
+                  placeholder="Change event reference"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.clientReference}
+                  onChange={(e) => setVariationForm({ ...variationForm, clientReference: e.target.value })}
+                  placeholder="Client reference / instruction no."
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.justification}
+                  onChange={(e) => setVariationForm({ ...variationForm, justification: e.target.value })}
+                  placeholder="Justification"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
               </div>
 
               <div className="flex justify-end gap-3 border-t pt-4 border-slate-100 dark:border-slate-700">

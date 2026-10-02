@@ -3259,12 +3259,24 @@ export const contractVariations = pgTable('contract_variations', {
   id: text('id').primaryKey(),
   contractId: text('contract_id').notNull(),
   variationNumber: text('variation_number').notNull().unique(),
+  projectId: text('project_id'),
+  wbsId: text('wbs_id'),
+  boqItemId: text('boq_item_id'),
+  costCodeId: text('cost_code_id'),
   title: text('title').notNull(),
   description: text('description').notNull(),
   variationType: text('variation_type').notNull().default('ADDITION'), // ADDITION, OMISSION, SCOPE_CHANGE, PRICE_REVISION
   amount: doublePrecision('amount').notNull(),
+  claimedAmount: doublePrecision('claimed_amount').notNull().default(0),
+  approvedAmount: doublePrecision('approved_amount').notNull().default(0),
   timeExtensionDays: integer('time_extension_days').default(0).notNull(),
-  status: text('status').notNull().default('PROPOSED'), // PROPOSED, APPROVED, REJECTED
+  claimedTimeExtensionDays: integer('claimed_time_extension_days').default(0).notNull(),
+  approvedTimeExtensionDays: integer('approved_time_extension_days').default(0).notNull(),
+  noticeDate: text('notice_date'),
+  eventDate: text('event_date'),
+  changeEventReference: text('change_event_reference'),
+  clientReference: text('client_reference'),
+  status: text('status').notNull().default('PROPOSED'), // PROPOSED, APPROVED, REJECTED, INCORPORATED
   createdBy: text('created_by'),
   approvedBy: text('approved_by'),
   approvedDate: text('approved_date'),
@@ -3272,17 +3284,22 @@ export const contractVariations = pgTable('contract_variations', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
-
 // 184. Contract Extensions
 export const contractExtensions = pgTable('contract_extensions', {
   id: text('id').primaryKey(),
   contractId: text('contract_id').notNull(),
+  projectId: text('project_id'),
+  wbsId: text('wbs_id'),
+  causeType: text('cause_type'),
+  changeEventReference: text('change_event_reference'),
   extensionNumber: integer('extension_number').notNull(),
   extensionDocumentNumber: text('extension_document_number').unique(),
   extensionDays: integer('extension_days').notNull(),
   originalEndDate: text('original_end_date').notNull(),
   newEndDate: text('new_end_date').notNull(),
   reason: text('reason').notNull(),
+  noticeDate: text('notice_date'),
+  eventDate: text('event_date'),
   status: text('status').notNull().default('REQUESTED'), // REQUESTED, APPROVED, REJECTED
   requestedBy: text('requested_by'),
   approvedBy: text('approved_by'),
@@ -3290,6 +3307,50 @@ export const contractExtensions = pgTable('contract_extensions', {
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
+// Contract Claims — commercial claims/disputes/recovery records anchored to the contract/project control chain.
+export const contractClaims = pgTable('contract_claims', {
+  id: text('id').primaryKey(),
+  contractId: text('contract_id').notNull(),
+  projectId: text('project_id'),
+  wbsId: text('wbs_id'),
+  boqItemId: text('boq_item_id'),
+  costCodeId: text('cost_code_id'),
+  claimNumber: text('claim_number').notNull().unique(),
+  claimType: text('claim_type').notNull(), // DELAY, DISRUPTION, COST, TIME, TIME_AND_COST, OTHER
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+  eventDate: text('event_date'),
+  noticeDate: text('notice_date'),
+  claimedAmount: doublePrecision('claimed_amount').notNull().default(0),
+  approvedAmount: doublePrecision('approved_amount').notNull().default(0),
+  claimedDays: integer('claimed_days').notNull().default(0),
+  approvedDays: integer('approved_days').notNull().default(0),
+  clientReference: text('client_reference'),
+  changeEventReference: text('change_event_reference'),
+  status: text('status').notNull().default('DRAFT'), // DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, SETTLED, CLOSED
+  createdBy: text('created_by').notNull(),
+  reviewedBy: text('reviewed_by'),
+  approvedBy: text('approved_by'),
+  approvedDate: text('approved_date'),
+  rejectionReason: text('rejection_reason'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// Evidence links are polymorphic so the same CDE document can support a variation, EOT or claim.
+export const contractChangeEvidence = pgTable('contract_change_evidence', {
+  id: text('id').primaryKey(),
+  contractId: text('contract_id').notNull(),
+  entityType: text('entity_type').notNull(), // VARIATION, EXTENSION, CLAIM
+  entityId: text('entity_id').notNull(),
+  documentId: text('document_id').notNull(),
+  evidenceType: text('evidence_type').notNull(), // NOTICE, DRAWING, INSTRUCTION, SITE_RECORD, PHOTO, MEASUREMENT, CORRESPONDENCE, OTHER
+  notes: text('notes'),
+  createdBy: text('created_by').notNull(),
+  createdAt: text('created_at').notNull(),
+  isDeleted: boolean('is_deleted').notNull().default(false),
+});
+
 
 // 185. Contract Retentions
 export const contractRetentions = pgTable('contract_retentions', {

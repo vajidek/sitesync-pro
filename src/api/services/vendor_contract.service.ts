@@ -1,5 +1,6 @@
 import { VendorContractRepository } from '../repositories/vendor_contract.repository';
 import { numberingService } from './numbering.service';
+import crypto from 'crypto';
 import { projectRepository } from '../repositories/project.repository';
 
 export class VendorContractService {
@@ -261,41 +262,52 @@ export class VendorContractService {
   async addContractVariation(data: any, createdBy: string) {
     if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required to create a contract variation.');
     const amount = Number(data.amount);
-    if (!data.contractId || !data.title || !data.description || !data.variationType || !Number.isFinite(amount)) {
-      throw new Error('Contract, title, description, variation type and amount are required for a variation.');
+    if (!data.contractId || !data.title?.trim() || !data.description?.trim() || !data.variationType || !Number.isFinite(amount) || amount < 0) {
+      throw new Error('Contract, title, description, variation type and a valid non-negative amount are required for a variation.');
     }
-    if (amount < 0) throw new Error('Variation amount must be non-negative.');
+    const claimedDays = Number(data.claimedTimeExtensionDays ?? data.timeExtensionDays ?? 0);
+    if (!Number.isInteger(claimedDays) || claimedDays < 0) throw new Error('Variation time-extension days must be a valid non-negative integer.');
+
+    const contract = await this.repository.getContractById(data.contractId);
+    if (!contract) throw new Error('Contract not found.');
+
+    const projectId = data.projectId || contract.projectId || undefined;
+    if (data.wbsId && projectId && !String(data.wbsId).trim()) throw new Error('WBS reference is invalid.');
 
     const numbering = await numberingService.getNextNumber({
       entityType: 'CONTRACT_VARIATION',
-      companyId: companyId || null,
-      projectId: data.projectId || null,
-      date: data.variationDate || new Date().toISOString(),
+      companyId: data.companyId || null,
+      projectId: projectId || null,
+      date: data.variationDate || data.noticeDate || new Date().toISOString(),
       allocatedBy: createdBy,
       manualNumber: data.variationNumber || undefined,
     });
 
-    const now = new Date().toISOString();
-    const variationData = {
+    return await this.repository.addContractVariation({
       id: `cvar_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       contractId: data.contractId,
+      projectId,
+      wbsId: data.wbsId || null,
+      boqItemId: data.boqItemId || null,
+      costCodeId: data.costCodeId || null,
       variationNumber: numbering.documentNumber,
       title: data.title.trim(),
       description: data.description.trim(),
       variationType: data.variationType,
       amount,
-      timeExtensionDays: Number(data.timeExtensionDays || 0),
-      status: 'PROPOSED',
-      approvedBy: null,
-      approvedDate: null,
+      claimedAmount: Number(data.claimedAmount ?? amount),
+      claimedTimeExtensionDays: claimedDays,
+      timeExtensionDays: claimedDays,
+      noticeDate: data.noticeDate || null,
+      eventDate: data.eventDate || null,
+      changeEventReference: data.changeEventReference || null,
+      clientReference: data.clientReference || null,
       justification: data.justification || null,
-      createdAt: now,
-      updatedAt: now,
+      evidenceDocuments: Array.isArray(data.evidenceDocuments) ? data.evidenceDocuments : [],
       createdBy: createdBy.trim(),
-    };
-
-    return await this.repository.addContractVariation(variationData);
+    });
   }
+
   async addContractPayment(data: any, certifiedBy: string) {
     if (!certifiedBy?.trim()) throw new Error('Authenticated certifier identity is required to create an interim payment certificate.');
     const gross = Number(data.grossAmount);
@@ -338,45 +350,116 @@ export class VendorContractService {
 
     return await this.repository.addContractPayment(paymentData);
   }
-  async addContractExtension(data: any, approvedBy: string) {
-    if (!approvedBy?.trim()) throw new Error('Authenticated approver identity is required for a contract extension request.');
+  async addContractExtension(data: any, requestedBy: string) {
+    if (!requestedBy?.trim()) throw new Error('Authenticated requester identity is required for a contract extension request.');
     const extensionDays = Number(data.extensionDays);
-    if (!data.contractId || !Number.isInteger(extensionDays) || extensionDays < 1 || !data.newEndDate || !data.reason) {
+    if (!data.contractId || !Number.isInteger(extensionDays) || extensionDays < 1 || !data.newEndDate || !String(data.reason || '').trim()) {
       throw new Error('Contract, positive extension days, new end date and reason are required.');
     }
 
     const contract = await this.repository.getContractById(data.contractId);
     if (!contract) throw new Error('Contract not found.');
 
+    const baseEndDate = data.originalEndDate || contract.revisedEndDate || contract.endDate;
+    if (new Date(data.newEndDate) <= new Date(baseEndDate)) {
+      throw new Error('New end date must be later than the current contract end date.');
+    }
+
     const existingExtensions = contract.extensions || [];
     const extensionNumber = existingExtensions.length + 1;
+
     const numbering = await numberingService.getNextNumber({
       entityType: 'CONTRACT_EXTENSION',
       companyId: data.companyId || null,
       projectId: contract.projectId || data.projectId || null,
       date: data.newEndDate,
-      allocatedBy: approvedBy,
+      allocatedBy: requestedBy,
       manualNumber: data.extensionNumber ? `EOT-${data.extensionNumber}` : undefined,
     });
 
-    const extensionData = {
+    return await this.repository.addContractExtension({
       id: `cext_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       contractId: data.contractId,
+      projectId: data.projectId || contract.projectId || null,
+      wbsId: data.wbsId || null,
+      causeType: data.causeType || null,
+      changeEventReference: data.changeEventReference || null,
       extensionNumber,
       extensionDocumentNumber: numbering.documentNumber,
       extensionDays,
-      originalEndDate: data.originalEndDate || contract.revisedEndDate || contract.endDate,
+      originalEndDate: baseEndDate,
       newEndDate: data.newEndDate,
-      reason: data.reason.trim(),
+      reason: String(data.reason).trim(),
+      noticeDate: data.noticeDate || null,
+      eventDate: data.eventDate || null,
       status: 'REQUESTED',
+      requestedBy: requestedBy.trim(),
       approvedBy: null,
       approvedDate: null,
-      requestedBy: approvedBy.trim(),
+      evidenceDocuments: Array.isArray(data.evidenceDocuments) ? data.evidenceDocuments : [],
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      updatedAt: new Date().toISOString(),
+    });
+  }
 
-    return await this.repository.addContractExtension(extensionData);
+  async getContractClaims(filters: { contractId?: string; projectId?: string; status?: string } = {}) {
+    return this.repository.getContractClaims(filters);
+  }
+
+  async createContractClaim(data: any, createdBy: string) {
+    if (!createdBy?.trim()) throw new Error('Authenticated claim creator identity is required.');
+    if (!data.contractId || !data.claimType || !data.title?.trim() || !data.description?.trim()) {
+      throw new Error('Contract, claim type, title and description are required.');
+    }
+    const claimedAmount = Number(data.claimedAmount || 0);
+    const claimedDays = Number(data.claimedDays || 0);
+    if (!Number.isFinite(claimedAmount) || claimedAmount < 0) throw new Error('Claim amount must be a valid non-negative number.');
+    if (!Number.isInteger(claimedDays) || claimedDays < 0) throw new Error('Claimed days must be a valid non-negative integer.');
+
+    const contract = await this.repository.getContractById(data.contractId);
+    if (!contract) throw new Error('Contract not found.');
+
+    const numbering = await numberingService.getNextNumber({
+      entityType: 'CONTRACT_CLAIM',
+      companyId: data.companyId || null,
+      projectId: data.projectId || contract.projectId || null,
+      date: data.noticeDate || data.eventDate || new Date().toISOString(),
+      allocatedBy: createdBy,
+      manualNumber: data.claimNumber || undefined,
+    });
+
+    return this.repository.createContractClaim({
+      id: crypto.randomUUID(),
+      claimNumber: numbering.documentNumber,
+      contractId: data.contractId,
+      projectId: data.projectId || contract.projectId || null,
+      wbsId: data.wbsId || null,
+      boqItemId: data.boqItemId || null,
+      costCodeId: data.costCodeId || null,
+      claimType: data.claimType,
+      title: data.title.trim(),
+      description: data.description.trim(),
+      eventDate: data.eventDate || null,
+      noticeDate: data.noticeDate || null,
+      claimedAmount,
+      claimedDays,
+      clientReference: data.clientReference || null,
+      changeEventReference: data.changeEventReference || null,
+      evidenceDocuments: Array.isArray(data.evidenceDocuments) ? data.evidenceDocuments : [],
+      createdBy: createdBy.trim(),
+    });
+  }
+
+  async updateContractClaimStatus(id: string, status: any, actorName: string, options: any = {}) {
+    return this.repository.updateContractClaimStatus(id, status, actorName, options);
+  }
+
+  async getContractChangeEvidence(entityType: 'VARIATION' | 'EXTENSION' | 'CLAIM', entityId: string) {
+    return this.repository.getContractChangeEvidence(entityType, entityId);
+  }
+
+  async linkContractChangeEvidence(data: any, createdBy: string) {
+    return this.repository.linkContractChangeEvidence({ ...data, createdBy });
   }
   async getDashboardStats() {
     return await this.repository.getVendorContractStats();

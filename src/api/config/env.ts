@@ -1,8 +1,30 @@
+import { randomBytes } from 'node:crypto';
+
+const nodeEnv = process.env.NODE_ENV || 'development';
+const appEnvironment = (process.env.APP_ENVIRONMENT || (nodeEnv === 'production' ? 'PRODUCTION' : 'DEMO')).toUpperCase();
+const isLockedEnvironment = appEnvironment === 'UAT' || appEnvironment === 'PRODUCTION' || nodeEnv === 'production';
+
+function resolveSecret(name: 'JWT_SECRET' | 'JWT_REFRESH_SECRET'): string {
+  const configured = process.env[name]?.trim();
+  if (configured) return configured;
+
+  if (isLockedEnvironment) {
+    throw new Error(
+      `FATAL SECURITY CONFIGURATION ERROR: ${name} must be supplied explicitly in UAT/PRODUCTION. Refusing to start with an insecure fallback secret.`
+    );
+  }
+
+  // Development/demo fallback is intentionally process-local and random.
+  // It is not suitable for shared environments and is regenerated on restart.
+  return randomBytes(48).toString('hex');
+}
+
 export const ENV = {
-  NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: 3000,
-  JWT_SECRET: process.env.JWT_SECRET || 'sitesync-pro-enterprise-jwt-access-secret-2026-key',
-  JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'sitesync-pro-enterprise-jwt-refresh-secret-2026-key',
+  NODE_ENV: nodeEnv,
+  APP_ENVIRONMENT: appEnvironment,
+  PORT: Number(process.env.PORT || 3000),
+  JWT_SECRET: resolveSecret('JWT_SECRET'),
+  JWT_REFRESH_SECRET: resolveSecret('JWT_REFRESH_SECRET'),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '1h',
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   APP_NAME: 'SiteSync Pro',
@@ -10,17 +32,17 @@ export const ENV = {
 };
 
 /**
- * Enterprise Production Isolation Guard:
- * Returns true only in development/sandbox environments or when explicitly enabled.
- * Strictly prevents automated generation of fake employees, fake projects, fake POs,
- * or fake transactions in UAT and PRODUCTION modes.
+ * Demo seed data is an explicit environment capability.
+ * Never generate fake business/identity transactions in UAT or PRODUCTION.
  */
 export function isDemoSeedAllowed(): boolean {
-  if (process.env.APP_ENVIRONMENT === 'PRODUCTION' || process.env.APP_ENVIRONMENT === 'UAT') {
+  if (ENV.APP_ENVIRONMENT === 'PRODUCTION' || ENV.APP_ENVIRONMENT === 'UAT') {
     return false;
   }
-  if (process.env.NODE_ENV === 'production') {
+
+  if (ENV.NODE_ENV === 'production') {
     return process.env.ENABLE_DEMO_SEED === 'true';
   }
-  return true;
+
+  return process.env.ENABLE_DEMO_SEED === 'false' ? false : true;
 }

@@ -577,8 +577,8 @@ export class HSERepository {
       jobSteps: data.jobSteps,
       requiredPpe: data.requiredPpe || 'Safety Helmet, Shoes, High-Vis Vest',
       permitRequired: Boolean(data.permitRequired),
-      status: data.status || 'DRAFT',
-      approvedBy: data.approvedBy || null,
+      status: 'DRAFT',
+      approvedBy: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -607,8 +607,8 @@ export class HSERepository {
       safetyChecklist: data.safetyChecklist || null,
       isolationStatus: data.isolationStatus || 'NOT_APPLICABLE',
       gasTestResult: data.gasTestResult || null,
-      status: data.status || 'PENDING_APPROVAL',
-      approvedBy: data.approvedBy || null,
+      status: 'PENDING_APPROVAL',
+      approvedBy: null,
       createdAt: now,
       updatedAt: now,
     };

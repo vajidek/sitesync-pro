@@ -5044,8 +5044,8 @@ export const phase63ToolboxTalks = pgTable('phase63_toolbox_talks', {
   status: text('status').notNull().default('COMPLETED'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5111,8 +5111,8 @@ export const phase63PpeIssuance = pgTable('phase63_ppe_issuance', {
   issuedBy: text('issued_by').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5131,8 +5131,8 @@ export const phase63TrainingRecords = pgTable('phase63_training_records', {
   status: text('status').notNull().default('VALID'), // VALID, EXPIRING_SOON, EXPIRED
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5151,8 +5151,8 @@ export const phase63EmergencyDrills = pgTable('phase63_emergency_drills', {
   recommendations: text('recommendations'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5171,8 +5171,8 @@ export const phase63FireEquipment = pgTable('phase63_fire_equipment', {
   status: text('status').notNull().default('OPERATIONAL'), // OPERATIONAL, REFILL_REQUIRED, OUT_OF_SERVICE
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5191,8 +5191,8 @@ export const phase63EnvironmentMonitoring = pgTable('phase63_environment_monitor
   monitoredBy: text('monitored_by').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -5211,8 +5211,8 @@ export const phase63WasteManagement = pgTable('phase63_waste_management', {
   status: text('status').notNull().default('DISPOSED'), // STORED_ON_SITE, IN_TRANSIT, DISPOSED
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull().default('SYSTEM_DEMO_SEED'),
+  updatedBy: text('updated_by').notNull().default('SYSTEM_DEMO_SEED'),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });

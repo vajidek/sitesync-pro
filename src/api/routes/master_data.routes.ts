@@ -2,22 +2,16 @@
 // PHASE 76: MASTER DATA MANAGEMENT - ROUTES
 // ============================================================================
 
-import { Router, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import { masterDataController } from '../controllers/master_data.controller';
-import { AuthenticatedRequest } from '../types/auth';
-import { verifyAccessToken } from '../utils/jwt';
-import { userRepository } from '../repositories/user.repository';
-import { roleRepository } from '../repositories/role.repository';
-import { adminRepository } from '../repositories/admin.repository';
+import { authenticateJWT } from '../middleware/auth.middleware';
 
 const router = Router();
 
+router.use(authenticateJWT);
+
 // All Master Data operations require a real authenticated user.
 // No fallback identities are permitted: master data changes and reads are security-sensitive.
-import { authenticateJWT } from '../middleware/auth.middleware';
-
-
-
 // 1. Dashboard & Domains
 router.get('/dashboard-stats', (req, res) => masterDataController.getDashboardStats(req, res));
 router.get('/domains', (req, res) => masterDataController.getDomains(req, res));

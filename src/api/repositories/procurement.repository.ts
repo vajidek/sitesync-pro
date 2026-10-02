@@ -1177,6 +1177,79 @@ export class ProcurementRepository {
     });
   }
 
+  async approvePurchaseOrder(
+    id: string,
+    approverId: string,
+    approverName: string,
+    approverRole: string,
+    action: 'APPROVE' | 'REJECT',
+    comments?: string,
+  ): Promise<PurchaseOrder | null> {
+    const actorId = String(approverId || '').trim();
+    const actorName = String(approverName || '').trim();
+    const actorRole = String(approverRole || '').trim();
+    if (!actorId || !actorName || !actorRole) throw new Error('Authenticated approver identity and role are required.');
+
+    return await db.transaction(async (tx) => {
+      const rows = await tx.select().from(procurementPurchaseOrdersTable)
+        .where(eq(procurementPurchaseOrdersTable.id, id)).limit(1);
+      if (!rows.length) return null;
+
+      const po = rows[0] as any;
+      const status = String(po.status || '').trim();
+      const approvalStatus = String(po.approvalStatus || '').trim();
+      if (!['Draft', 'Submitted'].includes(status) || !['Pending', 'Pending Approval'].includes(approvalStatus)) {
+        throw new Error(`Purchase Order ${po.poNumber} is not pending approval.`);
+      }
+      if (po.issuedByName && String(po.issuedByName).trim().toLowerCase() === actorName.toLowerCase()) {
+        throw new Error('Maker-checker violation: PO creator cannot approve or reject the same purchase order.');
+      }
+
+      const now = new Date().toISOString();
+      const approved = action === 'APPROVE';
+      const nextApprovalStatus = approved ? 'Approved' : 'Rejected';
+      const nextStatus = approved ? 'Approved' : 'Draft';
+
+      await tx.update(procurementPurchaseOrdersTable).set({
+        approvalStatus: nextApprovalStatus,
+        status: nextStatus,
+        approvedByName: approved ? actorName : null,
+      } as any).where(eq(procurementPurchaseOrdersTable.id, id));
+
+      await tx.insert(purchaseOrderApprovals).values({
+        id: `poa-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        poId: id,
+        entityType: 'PO',
+        entityNumber: po.poNumber,
+        step: 1,
+        approverRole: actorRole,
+        approverId: actorId,
+        approverName: actorName,
+        status: approved ? 'APPROVED' : 'REJECTED',
+        comments: comments?.trim() || null,
+        actionDate: now,
+        createdAt: now,
+      });
+
+      await tx.insert(procurementLogs).values({
+        id: `plog-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        entityType: 'PO',
+        entityId: id,
+        entityNumber: po.poNumber,
+        actionType: approved ? 'APPROVE' : 'REJECT',
+        performedBy: actorName,
+        details: `${approved ? 'Approved' : 'Rejected'} PO ${po.poNumber}.${comments ? ` Comments: ${comments.trim()}` : ''}`,
+        isActive: true,
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      const updatedRows = await tx.select().from(procurementPurchaseOrdersTable)
+        .where(eq(procurementPurchaseOrdersTable.id, id)).limit(1);
+      return updatedRows.length ? updatedRows[0] as unknown as PurchaseOrder : null;
+    });
+  }
   // --- SUBCONTRACT WORK ORDERS & VARIATION ORDERS (TRANSACTION WORKFLOW #5) ---
   async getWorkOrders(filters: { category?: string; status?: string; projectId?: string }): Promise<SubcontractWorkOrder[]> {
     await ensureProcurementSeeded();

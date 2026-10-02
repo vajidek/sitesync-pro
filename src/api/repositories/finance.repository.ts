@@ -274,128 +274,90 @@ export class FinanceRepository {
   async createJournalEntry(entryData: any, lines: any[]) {
     await ensureFinanceTablesExist();
 
-    // Idempotency: Prevent duplicate posting if already recorded with same reference and voucher type
-    if (entryData.referenceNumber && entryData.voucherType) {
-      const existing = await db.select().from(phase60JournalEntries)
-        .where(and(
-          eq(phase60JournalEntries.referenceNumber, entryData.referenceNumber),
-          eq(phase60JournalEntries.voucherType, entryData.voucherType),
+    const referenceNumber = entryData.referenceNumber?.trim() || null;
+    const voucherType = entryData.voucherType?.trim() || 'GENERAL_JOURNAL';
+    const actor = String(entryData.postedBy || entryData.createdBy || 'SYSTEM_WORKFLOW').trim();
+
+    if (!actor) throw new Error('Journal actor identity is required.');
+    if (!Array.isArray(lines) || lines.length < 2) throw new Error('A journal entry requires at least two ledger lines.');
+
+    for (const line of lines) {
+      const debit = Number(line.debitAmount || 0);
+      const credit = Number(line.creditAmount || 0);
+      if (!Number.isFinite(debit) || debit < 0 || !Number.isFinite(credit) || credit < 0) {
+        throw new Error('Journal line debit and credit amounts must be valid non-negative numbers.');
+      }
+      if (debit > 0 && credit > 0) throw new Error('A journal line cannot contain both debit and credit amounts.');
+      if (!line.accountCode || !line.accountName) throw new Error('Every journal line requires an account code and account name.');
+    }
+
+    const totalDebit = lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0);
+    const totalCredit = lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0);
+    if (totalDebit <= 0 || Math.abs(totalDebit - totalCredit) >= 0.01) {
+      throw new Error('Double-entry imbalance: total debit ' + totalDebit.toFixed(2) + ' must equal total credit ' + totalCredit.toFixed(2) + '.');
+    }
+
+    return await db.transaction(async (tx) => {
+      if (referenceNumber) {
+        const existingRows = await tx.select().from(phase60JournalEntries).where(and(
+          eq(phase60JournalEntries.referenceNumber, referenceNumber),
+          eq(phase60JournalEntries.voucherType, voucherType),
           isNull(phase60JournalEntries.deletedAt)
-        ));
-      if (existing.length > 0) {
-        return existing[0];
+        )).limit(1);
+        if (existingRows.length) return existingRows[0];
       }
-    }
 
-    const journalId = crypto.randomUUID();
-    const now = new Date().toISOString().split('T')[0];
-    const voucherNumber = entryData.voucherNumber || `JV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+      const journalId = crypto.randomUUID();
+      const now = new Date().toISOString().split('T')[0];
+      const voucherNumber = String(entryData.voucherNumber || ('JV-' + new Date().getFullYear() + '-' + crypto.randomBytes(5).toString('hex').toUpperCase())).trim();
+      const postingDate = String(entryData.postingDate || now).trim();
+      const narration = String(entryData.narration || '').trim();
+      if (!narration) throw new Error('Journal narration is required.');
 
-    let totalDebit = 0;
-    let totalCredit = 0;
+      const [newJournal] = await tx.insert(phase60JournalEntries).values({
+        id: journalId, voucherNumber, voucherType, postingDate, referenceNumber, narration, totalDebit, totalCredit,
+        status: 'POSTED', postedBy: actor, createdAt: now, updatedAt: now, createdBy: actor, updatedBy: actor,
+      }).returning();
+      if (!newJournal) throw new Error('Journal header could not be created.');
 
-    lines.forEach(l => {
-      totalDebit += Number(l.debitAmount || 0);
-      totalCredit += Number(l.creditAmount || 0);
+      const lineObjects: any[] = [];
+      const glObjects: any[] = [];
+      for (const line of lines) {
+        const accountRows = await tx.select().from(phase60ChartOfAccounts).where(and(
+          eq(phase60ChartOfAccounts.accountCode, line.accountCode),
+          isNull(phase60ChartOfAccounts.deletedAt)
+        )).limit(1);
+        if (!accountRows.length) throw new Error('Account code ' + line.accountCode + ' does not exist in the chart of accounts.');
+
+        const account = accountRows[0];
+        const debit = Number(line.debitAmount || 0);
+        const credit = Number(line.creditAmount || 0);
+        const netImpact = account.accountGroup === 'ASSETS' || account.accountGroup === 'EXPENSES' ? debit - credit : credit - debit;
+        const lineId = crypto.randomUUID();
+        const glId = crypto.randomUUID();
+
+        lineObjects.push({
+          id: lineId, journalId, voucherNumber, accountId: line.accountId || account.id, accountCode: line.accountCode, accountName: line.accountName,
+          costCenterId: line.costCenterId || null, debitAmount: debit, creditAmount: credit, lineDescription: line.lineDescription || narration,
+          createdAt: now, updatedAt: now, createdBy: actor, updatedBy: actor,
+        });
+        glObjects.push({
+          id: glId, glNumber: 'GL-' + new Date().getFullYear() + '-' + crypto.randomBytes(5).toString('hex').toUpperCase(),
+          journalId, voucherNumber, postingDate, accountId: line.accountId || account.id, accountCode: line.accountCode, accountName: line.accountName,
+          debit, credit, runningBalance: netImpact, narration, costCenterCode: line.costCenterId || null, createdAt: now, updatedAt: now, createdBy: actor, updatedBy: actor,
+        });
+
+        await tx.update(phase60ChartOfAccounts).set({
+          currentBalance: sql`${phase60ChartOfAccounts.currentBalance} + ${netImpact}`,
+          updatedAt: now,
+        }).where(eq(phase60ChartOfAccounts.id, account.id));
+      }
+
+      await tx.insert(phase60JournalLines).values(lineObjects);
+      await tx.insert(phase60GeneralLedger).values(glObjects);
+      return { ...newJournal, lines: lineObjects };
     });
-
-    if (Math.abs(totalDebit - totalCredit) >= 0.01) {
-      throw new Error(`Double-Entry Imbalance: Total Debit ($${totalDebit}) must equal Total Credit ($${totalCredit})`);
-    }
-
-    const newJournal = {
-      id: journalId,
-      voucherNumber,
-      voucherType: entryData.voucherType || 'GENERAL_JOURNAL',
-      postingDate: entryData.postingDate || now,
-      referenceNumber: entryData.referenceNumber || null,
-      narration: entryData.narration,
-      totalDebit,
-      totalCredit,
-      status: 'POSTED',
-      postedBy: 'Chief Financial Officer',
-      createdAt: now,
-      updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
-    };
-
-    await db.insert(phase60JournalEntries).values(newJournal);
-
-    const lineObjects: any[] = [];
-    const glObjects: any[] = [];
-
-    for (const l of lines) {
-      const lineId = crypto.randomUUID();
-      const glId = crypto.randomUUID();
-      const glNumber = `GL-2026-${Math.floor(10000 + Math.random() * 90000)}`;
-
-      const lineObj = {
-        id: lineId,
-        journalId,
-        voucherNumber,
-        accountId: l.accountId || journalId,
-        accountCode: l.accountCode,
-        accountName: l.accountName,
-        costCenterId: l.costCenterId || null,
-        debitAmount: l.debitAmount || 0,
-        creditAmount: l.creditAmount || 0,
-        lineDescription: l.lineDescription || entryData.narration,
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'System Administrator',
-        updatedBy: 'System Administrator',
-      };
-      lineObjects.push(lineObj);
-
-      const glObj = {
-        id: glId,
-        glNumber,
-        journalId,
-        voucherNumber,
-        postingDate: entryData.postingDate || now,
-        accountId: l.accountId || journalId,
-        accountCode: l.accountCode,
-        accountName: l.accountName,
-        debit: l.debitAmount || 0,
-        credit: l.creditAmount || 0,
-        runningBalance: (l.debitAmount || 0) - (l.creditAmount || 0),
-        narration: entryData.narration,
-        costCenterCode: l.costCenterId || null,
-        createdAt: now,
-        updatedAt: now,
-        createdBy: 'System Administrator',
-        updatedBy: 'System Administrator',
-      };
-      glObjects.push(glObj);
-
-      // Update account balance based on account normal balance
-      const account = await this.findAccountByCode(l.accountCode);
-      if (account) {
-        const isDebitNormal = account.accountGroup === 'ASSETS' || account.accountGroup === 'EXPENSES';
-        const netImpact = isDebitNormal
-          ? (l.debitAmount || 0) - (l.creditAmount || 0)
-          : (l.creditAmount || 0) - (l.debitAmount || 0);
-
-        await db.update(phase60ChartOfAccounts)
-          .set({
-            currentBalance: account.currentBalance + netImpact,
-            updatedAt: now,
-          })
-          .where(eq(phase60ChartOfAccounts.id, account.id));
-      }
-    }
-
-    if (lineObjects.length > 0) {
-      await db.insert(phase60JournalLines).values(lineObjects);
-    }
-    if (glObjects.length > 0) {
-      await db.insert(phase60GeneralLedger).values(glObjects);
-    }
-
-    return { ...newJournal, lines: lineObjects };
   }
-
   async findGeneralLedger() {
     await ensureFinanceTablesExist();
     return await db.select().from(phase60GeneralLedger)

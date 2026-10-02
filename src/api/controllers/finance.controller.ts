@@ -27,7 +27,13 @@ export class FinanceController {
   async createAccount(req: Request, res: Response) {
     try {
       const validated = createAccountSchema.parse(req.body);
-      const acc = await service.createAccount(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const acc = await service.createAccount({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: acc });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -46,7 +52,13 @@ export class FinanceController {
   async createCostCenter(req: Request, res: Response) {
     try {
       const validated = createCostCenterSchema.parse(req.body);
-      const cc = await service.createCostCenter(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const cc = await service.createCostCenter({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: cc });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -105,7 +117,13 @@ export class FinanceController {
   async createAPInvoice(req: Request, res: Response) {
     try {
       const validated = createAPInvoiceSchema.parse(req.body);
-      const invoice = await service.createAPInvoice(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const invoice = await service.createAPInvoice({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: invoice });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -124,7 +142,13 @@ export class FinanceController {
   async createARInvoice(req: Request, res: Response) {
     try {
       const validated = createARInvoiceSchema.parse(req.body);
-      const invoice = await service.createARInvoice(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const invoice = await service.createARInvoice({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: invoice });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -143,7 +167,13 @@ export class FinanceController {
   async createBankAccount(req: Request, res: Response) {
     try {
       const validated = createBankAccountSchema.parse(req.body);
-      const account = await service.createBankAccount(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const account = await service.createBankAccount({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: account });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -162,7 +192,13 @@ export class FinanceController {
   async createCashTransaction(req: Request, res: Response) {
     try {
       const validated = createCashTransactionSchema.parse(req.body);
-      const tx = await service.createCashTransaction(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const tx = await service.createCashTransaction({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: tx });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -181,7 +217,13 @@ export class FinanceController {
   async createBudget(req: Request, res: Response) {
     try {
       const validated = createBudgetMasterSchema.parse(req.body);
-      const budget = await service.createBudget(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const budget = await service.createBudget({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: budget });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });
@@ -200,7 +242,13 @@ export class FinanceController {
   async createTax(req: Request, res: Response) {
     try {
       const validated = createTaxRecordSchema.parse(req.body);
-      const tax = await service.createTax(validated);
+
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }      const tax = await service.createTax({ ...validated, createdBy: actor, updatedBy: actor });
       res.status(201).json({ success: true, data: tax });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });

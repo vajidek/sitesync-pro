@@ -513,6 +513,11 @@ export class VendorContractRepository {
         throw new Error(`Invalid claim status transition: ${claim.status} → ${status}`);
       }
 
+      const rejectionReason = String(options.rejectionReason || '').trim();
+      if (status === 'REJECTED' && !rejectionReason) {
+        throw new Error('Claim rejection reason is required.');
+      }
+
       if (status === 'UNDER_REVIEW' && claim.createdBy.trim().toLowerCase() === actor.toLowerCase()) {
         throw new Error('Maker-checker violation: claim creator cannot move the claim into review.');
       }
@@ -530,22 +535,34 @@ export class VendorContractRepository {
         throw new Error('Maker-checker violation: claim creator cannot approve the same claim.');
       }
 
+      const now = new Date().toISOString();
       const [updated] = await tx.update(contractClaims).set({
         status,
         approvedAmount: status === 'APPROVED' ? approvedAmount : claim.approvedAmount,
         approvedDays: status === 'APPROVED' ? approvedDays : claim.approvedDays,
-        reviewedBy: status === 'UNDER_REVIEW' || status === 'APPROVED' ? actor : claim.reviewedBy,
+        reviewedBy: ['UNDER_REVIEW', 'APPROVED'].includes(status) ? actor : claim.reviewedBy,
         approvedBy: status === 'APPROVED' ? actor : claim.approvedBy,
-        approvedDate: status === 'APPROVED' ? new Date().toISOString().split('T')[0] : claim.approvedDate,
-        rejectionReason: status === 'REJECTED' ? String(options.rejectionReason || '').trim() || null : claim.rejectionReason,
-        updatedAt: new Date().toISOString(),
+        approvedDate: status === 'APPROVED' ? now.split('T')[0] : claim.approvedDate,
+        rejectionReason: status === 'REJECTED' ? rejectionReason : claim.rejectionReason,
+        updatedAt: now,
       }).where(eq(contractClaims.id, id)).returning();
 
-      if (status === 'REJECTED' && !String(options.rejectionReason || '').trim()) {
-        throw new Error('Claim rejection reason is required.');
+      if (!updated) return null;
+
+      const [contract] = await tx.select().from(phase57Contracts).where(eq(phase57Contracts.id, claim.contractId)).limit(1);
+      if (contract) {
+        await tx.insert(contractLogs).values({
+          id: crypto.randomUUID(),
+          contractId: contract.id,
+          contractNumber: contract.contractNumber,
+          actionType: 'CLAIM',
+          performedBy: actor,
+          details: `${status} claim ${claim.claimNumber}${rejectionReason ? `. ${rejectionReason}` : ''}`,
+          createdAt: now,
+        });
       }
 
-      return updated || null;
+      return updated;
     });
   }
 
@@ -560,9 +577,20 @@ export class VendorContractRepository {
     if (!actor) throw new Error('Authenticated evidence actor identity is required.');
 
     return await db.transaction(async (tx) => {
-      const [doc] = await tx.select({ id: phase61DocumentFiles.id }).from(phase61DocumentFiles)
+      const [doc] = await tx.select().from(phase61DocumentFiles)
         .where(and(eq(phase61DocumentFiles.id, data.documentId), eq(phase61DocumentFiles.isDeleted, false))).limit(1);
       if (!doc) throw new Error('Evidence document not found.');
+
+      const [contract] = await tx.select().from(phase57Contracts)
+        .where(and(eq(phase57Contracts.id, data.contractId), eq(phase57Contracts.isDeleted, false))).limit(1);
+      if (!contract) throw new Error('Contract not found.');
+
+      if (doc.contractId && doc.contractId !== data.contractId) {
+        throw new Error('Evidence document belongs to a different contract.');
+      }
+      if (doc.projectId && contract.projectId && doc.projectId !== contract.projectId) {
+        throw new Error('Evidence document belongs to a different project.'); 
+      }
 
       const [entity] = data.entityType === 'VARIATION'
         ? await tx.select({ id: contractVariations.id, contractId: contractVariations.contractId }).from(contractVariations).where(eq(contractVariations.id, data.entityId)).limit(1)

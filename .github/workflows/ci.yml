@@ -7,9 +7,41 @@ on:
     branches: [main]
 
 jobs:
-  typecheck-and-build:
+  typecheck-build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: sitesync
+          POSTGRES_PASSWORD: sitesync_secret
+          POSTGRES_DB: sitesyncpro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sitesync -d sitesyncpro"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      APP_ENVIRONMENT: DEMO
+      ENABLE_DEMO_SEED: 'true'
+      PORT: 3000
+      DATABASE_URL: postgresql://sitesync:sitesync_secret@localhost:5432/sitesyncpro
+      SQL_HOST: localhost
+      SQL_USER: sitesync
+      SQL_PASSWORD: sitesync_secret
+      SQL_DB_NAME: sitesyncpro
+      SQL_ADMIN_USER: sitesync
+      SQL_ADMIN_PASSWORD: sitesync_secret
+      JWT_SECRET: sitesync-pro-ci-jwt-access-secret
+      JWT_REFRESH_SECRET: sitesync-pro-ci-jwt-refresh-secret
+      APP_ALLOWED_ORIGINS: ''
+      VITE_PWA_ENABLE: 'false'
 
     steps:
       - name: Checkout
@@ -26,5 +58,28 @@ jobs:
       - name: Typecheck
         run: bun run lint
 
+      - name: Database migrations
+        run: bun run db:migrate
+
       - name: Production build
         run: bun run build
+
+      - name: Enterprise verification suite
+        run: bun run test
+
+      - name: Start production bundle
+        run: |
+          NODE_ENV=production APP_ENVIRONMENT=DEMO ENABLE_DEMO_SEED=true bun run start > /tmp/sitesync-pro.log 2>&1 &
+          echo $! > /tmp/sitesync-pro.pid
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/api/health > /tmp/sitesync-health.json; then
+              cat /tmp/sitesync-health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/sitesync-pro.log
+          exit 1
+
+      - name: Verify production bundle remains healthy
+        run: curl --fail --silent http://127.0.0.1:3000/api/v1/health

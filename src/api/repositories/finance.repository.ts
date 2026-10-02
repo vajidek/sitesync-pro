@@ -842,7 +842,6 @@ export class FinanceRepository {
       netChangeInCash: cashInflows - cashOutflows,
     };
   }
-  }
 }
 
 export const financeRepository = new FinanceRepository();

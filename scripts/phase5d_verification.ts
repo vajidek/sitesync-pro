@@ -779,7 +779,6 @@ async function runSuite() {
       // Progress status through contractual scrutiny stages
       const underScrutiny = await procurementRepository.updateRABillStatus(bill.id, {
         status: 'Under Technical Scrutiny',
-        siteEngineer: 'Site Engineer Tariq',
         remarks: 'Joint measurements undertaken on site',
       });
 
@@ -789,7 +788,6 @@ async function runSuite() {
 
       const certified = await procurementRepository.updateRABillStatus(bill.id, {
         status: 'Certified by QS',
-        qsVerifier: 'Lead QS Henderson',
         remarks: 'Measurement Book verified and rate variances checked',
       });
 

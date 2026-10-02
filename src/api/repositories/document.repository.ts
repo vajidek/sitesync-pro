@@ -65,8 +65,10 @@ export async function ensureDocumentTablesExist() {
 
     tablesCreated = true;
   } catch (err) {
-    console.warn('Error creating Phase 61 EDMS tables:', err);
-    tablesCreated = true;
+    // Fail closed: if the persistence layer cannot initialize in the active
+    // runtime, do not mark EDMS as ready and continue with ambiguous state.
+    tablesCreated = false;
+    throw err;
   }
 }
 
@@ -102,32 +104,37 @@ export async function createFolder(data: {
   createdBy?: string;
 }) {
   const actor = String(data.createdBy || '').trim();
+  const folderName = String(data.folderName || '').trim();
   if (!actor) throw new Error('Authenticated folder creator identity is required.');
+  if (!folderName) throw new Error('Folder name is required.');
+
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
-  let folderPath = '/' + data.folderName;
+  let parent = null;
 
   if (data.parentId) {
-    const parent = await getFolderById(data.parentId);
-    if (parent) {
-      folderPath = `${parent.folderPath}/${data.folderName}`;
+    parent = await getFolderById(data.parentId);
+    if (!parent) throw new Error('Parent folder not found.');
+    if (data.projectId && parent.projectId && data.projectId !== parent.projectId) {
+      throw new Error('Child folder project context does not match its parent folder.');
     }
   }
 
+  const folderPath = parent ? `${parent.folderPath}/${folderName}` : `/${folderName}`;
   const id = crypto.randomUUID();
   const record = {
     id,
-    folderName: data.folderName,
+    folderName,
     parentId: data.parentId || null,
     folderPath,
-    projectId: data.projectId || null,
-    department: data.department || 'Engineering',
-    isSystemFolder: data.isSystemFolder || false,
+    projectId: data.projectId || parent?.projectId || null,
+    department: data.department || parent?.department || 'Engineering',
+    isSystemFolder: Boolean(data.isSystemFolder),
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy,
-    updatedBy: createdBy,
+    createdBy: actor,
+    updatedBy: actor,
     isDeleted: false,
   };
 
@@ -138,20 +145,49 @@ export async function createFolder(data: {
 export async function updateFolder(id: string, data: any) {
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
-  await db.update(phase61DocumentFolders)
-    .set({ ...data, updatedAt: now })
-    .where(eq(phase61DocumentFolders.id, id));
+  const update = {
+    ...(data.folderName !== undefined ? { folderName: String(data.folderName).trim() } : {}),
+    ...(data.parentId !== undefined ? { parentId: data.parentId || null } : {}),
+    ...(data.projectId !== undefined ? { projectId: data.projectId || null } : {}),
+    ...(data.department !== undefined ? { department: String(data.department).trim() } : {}),
+    updatedAt: now,
+    ...(data.updatedBy ? { updatedBy: String(data.updatedBy).trim() } : {}),
+  };
+  if (update.folderName === '') throw new Error('Folder name cannot be empty.');
+  if ('updatedBy' in update && !update.updatedBy) throw new Error('Authenticated folder editor identity is required.');
+
+  if (update.parentId) {
+    const parent = await getFolderById(update.parentId);
+    if (!parent) throw new Error('Parent folder not found.');
+    const current = await getFolderById(id);
+    if (!current) throw new Error('Folder not found.');
+    const projectId = update.projectId ?? current.projectId;
+    if (projectId && parent.projectId && projectId !== parent.projectId) {
+      throw new Error('Folder project context does not match its parent folder.');
+    }
+    update.folderPath = `${parent.folderPath}/${update.folderName || current.folderName}`;
+  }
+
+  await db.update(phase61DocumentFolders).set(update as any).where(eq(phase61DocumentFolders.id, id));
   return getFolderById(id);
 }
 
-export async function deleteFolder(id: string) {
+export async function deleteFolder(id: string, user?: string) {
   await ensureDocumentTablesExist();
+  const actor = String(user || '').trim();
+  if (!actor) throw new Error('Authenticated folder deletion actor identity is required.');
+  const folder = await getFolderById(id);
+  if (!folder) throw new Error('Folder not found.');
+
   const now = new Date().toISOString();
   await db.update(phase61DocumentFolders)
-    .set({ isDeleted: true, deletedAt: now, status: 'DELETED' })
+    .set({ isDeleted: true, deletedAt: now, status: 'DELETED', updatedAt: now, updatedBy: actor })
     .where(eq(phase61DocumentFolders.id, id));
   return true;
 }
+
+// ==========================================
+// DOCUMENT REPOSITORY
 
 // ==========================================
 // DOCUMENT REPOSITORY
@@ -219,28 +255,41 @@ export async function createDocument(data: {
   await ensureDocumentTablesExist();
   const createdBy = String(data.createdBy || '').trim();
   const fileUrl = String(data.fileUrl || '').trim();
+  const title = String(data.title || '').trim();
+  const folderId = String(data.folderId || '').trim();
+
   if (!createdBy) throw new Error('Authenticated document creator identity is required.');
+  if (!title) throw new Error('Document title is required.');
+  if (!folderId) throw new Error('Document folder is required.');
   if (!fileUrl) throw new Error('A real file reference is required to create an EDMS document.');
+
+  const folder = await getFolderById(folderId);
+  if (!folder) throw new Error('Document folder not found.');
+  if (data.projectId && folder.projectId && data.projectId !== folder.projectId) {
+    throw new Error('Document project context does not match its folder.');
+  }
+
+  const fileSizeBytes = Number(data.fileSizeBytes || 0);
+  if (!Number.isFinite(fileSizeBytes) || fileSizeBytes < 0) throw new Error('Document file size must be a valid non-negative number.');
+
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
-
-  // Generate document number e.g. DOC-2026-XXXXX
   const documentNumber = `DOC-${new Date().getFullYear()}-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
 
   const docRecord = {
     id,
     documentNumber,
-    title: data.title,
+    title,
     description: data.description || null,
-    folderId: data.folderId,
+    folderId,
     categoryId: data.categoryId || null,
     fileType: data.fileType || 'PDF',
     mimeType: data.mimeType || 'application/pdf',
-    fileSizeBytes: Number(data.fileSizeBytes || 0),
+    fileSizeBytes,
     fileUrl,
     currentVersion: 'v1.0',
     revisionNumber: 1,
-    projectId: data.projectId || null,
+    projectId: data.projectId || folder.projectId || null,
     vendorId: data.vendorId || null,
     contractId: data.contractId || null,
     poId: data.poId || null,
@@ -263,68 +312,84 @@ export async function createDocument(data: {
     isDeleted: false,
   };
 
-  await db.insert(phase61DocumentFiles).values(docRecord);
+  return await db.transaction(async (tx) => {
+    const duplicate = await tx.select({ id: phase61DocumentFiles.id })
+      .from(phase61DocumentFiles)
+      .where(and(eq(phase61DocumentFiles.documentNumber, documentNumber), eq(phase61DocumentFiles.isDeleted, false)))
+      .limit(1);
+    if (duplicate.length) throw new Error(`Document number ${documentNumber} already exists.`);
 
-  // Insert Version 1.0
-  const versionId = crypto.randomUUID();
-  await db.insert(phase61DocumentVersions).values({
-    id: versionId,
-    documentId: id,
-    versionName: 'v1.0',
-    revisionNumber: 1,
-    fileUrl: docRecord.fileUrl,
-    fileSizeBytes: docRecord.fileSizeBytes,
-    changeSummary: 'Initial document submission',
-    uploadedBy: docRecord.createdBy,
-    isMajorVersion: true,
-    status: 'ACTIVE',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: docRecord.createdBy,
-    updatedBy: docRecord.createdBy,
-    isDeleted: false,
-  });
+    await tx.insert(phase61DocumentFiles).values(docRecord);
 
-  // Insert Tags if provided
-  if (data.tags && data.tags.length > 0) {
-    for (const tag of data.tags) {
-      await db.insert(phase61DocumentTags).values({
+    await tx.insert(phase61DocumentVersions).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      versionName: 'v1.0',
+      revisionNumber: 1,
+      fileUrl,
+      fileSizeBytes,
+      changeSummary: 'Initial document submission',
+      uploadedBy: createdBy,
+      isMajorVersion: true,
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    });
+
+    for (const tag of data.tags || []) {
+      const tagName = String(tag || '').trim();
+      if (!tagName) continue;
+      await tx.insert(phase61DocumentTags).values({
         id: crypto.randomUUID(),
         documentId: id,
-        tagName: tag,
+        tagName,
         status: 'ACTIVE',
         createdAt: now,
         updatedAt: now,
-        createdBy: docRecord.createdBy,
-        updatedBy: docRecord.createdBy,
+        createdBy,
+        updatedBy: createdBy,
         isDeleted: false,
       });
     }
-  }
 
-  // Insert Metadata if provided
-  if (data.metadata) {
-    for (const [key, value] of Object.entries(data.metadata)) {
-      await db.insert(phase61DocumentMetadata).values({
+    for (const [key, value] of Object.entries(data.metadata || {})) {
+      const metaKey = String(key || '').trim();
+      if (!metaKey) continue;
+      await tx.insert(phase61DocumentMetadata).values({
         id: crypto.randomUUID(),
         documentId: id,
-        metaKey: key,
-        metaValue: value,
+        metaKey,
+        metaValue: String(value ?? ''),
         dataType: 'STRING',
         status: 'ACTIVE',
         createdAt: now,
         updatedAt: now,
-        createdBy: docRecord.createdBy,
-        updatedBy: docRecord.createdBy,
+        createdBy,
+        updatedBy: createdBy,
         isDeleted: false,
       });
     }
-  }
 
-  // Log Audit
-  await logAudit(id, docRecord.createdBy, 'CREATE', { documentNumber, title: data.title });
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      actorName: createdBy,
+      actionExecuted: 'CREATE',
+      detailsJson: JSON.stringify({ documentNumber, title }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    });
 
-  return docRecord;
+    return docRecord;
+  });
 }
 
 export async function updateDocument(id: string, data: any) {
@@ -389,27 +454,56 @@ export async function toggleFavoriteDocument(id: string, user: string) {
 
 export async function archiveDocument(id: string, reason: string, user: string) {
   await ensureDocumentTablesExist();
+  const actor = String(user || '').trim();
+  const archiveReason = String(reason || '').trim();
+  if (!actor) throw new Error('Authenticated document archive actor identity is required.');
+  if (!archiveReason) throw new Error('Archive reason is required.');
+
+  const doc = await getDocumentById(id);
+  if (!doc) throw new Error('Document not found.');
+  if (doc.isDeleted) throw new Error('Deleted documents cannot be archived.');
+  if (doc.isArchived) throw new Error('Document is already archived.');
+
   const now = new Date().toISOString();
-  await db.update(phase61DocumentFiles)
-    .set({ isArchived: true, workflowStatus: 'ARCHIVED', updatedAt: now })
-    .where(eq(phase61DocumentFiles.id, id));
+  return await db.transaction(async (tx) => {
+    await tx.update(phase61DocumentFiles).set({
+      isArchived: true,
+      workflowStatus: 'ARCHIVED',
+      updatedAt: now,
+      updatedBy: actor,
+    }).where(eq(phase61DocumentFiles.id, id));
 
-  await db.insert(phase61DocumentArchive).values({
-    id: crypto.randomUUID(),
-    documentId: id,
-    archiveReason: reason,
-    archivedBy: user,
-    archivedAt: now,
-    status: 'ARCHIVED',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
-    isDeleted: false,
+    await tx.insert(phase61DocumentArchive).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      archiveReason,
+      archivedBy: actor,
+      archivedAt: now,
+      status: 'ARCHIVED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      isDeleted: false,
+    });
+
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: id,
+      actorName: actor,
+      actionExecuted: 'ARCHIVE',
+      detailsJson: JSON.stringify({ reason: archiveReason }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      isDeleted: false,
+    });
+
+    return true;
   });
-
-  await logAudit(id, user, 'ARCHIVE', { reason });
-  return true;
 }
 
 export async function restoreDocument(id: string, user: string) {
@@ -444,61 +538,94 @@ export async function createDocumentVersion(data: {
   uploadedBy?: string;
 }) {
   await ensureDocumentTablesExist();
-  const now = new Date().toISOString();
   const uploadedBy = String(data.uploadedBy || '').trim();
   const fileUrl = String(data.fileUrl || '').trim();
+  const versionName = String(data.versionName || '').trim();
   if (!uploadedBy) throw new Error('Authenticated document revision owner is required.');
+  if (!versionName) throw new Error('Version name is required.');
   if (!fileUrl) throw new Error('A real file reference is required for a document version.');
 
-  const doc = await getDocumentById(data.documentId);
-  if (!doc) throw new Error('Document not found');
-  if (doc.isDeleted || doc.isArchived) throw new Error('Archived/deleted documents cannot receive a new version.');
-  if (doc.isCheckedOut && doc.checkedOutBy !== uploadedBy) {
-    throw new Error('Document is checked out by another user.');
-  }
+  return await db.transaction(async (tx) => {
+    const [doc] = await tx.select().from(phase61DocumentFiles)
+      .where(and(eq(phase61DocumentFiles.id, data.documentId), eq(phase61DocumentFiles.isDeleted, false)))
+      .limit(1);
+    if (!doc) throw new Error('Document not found.');
+    if (doc.isArchived) throw new Error('Archived documents cannot receive a new version.');
+    if (doc.isCheckedOut && doc.checkedOutBy !== uploadedBy) throw new Error('Document is checked out by another user.');
 
-  const nextRevision = doc.revisionNumber + 1;
-  const versionId = crypto.randomUUID();
+    const [latestVersion] = await tx.select().from(phase61DocumentVersions)
+      .where(and(eq(phase61DocumentVersions.documentId, data.documentId), eq(phase61DocumentVersions.isDeleted, false)))
+      .orderBy(desc(phase61DocumentVersions.revisionNumber))
+      .limit(1);
 
-  await db.insert(phase61DocumentVersions).values({
-    id: versionId,
-    documentId: data.documentId,
-    versionName: data.versionName,
-    revisionNumber: nextRevision,
-    fileUrl,
-    fileSizeBytes: Number(data.fileSizeBytes ?? doc.fileSizeBytes),
-    changeSummary: data.changeSummary || 'Revision update',
-    uploadedBy,
-    isMajorVersion: data.isMajorVersion || false,
-    status: 'ACTIVE',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: uploadedBy,
-    updatedBy: uploadedBy,
-    isDeleted: false,
+    const nextRevision = (latestVersion?.revisionNumber ?? doc.revisionNumber ?? 0) + 1;
+    const [sameName] = await tx.select({ id: phase61DocumentVersions.id })
+      .from(phase61DocumentVersions)
+      .where(and(
+        eq(phase61DocumentVersions.documentId, data.documentId),
+        eq(phase61DocumentVersions.versionName, versionName),
+        eq(phase61DocumentVersions.isDeleted, false)
+      ))
+      .limit(1);
+    if (sameName) throw new Error(`Version ${versionName} already exists for this document.`);
+
+    const now = new Date().toISOString();
+    const fileSizeBytes = Number(data.fileSizeBytes ?? doc.fileSizeBytes ?? 0);
+    if (!Number.isFinite(fileSizeBytes) || fileSizeBytes < 0) throw new Error('Version file size must be a valid non-negative number.');
+
+    await tx.insert(phase61DocumentVersions).values({
+      id: crypto.randomUUID(),
+      documentId: data.documentId,
+      versionName,
+      revisionNumber: nextRevision,
+      fileUrl,
+      fileSizeBytes,
+      changeSummary: data.changeSummary || 'Revision update',
+      uploadedBy,
+      isMajorVersion: Boolean(data.isMajorVersion),
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: uploadedBy,
+      updatedBy: uploadedBy,
+      isDeleted: false,
+    });
+
+    const [updated] = await tx.update(phase61DocumentFiles).set({
+      currentVersion: versionName,
+      revisionNumber: nextRevision,
+      fileUrl,
+      fileSizeBytes,
+      workflowStatus: 'DRAFT',
+      digitalStampApplied: false,
+      watermarkText: null,
+      isCheckedOut: false,
+      checkedOutBy: null,
+      checkedOutAt: null,
+      isLocked: false,
+      updatedAt: now,
+      updatedBy: uploadedBy,
+    }).where(eq(phase61DocumentFiles.id, data.documentId)).returning();
+
+    if (!updated) throw new Error('Document version update failed.');
+
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: data.documentId,
+      actorName: uploadedBy,
+      actionExecuted: 'VERSION_UPLOAD',
+      detailsJson: JSON.stringify({ versionName, revisionNumber: nextRevision }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: uploadedBy,
+      updatedBy: uploadedBy,
+      isDeleted: false,
+    });
+
+    return updated;
   });
-
-  // Update master document version
-  await db.update(phase61DocumentFiles).set({
-    currentVersion: data.versionName,
-    revisionNumber: nextRevision,
-    fileUrl,
-    fileSizeBytes: Number(data.fileSizeBytes ?? doc.fileSizeBytes),
-    workflowStatus: 'DRAFT',
-    digitalStampApplied: false,
-    watermarkText: null,
-    isCheckedOut: false,
-    checkedOutBy: null,
-    checkedOutAt: null,
-    updatedAt: now,
-  }).where(eq(phase61DocumentFiles.id, data.documentId));
-
-  await logAudit(data.documentId, uploadedBy, 'VERSION_UPLOAD', {
-    versionName: data.versionName,
-    revisionNumber: nextRevision,
-  });
-
-  return getDocumentById(data.documentId);
 }
 
 export async function checkinDocument(documentId: string, user: string, newVersionName?: string, fileUrl?: string, changeSummary?: string) {
@@ -554,41 +681,64 @@ export async function checkoutDocument(documentId: string, user: string, notes?:
   await ensureDocumentTablesExist();
   const actor = String(user || '').trim();
   if (!actor) throw new Error('Authenticated checkout actor identity is required.');
-  const doc = await getDocumentById(documentId);
-  if (!doc) throw new Error('Document not found.');
-  if (doc.isDeleted || doc.isArchived) throw new Error('Archived/deleted documents cannot be checked out.');
-  if (doc.isCheckedOut && doc.checkedOutBy !== actor) throw new Error('Document is already checked out by another user.');
-  if (['APPROVED', 'PUBLISHED'].includes(String(doc.workflowStatus).toUpperCase()) && doc.isLocked) {
-    throw new Error('Locked approved/published documents cannot be checked out.');
-  }
 
-  const now = new Date().toISOString();
-  await db.update(phase61DocumentFiles).set({
-    isCheckedOut: true,
-    checkedOutBy: actor,
-    checkedOutAt: now,
-    updatedAt: now,
-  }).where(eq(phase61DocumentFiles.id, documentId));
+  return await db.transaction(async (tx) => {
+    const [doc] = await tx.select().from(phase61DocumentFiles)
+      .where(and(eq(phase61DocumentFiles.id, documentId), eq(phase61DocumentFiles.isDeleted, false)))
+      .limit(1);
+    if (!doc) throw new Error('Document not found.');
+    if (doc.isArchived) throw new Error('Archived documents cannot be checked out.');
+    if (doc.isCheckedOut) throw new Error('Document is already checked out.');
+    if (['APPROVED', 'PUBLISHED'].includes(String(doc.workflowStatus).toUpperCase()) && doc.isLocked) {
+      throw new Error('Locked approved/published documents cannot be checked out.');
+    }
 
-  await db.insert(phase61DocumentCheckouts).values({
-    id: crypto.randomUUID(),
-    documentId,
-    checkedOutBy: actor,
-    checkedOutAt: now,
-    expectedCheckInDate: expectedDate || null,
-    checkoutNotes: notes || null,
-    isCheckedIn: false,
-    status: 'ACTIVE',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: user,
-    updatedBy: user,
-    isDeleted: false,
+    const now = new Date().toISOString();
+    await tx.update(phase61DocumentFiles).set({
+      isCheckedOut: true,
+      checkedOutBy: actor,
+      checkedOutAt: now,
+      updatedAt: now,
+      updatedBy: actor,
+    }).where(and(eq(phase61DocumentFiles.id, documentId), eq(phase61DocumentFiles.isCheckedOut, false)));
+
+    await tx.insert(phase61DocumentCheckouts).values({
+      id: crypto.randomUUID(),
+      documentId,
+      checkedOutBy: actor,
+      checkedOutAt: now,
+      expectedCheckInDate: expectedDate || null,
+      checkoutNotes: notes || null,
+      isCheckedIn: false,
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      isDeleted: false,
+    });
+
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId,
+      actorName: actor,
+      actionExecuted: 'CHECKOUT',
+      detailsJson: JSON.stringify({ notes: notes || null }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: actor,
+      updatedBy: actor,
+      isDeleted: false,
+    });
+
+    return true;
   });
-
-  await logAudit(documentId, actor, 'CHECKOUT', { notes });
-  return true;
 }
+
+// ==========================================
+// REVIEWS & APPROVALS
 
 // ==========================================
 // REVIEWS & APPROVALS
@@ -602,43 +752,67 @@ export async function reviewDocument(data: {
   reviewOutcome?: string;
 }) {
   await ensureDocumentTablesExist();
-  const now = new Date().toISOString();
-  const id = crypto.randomUUID();
   const reviewerName = String(data.reviewerName || '').trim();
+  const comments = String(data.comments || '').trim();
+  const outcome = String(data.reviewOutcome || '').trim().toUpperCase();
   if (!reviewerName) throw new Error('Authenticated document reviewer identity is required.');
-
-  const doc = await getDocumentById(data.documentId);
-  if (!doc) throw new Error('Document not found.');
-  if (doc.createdBy === reviewerName) throw new Error('Maker-checker violation: document creator cannot be its reviewer.');
-  if (!['SUBMITTED', 'DRAFT', 'RETURNED'].includes(String(doc.workflowStatus).toUpperCase())) {
-    throw new Error(`Document cannot be reviewed from workflow status ${doc.workflowStatus}.`);
+  if (!comments) throw new Error('Review comments are required.');
+  if (!['RECOMMENDED', 'CHANGES_REQUESTED', 'REJECTED'].includes(outcome)) {
+    throw new Error('A valid document review outcome is required.');
   }
 
-  await db.insert(phase61DocumentReviews).values({
-    id,
-    documentId: data.documentId,
-    reviewerName,
-    reviewRole: data.reviewRole || 'INSPECTING_ENGINEER',
-    comments: data.comments,
-    reviewOutcome: data.reviewOutcome || 'RECOMMENDED',
-    reviewDate: now,
-    status: 'COMPLETED',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: reviewerName,
-    updatedBy: reviewerName,
-    isDeleted: false,
+  return await db.transaction(async (tx) => {
+    const [doc] = await tx.select().from(phase61DocumentFiles)
+      .where(and(eq(phase61DocumentFiles.id, data.documentId), eq(phase61DocumentFiles.isDeleted, false)))
+      .limit(1);
+    if (!doc) throw new Error('Document not found.');
+    if (doc.createdBy === reviewerName) throw new Error('Maker-checker violation: document creator cannot be its reviewer.');
+    if (!['DRAFT', 'SUBMITTED', 'RETURNED'].includes(String(doc.workflowStatus).toUpperCase())) {
+      throw new Error(`Document cannot be reviewed from workflow status ${doc.workflowStatus}.`);
+    }
+
+    const now = new Date().toISOString();
+    const nextStatus = outcome === 'RECOMMENDED' ? 'UNDER_REVIEW' : outcome === 'REJECTED' ? 'REJECTED' : 'RETURNED';
+
+    await tx.insert(phase61DocumentReviews).values({
+      id: crypto.randomUUID(),
+      documentId: data.documentId,
+      reviewerName,
+      reviewRole: data.reviewRole || 'INSPECTING_ENGINEER',
+      comments,
+      reviewOutcome: outcome,
+      reviewDate: now,
+      status: 'COMPLETED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: reviewerName,
+      updatedBy: reviewerName,
+      isDeleted: false,
+    });
+
+    await tx.update(phase61DocumentFiles).set({
+      workflowStatus: nextStatus,
+      updatedAt: now,
+      updatedBy: reviewerName,
+    }).where(eq(phase61DocumentFiles.id, data.documentId));
+
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: data.documentId,
+      actorName: reviewerName,
+      actionExecuted: 'REVIEW',
+      detailsJson: JSON.stringify({ outcome }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: reviewerName,
+      updatedBy: reviewerName,
+      isDeleted: false,
+    });
+
+    return true;
   });
-
-  // Update workflow status
-  const nextStatus = data.reviewOutcome === 'RECOMMENDED' ? 'UNDER_REVIEW' : 'RETURNED';
-  await db.update(phase61DocumentFiles).set({
-    workflowStatus: nextStatus,
-    updatedAt: now,
-  }).where(eq(phase61DocumentFiles.id, data.documentId));
-
-  await logAudit(data.documentId, reviewerName, 'REVIEW', { outcome: data.reviewOutcome });
-  return true;
 }
 
 export async function approveDocument(data: {
@@ -650,56 +824,75 @@ export async function approveDocument(data: {
   remarks?: string;
 }) {
   await ensureDocumentTablesExist();
-  const now = new Date().toISOString();
-  const id = crypto.randomUUID();
   const approverName = String(data.approverName || '').trim();
-  if (!approverName) throw new Error('Authenticated document approver identity is required.');
-
-  const doc = await getDocumentById(data.documentId);
-  if (!doc) throw new Error('Document not found.');
-  if (doc.createdBy === approverName) throw new Error('Maker-checker violation: document creator cannot approve the same document.');
-  if (String(doc.workflowStatus).toUpperCase() !== 'UNDER_REVIEW') {
-    throw new Error(`Document can be approved only after a completed review. Current workflow status: ${doc.workflowStatus}.`);
-  }
-
-  const latestReviews = await getDocumentReviews(data.documentId);
-  const latestReview = latestReviews[0];
-  if (latestReview?.reviewerName === approverName) {
-    throw new Error('Maker-checker violation: reviewer cannot also be the approver.');
-  }
-
   const decision = String(data.decision || '').trim().toUpperCase();
-  if (!['APPROVED', 'REJECTED', 'RETURNED'].includes(decision)) {
-    throw new Error('A valid document approval decision is required.');
-  }
-  await db.insert(phase61DocumentApprovals).values({
-    id,
-    documentId: data.documentId,
-    approverName,
-    approvalRole: data.approvalRole || 'PROJECT_MANAGER',
-    approvalStage: data.approvalStage || 'FINAL_APPROVAL',
-    decision,
-    remarks: data.remarks || null,
-    approvalDate: now,
-    status: 'ACTIVE',
-    createdAt: now,
-    updatedAt: now,
-    createdBy: approverName,
-    updatedBy: approverName,
-    isDeleted: false,
+  if (!approverName) throw new Error('Authenticated document approver identity is required.');
+  if (!['APPROVED', 'REJECTED', 'RETURNED'].includes(decision)) throw new Error('A valid document approval decision is required.');
+
+  return await db.transaction(async (tx) => {
+    const [doc] = await tx.select().from(phase61DocumentFiles)
+      .where(and(eq(phase61DocumentFiles.id, data.documentId), eq(phase61DocumentFiles.isDeleted, false)))
+      .limit(1);
+    if (!doc) throw new Error('Document not found.');
+    if (doc.createdBy === approverName) throw new Error('Maker-checker violation: document creator cannot approve the same document.');
+    if (String(doc.workflowStatus).toUpperCase() !== 'UNDER_REVIEW') {
+      throw new Error(`Document can be approved only after a completed review. Current workflow status: ${doc.workflowStatus}.`);
+    }
+
+    const latestReviews = await tx.select().from(phase61DocumentReviews)
+      .where(and(eq(phase61DocumentReviews.documentId, data.documentId), eq(phase61DocumentReviews.isDeleted, false)))
+      .orderBy(desc(phase61DocumentReviews.createdAt))
+      .limit(1);
+    const latestReview = latestReviews[0];
+    if (!latestReview || latestReview.reviewOutcome !== 'RECOMMENDED') throw new Error('Document approval requires a recommended review.');
+    if (latestReview.reviewerName === approverName) throw new Error('Maker-checker violation: reviewer cannot also be the approver.');
+
+    const now = new Date().toISOString();
+    const nextWorkflowStatus = decision === 'APPROVED' ? 'APPROVED' : decision === 'REJECTED' ? 'REJECTED' : 'RETURNED';
+
+    await tx.insert(phase61DocumentApprovals).values({
+      id: crypto.randomUUID(),
+      documentId: data.documentId,
+      approverName,
+      approvalRole: data.approvalRole || 'PROJECT_MANAGER',
+      approvalStage: data.approvalStage || 'FINAL_APPROVAL',
+      decision,
+      remarks: data.remarks || null,
+      approvalDate: now,
+      status: 'ACTIVE',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: approverName,
+      updatedBy: approverName,
+      isDeleted: false,
+    });
+
+    await tx.update(phase61DocumentFiles).set({
+      workflowStatus: nextWorkflowStatus,
+      digitalStampApplied: decision === 'APPROVED',
+      watermarkText: decision === 'APPROVED' ? 'APPROVED BY SITESYNC PRO' : null,
+      isLocked: decision === 'APPROVED',
+      updatedAt: now,
+      updatedBy: approverName,
+    }).where(eq(phase61DocumentFiles.id, data.documentId));
+
+    await tx.insert(phase61DocumentAuditLogs).values({
+      id: crypto.randomUUID(),
+      documentId: data.documentId,
+      actorName: approverName,
+      actionExecuted: 'APPROVE',
+      detailsJson: JSON.stringify({ decision, remarks: data.remarks || null }),
+      timestamp: now,
+      status: 'LOGGED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy: approverName,
+      updatedBy: approverName,
+      isDeleted: false,
+    });
+
+    return true;
   });
-
-  const nextWorkflowStatus = decision === 'APPROVED' ? 'APPROVED' : decision === 'REJECTED' ? 'REJECTED' : 'RETURNED';
-  
-  await db.update(phase61DocumentFiles).set({
-    workflowStatus: nextWorkflowStatus,
-    digitalStampApplied: decision === 'APPROVED',
-    watermarkText: decision === 'APPROVED' ? 'APPROVED BY SITESYNC PRO' : null,
-    updatedAt: now,
-  }).where(eq(phase61DocumentFiles.id, data.documentId));
-
-  await logAudit(data.documentId, approverName, 'APPROVE', { decision, remarks: data.remarks });
-  return true;
 }
 
 export async function getDocumentReviews(documentId: string) {
@@ -726,85 +919,27 @@ export async function searchDocuments(query: string, filters?: any) {
 }
 
 export async function logAudit(documentId: string, actor: string, action: string, details?: any) {
-  try {
-    const now = new Date().toISOString();
-    await db.insert(phase61DocumentAuditLogs).values({
-      id: crypto.randomUUID(),
-      documentId,
-      actorName: actor,
-      actionExecuted: action,
-      detailsJson: details ? JSON.stringify(details) : null,
-      timestamp: now,
-      status: 'LOGGED',
-      createdAt: now,
-      updatedAt: now,
-      createdBy: actor,
-      updatedBy: actor,
-      isDeleted: false,
-    });
-  } catch (err) {
-    console.warn('Audit log error:', err);
-  }
-}
-
-export async function getAuditLogs(documentId?: string) {
-  await ensureDocumentTablesExist();
-  if (documentId) {
-    return db.select().from(phase61DocumentAuditLogs)
-      .where(and(eq(phase61DocumentAuditLogs.documentId, documentId), eq(phase61DocumentAuditLogs.isDeleted, false)))
-      .orderBy(desc(phase61DocumentAuditLogs.timestamp));
-  }
-  return db.select().from(phase61DocumentAuditLogs)
-    .where(eq(phase61DocumentAuditLogs.isDeleted, false))
-    .orderBy(desc(phase61DocumentAuditLogs.timestamp))
-    .limit(100);
-}
-
-export async function shareDocument(data: {
-  documentId: string;
-  sharedWithEmail?: string;
-  recipientName?: string;
-  permissionLevel?: string;
-  expiryDate?: string;
-  createdBy?: string;
-}) {
-  await ensureDocumentTablesExist();
+  const auditActor = String(actor || '').trim();
+  if (!auditActor) throw new Error('Authenticated audit actor identity is required.');
   const now = new Date().toISOString();
-  const actor = String(data.createdBy || '').trim();
-  if (!actor) throw new Error('Authenticated document sharing actor identity is required.');
-  if (!data.sharedWithEmail && !data.recipientName) throw new Error('A recipient email or recipient name is required for document sharing.');
-  const token = crypto.randomBytes(16).toString('hex');
-  const record = {
+  await db.insert(phase61DocumentAuditLogs).values({
     id: crypto.randomUUID(),
-    documentId: data.documentId,
-    shareToken: token,
-    sharedWithEmail: data.sharedWithEmail || null,
-    recipientName: data.recipientName || null,
-    permissionLevel: data.permissionLevel || 'READ_ONLY',
-    expiryDate: data.expiryDate || null,
-    passwordProtected: false,
-    status: 'ACTIVE',
+    documentId,
+    actorName: auditActor,
+    actionExecuted: action,
+    detailsJson: details ? JSON.stringify(details) : null,
+    timestamp: now,
+    status: 'LOGGED',
     createdAt: now,
     updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
+    createdBy: auditActor,
+    updatedBy: auditActor,
     isDeleted: false,
-  };
-
-  await db.insert(phase61DocumentShares).values(record);
-  await logAudit(data.documentId, actor, 'SHARE', { recipient: data.recipientName, token });
-  return record;
+  });
+  return true;
 }
 
-export async function getDocumentShares(documentId: string) {
-  await ensureDocumentTablesExist();
-  return db.select().from(phase61DocumentShares)
-    .where(and(eq(phase61DocumentShares.documentId, documentId), eq(phase61DocumentShares.isDeleted, false)));
-}
-
-// ==========================================
-// EDMS STATS
-// ==========================================
+export async function getEDMSStats()
 
 export async function getEDMSStats() {
   await ensureDocumentTablesExist();

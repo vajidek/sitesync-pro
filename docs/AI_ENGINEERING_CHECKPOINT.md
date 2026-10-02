@@ -17,15 +17,23 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - PR #18 — Cost control source-driven EVM; removed synthetic budgets/burn-rate metrics.
 - PR #19 — Project Controls explicit project-context requirement outside DEMO.
 - PR #66 — Auth canonical token storage, removal of browser role authority, safe auth-state cleanup, production login-password guard.
+- PR #68 — Project Commercial Cost Control UI aligned to canonical auth storage.
+- PR #69 — Cost Control net material returns and WBS material/labour allocation.
+- PR #70 — Billing core: atomic finance posting and trustworthy measurement valuation.
+- PR #71 — RA Billing: server-authoritative contract deductions and removal of synthetic UI controls.
 
 ## Current unfinished area
-1. Authentication storage contract cleanup:
-   - backend JWT /api/auth/me validation already exists; do not reimplement.
-   - frontend stores multiple token aliases and role aliases.
-   - centralize to canonical auth storage without breaking request interception.
-   - DEMO role switch must stay DEMO-only.
-2. Project Commercial Cost Control UI compatibility with the source-driven engine.
-3. Then continue with Store → Site Execution → BOQ/Cost Code traceability; Measurement → Billing → Finance; HR/Attendance/Payroll; QA/QC; HSE; Documents/CDE; Claims; UI/UX; CI/testing.
+Completed above. Do not repeat those items.
+
+## Current unfinished area
+1. HR / Attendance / Payroll production hardening:
+   - raw biometric punches immutable;
+   - anomaly handling and verifier workflow;
+   - finalized attendance drives payroll;
+   - no fake actors/default salary or attendance values;
+   - payroll posting/audit integrity.
+2. Store → Site → BOQ/Cost Code traceability gaps that remain after existing MIV controls.
+3. Then continue Measurement/Billing follow-on controls, QA/QC, HSE, Documents/CDE, Claims, UI/UX consolidation, and CI/testing.
 
 ## Safe marking rule
 Prefer this checkpoint file. It does not affect ERP runtime behavior. Use source-code comments only when truly useful.

@@ -29,6 +29,13 @@
       "when": 1790899200001,
       "tag": "0003_contract_workflow_governance",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790899200002,
+      "tag": "0004_boq_procurement_traceability",
+      "breakpoints": true
     }
   ]
 }

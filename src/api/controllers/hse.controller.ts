@@ -233,6 +233,68 @@ export class HSEController {
     }
   };
 
+  public createToolboxTalk = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateToolboxTalkSchema.parse(req.body);
+      const result = await this.service.createToolboxTalk({ ...validated, createdBy: actor.userName, updatedBy: actor.userName, conductedBy: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
+
+  public createSafetyInspection = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateSafetyInspectionSchema.parse(req.body);
+      const result = await this.service.createSafetyInspection({ ...validated, createdBy: actor.userName, updatedBy: actor.userName, inspectorName: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
+
+  public createTrainingRecord = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateTrainingRecordSchema.parse(req.body);
+      const result = await this.service.createTrainingRecord({ ...validated, createdBy: actor.userName, updatedBy: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
+
+  public createEmergencyDrill = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateEmergencyDrillSchema.parse(req.body);
+      const result = await this.service.createEmergencyDrill({ ...validated, createdBy: actor.userName, updatedBy: actor.userName, observerName: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
+
+  public createFireEquipment = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateFireEquipmentSchema.parse(req.body);
+      const result = await this.service.createFireEquipment({ ...validated, createdBy: actor.userName, updatedBy: actor.userName, inspectorName: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
+
+  public createEnvironmentLog = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateEnvironmentMonitoringSchema.parse(req.body);
+      const result = await this.service.createEnvironmentLog({ ...validated, createdBy: actor.userName, updatedBy: actor.userName, monitoredBy: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
+
+  public createWasteLog = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = getAuthenticatedActor(req, res); if (!actor) return;
+      const validated = CreateWasteManagementSchema.parse(req.body);
+      const result = await this.service.createWasteLog({ ...validated, createdBy: actor.userName, updatedBy: actor.userName });
+      res.status(201).json({ success: true, data: result });
+    } catch (err: any) { res.status(400).json({ success: false, message: err.message }); }
+  };
   // Work Permits
   public getWorkPermits = async (req: Request, res: Response): Promise<void> => {
     try {

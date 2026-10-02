@@ -230,8 +230,8 @@ export class FinanceRepository {
       status: 'ACTIVE',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
     await db.insert(phase60ChartOfAccounts).values(newAcc);
     return newAcc;
@@ -260,8 +260,8 @@ export class FinanceRepository {
       status: 'ACTIVE',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
     await db.insert(phase60CostCenters).values(newCC);
     return newCC;
@@ -404,8 +404,8 @@ export class FinanceRepository {
       status: 'UNPAID',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
 
     await db.insert(phase60APInvoices).values(newAP);
@@ -450,8 +450,8 @@ export class FinanceRepository {
       status: 'UNPAID',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
 
     await db.insert(phase60ARInvoices).values(newAR);
@@ -480,8 +480,8 @@ export class FinanceRepository {
       status: 'ACTIVE',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
 
     await db.insert(phase60BankAccounts).values(newBank);
@@ -513,8 +513,8 @@ export class FinanceRepository {
       status: 'CLEARED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
 
     await db.insert(phase60CashTransactions).values(newCB);
@@ -545,8 +545,8 @@ export class FinanceRepository {
       status: 'APPROVED',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
 
     await db.insert(phase60BudgetMasters).values(newB);
@@ -575,8 +575,8 @@ export class FinanceRepository {
       status: 'ACTIVE',
       createdAt: now,
       updatedAt: now,
-      createdBy: 'System Administrator',
-      updatedBy: 'System Administrator',
+      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
+      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
     };
 
     await db.insert(phase60TaxRecords).values(newT);

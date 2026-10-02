@@ -50,7 +50,7 @@ export class ProcurementEnterpriseService {
     return this.repository.getPurchaseRequisitions();
   }
 
-  public async updatePurchaseRequisitionStatus(id: string, status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'PO_ISSUED' | 'REJECTED', actorName: string, remarks?: string): Promise<any> {
+  public async updatePurchaseRequisitionStatus(id: string, status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'REJECTED', actorName: string, remarks?: string): Promise<any> {
     return this.repository.updatePurchaseRequisitionStatus(id, status, actorName, remarks);
   }
 

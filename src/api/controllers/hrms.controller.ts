@@ -121,8 +121,13 @@ export class HrmsController {
 
   public syncEssl = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { deviceId, records } = req.body;
-      const result = await this.service.syncEsslBiometrics(deviceId || 'ESSL-DX-901', records || []);
+      const deviceId = String(req.body?.deviceId || '').trim();
+      const records = Array.isArray(req.body?.records) ? req.body.records : [];
+      if (!deviceId) {
+        res.status(400).json({ success: false, message: 'Biometric device ID is required.' });
+        return;
+      }
+      const result = await this.service.syncEsslBiometrics(deviceId, records);
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -179,7 +184,13 @@ export class HrmsController {
   public reviewLeave = async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const { status, remarks, approver } = req.body;
+      const { status, remarks } = req.body;
+      const user = (req as any).user;
+      const approver = String(user?.name || user?.email || '').trim();
+      if (!approver) {
+        res.status(401).json({ success: false, message: 'Authenticated leave reviewer identity is required.' });
+        return;
+      }
       const updated = await this.service.reviewLeave(id, status, remarks, approver);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
@@ -239,10 +250,16 @@ export class HrmsController {
   public executePayrollRun = async (req: Request, res: Response): Promise<void> => {
     try {
       const { periodId, remarks, currency, jurisdiction } = req.body;
-      const user = (req as any).user || { id: 'usr-maker-01', name: 'Payroll Preparation Officer' };
+      const user = (req as any).user;
+      const makerUserId = String(user?.id || '').trim();
+      const makerUserName = String(user?.name || user?.fullName || user?.email || '').trim();
+      if (!makerUserId || !makerUserName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll maker identity is required.' });
+        return;
+      }
       const runResult = await this.service.processPayrollRun(periodId, remarks, {
-        makerUserId: user.id || user.userId || 'usr-maker-01',
-        makerUserName: user.name || user.fullName || 'Payroll Preparation Officer',
+        makerUserId,
+        makerUserName,
         currency,
         jurisdiction,
       });
@@ -265,8 +282,13 @@ export class HrmsController {
 
   public upsertStatutoryRule = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user || { name: 'Admin' };
-      const rule = await this.service.upsertStatutoryRule(req.body, user.name || 'Admin');
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated HR actor identity is required.' });
+        return;
+      }
+      const rule = await this.service.upsertStatutoryRule(req.body, actor);
       res.status(200).json({ success: true, data: rule });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -287,8 +309,13 @@ export class HrmsController {
   public updateEmployeeStatutoryProfile = async (req: Request, res: Response): Promise<void> => {
     try {
       const { employeeId } = req.params;
-      const user = (req as any).user || { name: 'Admin' };
-      const updated = await this.service.updateEmployeeStatutoryProfile(employeeId, req.body, user.name || 'Admin');
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated HR actor identity is required.' });
+        return;
+      }
+      const updated = await this.service.updateEmployeeStatutoryProfile(employeeId, req.body, actor);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -322,10 +349,16 @@ export class HrmsController {
   public submitPayrollForReview = async (req: Request, res: Response): Promise<void> => {
     try {
       const { id } = req.params;
-      const user = (req as any).user || { id: 'usr-maker-01', name: 'Payroll Preparation Officer' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll actor identity is required.' });
+        return;
+      }
       const updated = await this.service.submitPayrollForReview(id, {
-        userId: user.id || user.userId || 'usr-maker-01',
-        userName: user.name || user.fullName || 'Payroll Preparation Officer',
+        userId: user.id,
+        userName: user.name || user.email,
       });
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
@@ -337,12 +370,18 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { remarks } = req.body;
-      const user = (req as any).user || { id: 'usr-checker-01', name: 'Finance Controller / Checker' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll actor identity is required.' });
+        return;
+      }
       const updated = await this.service.approvePayrollRun(
         id,
         {
-          userId: user.id || user.userId || 'usr-checker-01',
-          userName: user.name || user.fullName || 'Finance Controller / Checker',
+          userId: user.id,
+          userName: user.name || user.email,
         },
         remarks
       );
@@ -356,12 +395,18 @@ export class HrmsController {
     try {
       const { id } = req.params;
       const { remarks } = req.body;
-      const user = (req as any).user || { id: 'usr-checker-01', name: 'Finance Controller / Checker' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll actor identity is required.' });
+        return;
+      }
       const updated = await this.service.rejectPayrollRun(
         id,
         {
-          userId: user.id || user.userId || 'usr-checker-01',
-          userName: user.name || user.fullName || 'Finance Controller / Checker',
+          userId: user.id,
+          userName: user.name || user.email,
         },
         remarks || 'Rejected by QA Checker for revision'
       );
@@ -473,7 +518,7 @@ export class HrmsController {
       const user = (req as any).user || { id: 'usr-admin-01', name: 'HR/Finance Director' };
       const loan = await this.service.approveLoan(
         id,
-        { userId: user.id || 'usr-admin-01', userName: user.name || 'HR/Finance Director' },
+        { userId: user.id, userName: user.name || 'HR/Finance Director' },
         remarks
       );
       res.status(200).json({ success: true, data: loan });
@@ -527,11 +572,22 @@ export class HrmsController {
   public finalizeAttendance = async (req: Request, res: Response): Promise<void> => {
     try {
       const { periodId, monthYear, records, remarks } = req.body;
-      const user = (req as any).user || { name: 'HR Operations Supervisor' };
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, message: 'Authenticated payroll actor identity is required.' });
+        return;
+      }
+      const finalizedBy = String(user?.name || user?.email || '').trim();
+      if (!finalizedBy) {
+        res.status(401).json({ success: false, message: 'Authenticated attendance finalizer identity is required.' });
+        return;
+      }
       const result = await this.service.finalizeAttendance({
         periodId,
         monthYear,
-        finalizedBy: user.name || user.fullName || 'HR Operations Supervisor',
+        finalizedBy,
         records,
         remarks,
       });
@@ -544,11 +600,22 @@ export class HrmsController {
   public unlockAttendanceFinalization = async (req: Request, res: Response): Promise<void> => {
     try {
       const { periodId, reason } = req.body;
-      const user = (req as any).user || { id: 'usr-admin-01', name: 'HR Operations Supervisor' };
+      const user = (req as any).user;
+      const userId = String(user?.id || '').trim();
+      const userName = String(user?.name || user?.email || '').trim();
+      const unlockReason = String(reason || '').trim();
+      if (!userId || !userName) {
+        res.status(401).json({ success: false, message: 'Authenticated unlock actor identity is required.' });
+        return;
+      }
+      if (!unlockReason) {
+        res.status(400).json({ success: false, message: 'A reason is required to unlock finalized attendance.' });
+        return;
+      }
       const result = await this.service.unlockAttendanceFinalization(
         periodId,
-        { userId: user.id || 'usr-admin-01', userName: user.name || 'HR Operations Supervisor' },
-        reason || 'Correction requested prior to payroll recalculation'
+        { userId, userName },
+        unlockReason
       );
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {

@@ -38,6 +38,21 @@ export const EnterpriseProcurementModule: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
   const [vendors, setVendors] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [prBoqItems, setPrBoqItems] = useState<any[]>([]);
+  const [newPr, setNewPr] = useState({
+    title: '',
+    projectId: '',
+    projectName: '',
+    department: '',
+    requiredDate: '',
+    priority: 'MEDIUM',
+    budgetCode: '',
+    budgetAvailableAed: 0,
+    notes: '',
+    selectedBoqItemId: '',
+    quantity: '',
+  });
   const [rfqs, setRfqs] = useState<any[]>([]);
   const [purchaseRequisitions, setPurchaseRequisitions] = useState<any[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([]);
@@ -52,6 +67,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
 
   // Modals
   const [isVendorModalOpen, setIsVendorModalOpen] = useState(false);
+  const [isPrModalOpen, setIsPrModalOpen] = useState(false);
   const [isRfqModalOpen, setIsRfqModalOpen] = useState(false);
   const [isPoModalOpen, setIsPoModalOpen] = useState(false);
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
@@ -131,6 +147,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
         safeFetchJson<any>('/api/procurement-enterprise/three-way-matching'),
         safeFetchJson<any>('/api/procurement-enterprise/scorecards'),
         safeFetchJson<any>('/api/procurement-enterprise/purchase-requisitions'),
+        safeFetchJson<any>('/api/projects?limit=100&page=1'),
       ]);
 
       if (statsRes?.data) setStats(statsRes.data);
@@ -142,6 +159,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
       if (matchesRes?.data) setThreeWayMatches(matchesRes.data);
       if (scorecardsRes?.data) setScorecards(scorecardsRes.data);
       if (prRes?.data) setPurchaseRequisitions(prRes.data);
+      if (pRes?.data) setProjects(pRes.data);
     } catch (e) {
       console.error('Error loading enterprise procurement data:', e);
     } finally {
@@ -179,6 +197,141 @@ export const EnterpriseProcurementModule: React.FC = () => {
       loadData();
     } catch (err) {
       console.error('Failed to create vendor:', err);
+    }
+  };
+
+  const handleSelectPrProject = async (projectId: string) => {
+    const project = projects.find((item) => item.id === projectId);
+    setNewPr((current) => ({
+      ...current,
+      projectId,
+      projectName: project?.projectName || project?.name || '',
+      selectedBoqItemId: '',
+      quantity: '',
+      budgetCode: '',
+    }));
+    setPrBoqItems([]);
+
+    if (!projectId) return;
+
+    try {
+      const [boqRes, wbsRes] = await Promise.all([
+        safeFetchJson<any>(`/api/wbs/${projectId}/boq`),
+        safeFetchJson<any>(`/api/wbs/${projectId}/wbs`),
+      ]);
+      const wbsMap = new Map<string, string>();
+      const flatten = (nodes: any[]) => {
+        for (const node of nodes || []) {
+          wbsMap.set(node.id, node.code || node.id);
+          if (Array.isArray(node.children)) flatten(node.children);
+        }
+      };
+      flatten(wbsRes?.data || []);
+
+      setPrBoqItems((boqRes?.data || []).map((item: any) => ({
+        ...item,
+        wbsCode: wbsMap.get(item.wbsId) || item.wbsId,
+        balanceQty: item.balanceQty ?? item.revisedQty ?? item.quantity ?? 0,
+      })));
+    } catch (error) {
+      console.error('Failed to load project BOQ/WBS context:', error);
+    }
+  };
+
+  const handleSelectPrBoqItem = (boqItemId: string) => {
+    const item = prBoqItems.find((entry) => entry.id === boqItemId);
+    if (!item) {
+      setNewPr((current) => ({ ...current, selectedBoqItemId: '', quantity: '', budgetCode: '' }));
+      return;
+    }
+    setNewPr((current) => ({
+      ...current,
+      selectedBoqItemId: boqItemId,
+      quantity: String(item.balanceQty || ''),
+      budgetCode: item.wbsCode || item.wbsId || '',
+    }));
+  };
+
+  const resetPrForm = () => {
+    setNewPr({
+      title: '',
+      projectId: '',
+      projectName: '',
+      department: '',
+      requiredDate: '',
+      priority: 'MEDIUM',
+      budgetCode: '',
+      budgetAvailableAed: 0,
+      notes: '',
+      selectedBoqItemId: '',
+      quantity: '',
+    });
+    setPrBoqItems([]);
+  };
+
+  const handleCreatePr = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const item = prBoqItems.find((entry) => entry.id === newPr.selectedBoqItemId);
+    const quantity = Number(newPr.quantity);
+
+    if (!item) {
+      window.alert('Select a BOQ item before creating the purchase requisition.');
+      return;
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      window.alert('Enter a valid positive procurement quantity.');
+      return;
+    }
+
+    try {
+      const result = await safeFetchJson<any>('/api/procurement-enterprise/purchase-requisitions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newPr.title,
+          projectId: newPr.projectId,
+          projectName: newPr.projectName,
+          department: newPr.department,
+          requiredDate: newPr.requiredDate,
+          priority: newPr.priority,
+          budgetCode: newPr.budgetCode,
+          budgetAvailableAed: Number(newPr.budgetAvailableAed || 0),
+          notes: newPr.notes,
+          items: [{
+            boqItemId: item.id,
+            wbsId: item.wbsId,
+            itemCode: item.itemCode,
+            description: item.description,
+            quantity,
+            uom: item.unit,
+            estimatedUnitPrice: Number(item.rate || 0),
+            requiredDate: newPr.requiredDate,
+          }],
+        }),
+      });
+      if (!result?.success) throw new Error(result?.message || 'Purchase requisition could not be created.');
+      setIsPrModalOpen(false);
+      resetPrForm();
+      await loadData();
+    } catch (error: any) {
+      window.alert(error?.message || 'Purchase requisition could not be created.');
+    }
+  };
+
+  const handlePrWorkflowAction = async (
+    id: string,
+    status: 'SUBMITTED' | 'HOD_APPROVED' | 'FINANCE_APPROVED' | 'PO_ISSUED' | 'REJECTED'
+  ) => {
+    try {
+      const result = await safeFetchJson<any>(`/api/procurement-enterprise/purchase-requisitions/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!result?.success) throw new Error(result?.message || 'Workflow action failed.');
+      await loadData();
+    } catch (error: any) {
+      window.alert(error?.message || 'Workflow action failed.');
     }
   };
 
@@ -352,6 +505,13 @@ export const EnterpriseProcurementModule: React.FC = () => {
               <FilePlus className="w-4 h-4" />
               Create RFQ
             </button>
+            <button
+              onClick={() => setIsPrModalOpen(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+            >
+              <ClipboardList className="w-4 h-4" />
+              Raise PR
+            </button>
           </div>
         </div>
 
@@ -425,6 +585,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
           { id: 'overview', label: 'Procurement Dashboard', icon: <Layers className="w-4 h-4" /> },
           { id: 'vendors', label: 'Vendor Directory & Prequalification', icon: <Building2 className="w-4 h-4" />, count: vendors.length },
           { id: 'rfqs', label: 'RFQs & Bid Comparisons', icon: <FileCheck2 className="w-4 h-4" />, count: rfqs.length },
+          { id: 'prs', label: 'Purchase Requisitions', icon: <ClipboardList className="w-4 h-4" />, count: purchaseRequisitions.length },
           { id: 'pos', label: 'Purchase Orders & PRs', icon: <FileSpreadsheet className="w-4 h-4" />, count: purchaseOrders.length },
           { id: 'contracts', label: 'Contracts & Variation Orders', icon: <Briefcase className="w-4 h-4" />, count: contracts.length },
           { id: 'grn', label: 'Goods Receipts (GRN)', icon: <PackageCheck className="w-4 h-4" />, count: goodsReceipts.length },
@@ -456,6 +617,64 @@ export const EnterpriseProcurementModule: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* Purchase Requisition workspace */}
+      {activeTab === 'prs' && (
+        <div className="space-y-5">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Purchase Requisitions</h2>
+              <p className="text-sm text-slate-500 mt-1">Create requirements from project BOQ/WBS context and move them through the controlled approval workflow.</p>
+            </div>
+            <button onClick={() => setIsPrModalOpen(true)} className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Raise Purchase Requisition
+            </button>
+          </div>
+
+          {purchaseRequisitions.length === 0 ? (
+            <div className="p-8 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-sm text-slate-500">No purchase requisitions found.</div>
+          ) : purchaseRequisitions.map((pr: any) => (
+            <div key={pr.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{pr.prNumber}</span>
+                    <span className="px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold uppercase text-slate-600 dark:text-slate-300">{pr.status}</span>
+                  </div>
+                  <h3 className="mt-2 font-bold text-slate-900 dark:text-white">{pr.title}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{pr.projectName} · {pr.department}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {pr.status === 'DRAFT' && <button onClick={() => handlePrWorkflowAction(pr.id,'SUBMITTED')} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">Submit</button>}
+                  {pr.status === 'SUBMITTED' && <button onClick={() => handlePrWorkflowAction(pr.id,'HOD_APPROVED')} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold">HOD Approve</button>}
+                  {pr.status === 'HOD_APPROVED' && <button onClick={() => handlePrWorkflowAction(pr.id,'FINANCE_APPROVED')} className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold">Finance Approve</button>}
+                  {pr.status === 'FINANCE_APPROVED' && <button onClick={() => handlePrWorkflowAction(pr.id,'PO_ISSUED')} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">Release to Procurement</button>}
+                  {['SUBMITTED','HOD_APPROVED','FINANCE_APPROVED'].includes(pr.status) && <button onClick={() => handlePrWorkflowAction(pr.id,'REJECTED')} className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-xs font-semibold">Reject</button>}
+                </div>
+              </div>
+              <div className="mt-4 overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-950 text-[10px] uppercase text-slate-500">
+                    <tr><th className="px-3 py-2 text-left">WBS</th><th className="px-3 py-2 text-left">BOQ</th><th className="px-3 py-2 text-left">Description</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-left">UOM</th><th className="px-3 py-2 text-right">Estimated</th></tr>
+                  </thead>
+                  <tbody>
+                    {(pr.items || []).map((item: any) => (
+                      <tr key={item.id} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2 font-mono text-slate-500">{item.wbsCode || item.wbsId}</td>
+                        <td className="px-3 py-2 font-mono font-semibold text-blue-600 dark:text-blue-400">{item.boqItemCode}</td>
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.description}</td>
+                        <td className="px-3 py-2 text-right">{Number(item.quantity || 0).toLocaleString()}</td>
+                        <td className="px-3 py-2">{item.uom}</td>
+                        <td className="px-3 py-2 text-right font-semibold">{Number(item.estimatedTotalPrice || 0).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Tab 1: Overview */}
       {activeTab === 'overview' && (
@@ -1391,6 +1610,86 @@ export const EnterpriseProcurementModule: React.FC = () => {
                 >
                   Submit & Prequalify
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Raise Purchase Requisition */}
+      {isPrModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-5 my-8">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Raise Purchase Requisition</h3>
+              <p className="text-xs text-slate-500 mt-1">Project and BOQ/WBS context comes from the authoritative project controls.</p>
+            </div>
+            <form onSubmit={handleCreatePr} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Project *</label>
+                  <select required value={newPr.projectId} onChange={(e) => handleSelectPrProject(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <option value="">Select project...</option>
+                    {projects.map((project) => <option key={project.id} value={project.id}>{project.projectCode || project.code} — {project.projectName || project.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Department *</label>
+                  <input required value={newPr.department} onChange={(e) => setNewPr({ ...newPr, department: e.target.value })} placeholder="Department / discipline" className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+                </div>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Requirement Title *</label>
+                <input required value={newPr.title} onChange={(e) => setNewPr({ ...newPr, title: e.target.value })} placeholder="Material / procurement requirement" className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="md:col-span-2">
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">BOQ Item *</label>
+                  <select required disabled={!newPr.projectId} value={newPr.selectedBoqItemId} onChange={(e) => handleSelectPrBoqItem(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <option value="">Select BOQ item...</option>
+                    {prBoqItems.map((item) => <option key={item.id} value={item.id}>{item.itemCode} — {item.description}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Quantity *</label>
+                  <input required type="number" min="0.001" step="any" value={newPr.quantity} onChange={(e) => setNewPr({ ...newPr, quantity: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+                </div>
+              </div>
+              {newPr.selectedBoqItemId && (() => {
+                const item = prBoqItems.find((entry) => entry.id === newPr.selectedBoqItemId);
+                return <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                  <div><span className="block text-[10px] uppercase text-slate-400">WBS</span><span className="font-mono font-semibold">{item?.wbsCode || item?.wbsId || '—'}</span></div>
+                  <div><span className="block text-[10px] uppercase text-slate-400">BOQ Balance</span><span className="font-semibold">{Number(item?.balanceQty || 0).toLocaleString()} {item?.unit || ''}</span></div>
+                  <div><span className="block text-[10px] uppercase text-slate-400">BOQ Rate</span><span className="font-semibold">{Number(item?.rate || 0).toLocaleString()}</span></div>
+                </div>;
+              })()}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Required Date *</label>
+                  <input required type="date" value={newPr.requiredDate} onChange={(e) => setNewPr({ ...newPr, requiredDate: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Priority</label>
+                  <select value={newPr.priority} onChange={(e) => setNewPr({ ...newPr, priority: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="URGENT_SHUTDOWN">Urgent Shutdown</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Budget / WBS Code *</label>
+                  <input required value={newPr.budgetCode} onChange={(e) => setNewPr({ ...newPr, budgetCode: e.target.value })} placeholder="Configured cost/budget code" className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+                </div>
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Budget Available</label>
+                <input type="number" min="0" value={newPr.budgetAvailableAed} onChange={(e) => setNewPr({ ...newPr, budgetAvailableAed: Number(e.target.value) })} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-600 dark:text-slate-300 mb-1">Notes</label>
+                <textarea rows={3} value={newPr.notes} onChange={(e) => setNewPr({ ...newPr, notes: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700" />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button type="button" onClick={() => { setIsPrModalOpen(false); resetPrForm(); }} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">Cancel</button>
+                <button type="submit" disabled={!newPr.projectId || !newPr.selectedBoqItemId} className="px-4 py-2 rounded-xl bg-emerald-600 disabled:opacity-50 text-white font-semibold">Save PR Draft</button>
               </div>
             </form>
           </div>

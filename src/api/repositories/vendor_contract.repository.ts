@@ -206,25 +206,46 @@ export class VendorContractRepository {
     });
   }
   async updateContractStatus(id: string, status: string, updatedBy: string, notes?: string) {
+    if (!updatedBy?.trim()) throw new Error('Authenticated contract actor identity is required.');
+
     const [c] = await db.select().from(phase57Contracts).where(eq(phase57Contracts.id, id));
     if (!c) return null;
 
-    const [updated] = await db.update(phase57Contracts)
-      .set({ status, updatedAt: new Date().toISOString(), updatedBy })
-      .where(eq(phase57Contracts.id, id))
-      .returning();
+    const transitions: Record<string, string[]> = {
+      DRAFT: ['SUBMITTED', 'CANCELLED'],
+      SUBMITTED: ['REVIEWED', 'CANCELLED'],
+      REVIEWED: ['APPROVED', 'DRAFT', 'CANCELLED'],
+      APPROVED: ['ACTIVE', 'CANCELLED'],
+      ACTIVE: ['SUSPENDED', 'COMPLETED', 'CLOSED'],
+      SUSPENDED: ['ACTIVE', 'CANCELLED'],
+      COMPLETED: ['CLOSED'],
+      CLOSED: [],
+      CANCELLED: [],
+      EXPIRED: ['CLOSED'],
+    };
 
-    await db.insert(contractLogs).values({
-      id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      contractId: id,
-      contractNumber: c.contractNumber,
-      actionType: 'STATUS_CHANGE',
-      performedBy: updatedBy,
-      details: `Updated contract status from ${c.status} to ${status}. ${notes || ''}`,
-      createdAt: new Date().toISOString()
+    if (!transitions[c.status]?.includes(status)) {
+      throw new Error(`Invalid contract status transition: ${c.status} → ${status}`);
+    }
+
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(phase57Contracts)
+        .set({ status, updatedAt: new Date().toISOString(), updatedBy: updatedBy.trim() })
+        .where(eq(phase57Contracts.id, id))
+        .returning();
+
+      await tx.insert(contractLogs).values({
+        id: `clog_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        contractId: id,
+        contractNumber: c.contractNumber,
+        actionType: 'STATUS_CHANGE',
+        performedBy: updatedBy.trim(),
+        details: `Updated contract status from ${c.status} to ${status}. ${notes || ''}`,
+        createdAt: new Date().toISOString()
+      });
+
+      return updated;
     });
-
-    return updated;
   }
 
   async addContractMilestone(milestoneData: any) {
@@ -264,6 +285,9 @@ export class VendorContractRepository {
     const [variation] = await db.select().from(contractVariations).where(eq(contractVariations.id, id)).limit(1);
     if (!variation) return null;
     if (variation.status !== 'PROPOSED') throw new Error(`Variation cannot be ${status.toLowerCase()} from status ${variation.status}.`);
+    if (variation.createdBy && variation.createdBy.trim().toLowerCase() === approvedBy.trim().toLowerCase()) {
+      throw new Error('Maker-checker violation: variation creator cannot approve or reject the same variation.');
+    }
 
     return await db.transaction(async (tx) => {
       const [contract] = await tx.select().from(phase57Contracts).where(eq(phase57Contracts.id, variation.contractId)).limit(1);
@@ -353,6 +377,9 @@ export class VendorContractRepository {
     const [extension] = await db.select().from(contractExtensions).where(eq(contractExtensions.id, id)).limit(1);
     if (!extension) return null;
     if (extension.status !== 'REQUESTED') throw new Error(`Extension cannot be ${status.toLowerCase()} from status ${extension.status}.`);
+    if (extension.requestedBy && extension.requestedBy.trim().toLowerCase() === approvedBy.trim().toLowerCase()) {
+      throw new Error('Maker-checker violation: extension requester cannot approve or reject the same extension.');
+    }
 
     return await db.transaction(async (tx) => {
       const [contract] = await tx.select().from(phase57Contracts).where(eq(phase57Contracts.id, extension.contractId)).limit(1);

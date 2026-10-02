@@ -98,8 +98,8 @@ export class HrmsService {
     return this.repo.applyLeave(data);
   }
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approver?: string) {
-    return this.repo.reviewLeave(id, status, remarks, approver);
+  public async reviewLeave(id: string, status: string, remarks: string | undefined, actor: { userId: string; userName: string }) {
+    return this.repo.reviewLeave(id, status, remarks, actor);
   }
 
   // Holidays
@@ -112,8 +112,8 @@ export class HrmsService {
     return this.repo.getSalaryStructures();
   }
 
-  public async createSalaryStructure(data: any) {
-    return this.repo.createSalaryStructure(data);
+  public async createSalaryStructure(data: any, actor: { userId: string; userName: string }) {
+    return this.repo.createSalaryStructure(data, actor);
   }
 
   public async getPayrollPeriods() {

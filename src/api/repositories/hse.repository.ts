@@ -203,6 +203,8 @@ export class HSERepository {
         approvedBy: 'HSE Director',
         createdAt: now,
         updatedAt: now,
+        createdBy: 'DEMO_SEED',
+        updatedBy: 'DEMO_SEED',
       },
     ]);
 
@@ -243,6 +245,8 @@ export class HSERepository {
         approvedBy: 'HSE Manager',
         createdAt: now,
         updatedAt: now,
+        createdBy: 'DEMO_SEED',
+        updatedBy: 'DEMO_SEED',
       },
       {
         id: uuidv4(),
@@ -261,6 +265,8 @@ export class HSERepository {
         approvedBy: 'HSE Lead',
         createdAt: now,
         updatedAt: now,
+        createdBy: 'DEMO_SEED',
+        updatedBy: 'DEMO_SEED',
       },
     ]);
 
@@ -579,9 +585,12 @@ export class HSERepository {
       permitRequired: Boolean(data.permitRequired),
       status: 'DRAFT',
       approvedBy: null,
+      createdBy: String(data.createdBy || '').trim(),
+      updatedBy: String(data.updatedBy || data.createdBy || '').trim(),
       createdAt: now,
       updatedAt: now,
     };
+    if (!newRec.createdBy || !newRec.updatedBy) throw new Error('Authenticated JSA actor identity is required.');
     await db.insert(phase63Jsa).values(newRec);
     return newRec;
   }
@@ -609,9 +618,12 @@ export class HSERepository {
       gasTestResult: data.gasTestResult || null,
       status: 'PENDING_APPROVAL',
       approvedBy: null,
+      createdBy: String(data.createdBy || '').trim(),
+      updatedBy: String(data.updatedBy || data.createdBy || '').trim(),
       createdAt: now,
       updatedAt: now,
     };
+    if (!newRec.createdBy || !newRec.updatedBy) throw new Error('Authenticated work-permit actor identity is required.');
     await db.insert(phase63WorkPermits).values(newRec);
     return newRec;
   }

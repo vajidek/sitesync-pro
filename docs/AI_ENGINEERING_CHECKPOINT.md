@@ -28,6 +28,7 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - PR #81 — QA/QC: inspection and NCR transaction integrity with unique numbering.
 - PR #82 — QA/QC: NCR to CAPA transaction integrity with audit and unique numbering.
 - PR #83 — QA/QC: atomic ITP checklist persistence and removal of synthetic QA/QC input defaults.
+- PR #84 — HSE: incident/PTW actor binding, safety validation, maker-checker permit approval, and removal of synthetic safety-data defaults.
 
 ## Current status
 - HR master-data hardening: completed in main through authenticated actor propagation, canonical employee/leave/salary/loan writes, configurable numbering, and removal of production fallback identities/codes.
@@ -43,7 +44,7 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 5. CI/testing — compile/test coverage and deployment gates.
 
 ## Continuation marker
-Last verified main merge: PR #83. Next work should begin at QA/QC; do not restart Store/Cost/HR/Finance hardening unless new evidence shows a regression.
+Last verified main merge: PR #84. Next work should continue in HSE Risk Assessment/JSA; do not restart Store/Cost/HR/Finance/QAQC hardening unless new evidence shows a regression.
 
 ## Safe marking rule
 Prefer this checkpoint file. It does not affect ERP runtime behavior. Use source-code comments only when truly useful.

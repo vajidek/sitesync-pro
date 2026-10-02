@@ -516,26 +516,107 @@ export class QAQCRepository {
     return res.rows || res[0] || [];
   }
 
+  // ERP-TRACE: QAQC-P1 — ITP master and inspection points are persisted together with audit.
   public async createItp(data: any) {
-    requireFields(data, ['title','projectId','projectName','preparedBy'], 'ITP');
+    requireFields(data, ['title','projectId','projectName','preparedBy','createdBy'], 'ITP');
     await this.ensureQAQCTablesExist();
-    const id = uuidv4();
+
+    const projectId = String(data.projectId).trim();
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+
+    const [project] = await db.select({ id: projects.id, projectName: projects.projectName, isActive: projects.isActive })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (!project || !project.isActive) throw new Error('ITP project not found or inactive.');
+
     const now = new Date().toISOString();
-    const itpNum = data.itpNumber || `ITP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const id = uuidv4();
+    const itpNum = String(data.itpNumber || `ITP-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
+    const items = Array.isArray(data.items) ? data.items : [];
 
-    await db.execute(sql`
-      INSERT INTO phase62_itp_masters (
-        id, itp_number, title, discipline, project_id, project_name, revision_number,
-        standard_reference, status, prepared_by, approved_by, created_at, updated_at
-      ) VALUES (
-        ${id}, ${itpNum}, ${data.title}, ${data.discipline || 'MECHANICAL'}, ${data.projectId || null},
-        ${data.projectName || null}, ${data.revisionNumber || 'R0'},
-        ${data.standardReference || null}, 'DRAFT', ${data.preparedBy || null},
-        NULL, ${now}, ${now}
-      )
-    `);
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase62ItpMasters.id })
+        .from(phase62ItpMasters)
+        .where(eq(phase62ItpMasters.itpNumber, itpNum))
+        .limit(1);
+      if (duplicate.length) throw new Error(`ITP number ${itpNum} already exists.`);
 
-    return { id, itpNumber: itpNum, ...data };
+      const [itp] = await tx.insert(phase62ItpMasters).values({
+        id,
+        itpNumber: itpNum,
+        title: String(data.title).trim(),
+        discipline: String(data.discipline || 'MECHANICAL').trim().toUpperCase(),
+        projectId,
+        projectName: project.projectName,
+        revisionNumber: String(data.revisionNumber || 'R0').trim(),
+        standardReference: data.standardReference || null,
+        status: 'DRAFT',
+        preparedBy: String(data.preparedBy).trim(),
+        approvedBy: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      if (!itp) throw new Error('ITP creation failed.');
+
+      let itemNumber = 1;
+      for (const item of items) {
+        requireFields(item, ['activityDescription','acceptanceCriteria'], 'ITP checklist item');
+
+        await tx.insert(phase62ItpChecklists).values({
+          id: uuidv4(),
+          itpId: id,
+          itemNumber: Number(item.itemNumber || itemNumber++),
+          activityDescription: String(item.activityDescription).trim(),
+          referenceDoc: item.referenceDoc || null,
+          acceptanceCriteria: String(item.acceptanceCriteria).trim(),
+          inspectionType: String(item.inspectionType || 'HOLD_POINT').trim().toUpperCase(),
+          contractorCheck: Boolean(item.contractorCheck ?? true),
+          consultantCheck: Boolean(item.consultantCheck ?? true),
+          clientCheck: Boolean(item.clientCheck ?? true),
+          remarks: item.remarks || null,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: creator,
+          updatedBy: updater,
+          deletedAt: null,
+          isDeleted: false,
+        });
+      }
+
+      await tx.insert(phase62QualityLogs).values({
+        id: uuidv4(),
+        actionType: 'ITP_CREATED',
+        module: 'QAQC',
+        entityId: id,
+        performedBy: creator,
+        details: `Created ITP ${itpNum} with ${items.length} checklist item(s) for project ${project.projectName}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return {
+        id,
+        itpNumber: itpNum,
+        projectId,
+        projectName: project.projectName,
+        ...data,
+        status: 'DRAFT',
+        createdBy: creator,
+        updatedBy: updater,
+      };
+    });
   }
 
   // Material Inspections (MIR)

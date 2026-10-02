@@ -62,7 +62,7 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
   const [scrutinyError, setScrutinyError] = useState<string | null>(null);
 
   // Form State for New Bill
-  const [formProjectId, setFormProjectId] = useState<string>(projects[0]?.id || 'prj_01');
+  const [formProjectId, setFormProjectId] = useState<string>(projects[0]?.id || '');
   const [formWorkOrderId, setFormWorkOrderId] = useState<string>('');
   const [formContractorName, setFormContractorName] = useState<string>('');
   const [formContractorCode, setFormContractorCode] = useState<string>('');
@@ -81,36 +81,12 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
     previousCumulativeQty: number;
     currentMeasuredQty: number;
     mbReference: string;
-  }>>([
-    {
-      boqItemId: 'boq_101',
-      itemCode: 'BOQ-STR-01',
-      description: 'RCC Substructure concrete M35 with micro-silica',
-      unit: 'cum',
-      boqQuantity: 4500,
-      boqRateUSD: 145,
-      previousCumulativeQty: 600,
-      currentMeasuredQty: 250,
-      mbReference: 'MB-2026/P14-04',
-    },
-    {
-      boqItemId: 'boq_102',
-      itemCode: 'BOQ-STR-02',
-      description: 'Fe550D TMT Reinforcement cut, bent and tied in place',
-      unit: 'MT',
-      boqQuantity: 380,
-      boqRateUSD: 980,
-      previousCumulativeQty: 45,
-      currentMeasuredQty: 30,
-      mbReference: 'MB-2026/P14-05',
-    }
-  ]);
-
+  }>>([]);
   // Financial parameters
-  const [advRate, setAdvRate] = useState<number>(10);
-  const [retRate, setRetRate] = useState<number>(5);
-  const [tdsRate, setTdsRate] = useState<number>(2);
-  const [gstTdsRate, setGstTdsRate] = useState<number>(2);
+  const [advRate, setAdvRate] = useState<number>(0);
+  const [retRate, setRetRate] = useState<number>(0);
+  const [tdsRate, setTdsRate] = useState<number>(0);
+  const [gstTdsRate, setGstTdsRate] = useState<number>(0);
   const [cessRate, setCessRate] = useState<number>(1);
   const [penalties, setPenalties] = useState<number>(0);
 
@@ -211,16 +187,20 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const proj = projects.find(p => p.id === formProjectId) || { name: 'General Construction Project' };
+    const proj = projects.find(p => p.id === formProjectId);
     const wo = workOrders.find(w => w.id === formWorkOrderId);
+    if (!proj || !wo || formItems.length === 0) {
+      setCreateError('Project, work order and at least one approved measurement line are required.');
+      return;
+    }
 
     const payload: Partial<RABillRecord> = {
       projectId: formProjectId,
       projectName: proj.name,
       workOrderId: formWorkOrderId || undefined,
       workOrderNumber: wo?.workOrderNumber || undefined,
-      contractorName: formContractorName || 'Subcontractor Firm',
-      contractorCode: formContractorCode || 'CNT-01',
+      contractorName: formContractorName,
+      contractorCode: formContractorCode,
       billDate: formBillDate,
       billingPeriodStart: formPeriodStart,
       billingPeriodEnd: formPeriodEnd,
@@ -243,8 +223,8 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
       })),
       financials: {
         grossWorkDoneCurrentUSD: computedGrossCurrent,
-        grossWorkDoneCumulativeUSD: computedGrossCurrent + 100000, // sample previous
-        previousCertifiedGrossUSD: 100000,
+        grossWorkDoneCumulativeUSD: computedGrossCurrent,
+        previousCertifiedGrossUSD: 0,
         mobilizationAdvanceRecoveryRatePercent: advRate,
         mobilizationAdvanceRecoveryUSD: computedAdvRecovery,
         retentionMoneyRatePercent: retRate,
@@ -260,19 +240,19 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
         otherWithholdingsUSD: 0,
         totalDeductionsUSD: computedTotalDeductions,
         netPayableCurrentUSD: computedNetPayable,
-        netPayableCumulativeUSD: computedNetPayable + 78000,
+        netPayableCumulativeUSD: computedNetPayable,
       }
     };
 
     setCreateError(null);
     try {
-      const res = await fetch('/api/procurement/ra-bills', {
+      const data = await safeFetchJson<{ success: boolean; message?: string; data?: RABillRecord }>('/api/procurement/ra-bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await safeJson(res);
-      if (res.ok && data?.success) {
+      const resOk = Boolean(data?.success);
+      if (resOk && data?.success) {
         setIsCreateModalOpen(false);
         setCreateError(null);
         fetchRABills();
@@ -305,13 +285,12 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
     }
 
     try {
-      const res = await fetch(`/api/procurement/ra-bills/${billId}/status`, {
+      const data = await safeFetchJson<{ success: boolean; message?: string }>(`/api/procurement/ra-bills/${billId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatePayload)
       });
-      const data = await safeJson(res);
-      if (res.ok && data?.success) {
+      if (data?.success) {
         setSelectedBillForScrutiny(null);
         setScrutinyError(null);
         fetchRABills();

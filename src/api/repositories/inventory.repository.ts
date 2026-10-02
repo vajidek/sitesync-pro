@@ -1986,6 +1986,7 @@ export class InventoryRepository {
     issuedTo?: string;
     recipientName?: string;
     issuedBy?: string;
+    approvedBy?: string;
     issueDate?: string;
     notes?: string;
     items: Array<{

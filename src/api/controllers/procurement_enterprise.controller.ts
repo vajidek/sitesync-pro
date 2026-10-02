@@ -152,6 +152,48 @@ export class ProcurementEnterpriseController {
     }
   };
 
+  public updatePurchaseOrderStatus = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const requestedStatus = req.body?.status;
+      const allowed = ['ISSUED', 'REJECTED', 'PARTIALLY_DELIVERED', 'DELIVERED', 'INVOICED', 'CLOSED', 'CANCELLED'];
+      if (!allowed.includes(requestedStatus)) {
+        res.status(400).json({ success: false, message: 'Invalid purchase order workflow status.' });
+        return;
+      }
+      const result = await this.service.updatePurchaseOrderStatus(req.params.id, requestedStatus, actor.name, req.body?.remarks);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Purchase order not found.' });
+        return;
+      }
+      res.status(200).json({ success: true, data: result, message: `Purchase order moved to ${requestedStatus}` });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  };
+
+  public updateGoodsReceiptStatus = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const actor = requireActor(req, res);
+      if (!actor) return;
+      const requestedStatus = req.body?.status;
+      const allowed = ['APPROVED', 'CANCELLED'];
+      if (!allowed.includes(requestedStatus)) {
+        res.status(400).json({ success: false, message: 'Invalid goods receipt workflow status.' });
+        return;
+      }
+      const result = await this.service.updateGoodsReceiptStatus(req.params.id, requestedStatus, actor.name, req.body?.remarks);
+      if (!result) {
+        res.status(404).json({ success: false, message: 'Goods receipt not found.' });
+        return;
+      }
+      res.status(200).json({ success: true, data: result, message: `Goods receipt moved to ${requestedStatus}` });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  };
+
   public updatePurchaseRequisitionStatus = async (req: Request, res: Response): Promise<void> => {
     try {
       const actor = requireActor(req, res);

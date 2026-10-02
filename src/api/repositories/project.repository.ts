@@ -39,9 +39,12 @@ import {
   procurementRaBillsTable,
   projectCashRequestsTable,
   projectCashSettlementsTable,
+  phase61DocumentFiles,
+  phase61DocumentMetadata,
 } from '../../db/schema';
-import { eq, and, ilike, or, desc, asc, isNull } from 'drizzle-orm';
+import { eq, and, ilike, or, desc, asc, isNull, inArray } from 'drizzle-orm';
 import { currencyRepository } from './currency.repository';
+import { getDocuments as getEdmsDocuments, createDocument as createEdmsDocument, getFolders as getEdmsFolders, createFolder as createEdmsFolder } from './document.repository';
 import { isDemoSeedAllowed } from '../config/env';
 
 export interface DbProject {
@@ -1448,33 +1451,109 @@ export class ProjectRepository {
   }
 
   // --- DOCUMENTS ---
+  // --- DOCUMENTS ---
+  // Central EDMS is the source of truth. These methods preserve the legacy
+  // Project API response shape so existing project screens keep working.
   async findDocumentsByProject(projectId: string): Promise<DbProjectDocument[]> {
     await ensureProjectSeeded();
-    const rows = await db.select().from(projectDocuments).where(eq(projectDocuments.projectId, projectId));
-    return rows.map(mapProjectDocumentRow);
+    if (!projectId?.trim()) throw new Error('Project ID is required to list project documents.');
+
+    const docs = await getEdmsDocuments({ projectId });
+    if (!docs.length) return [];
+
+    const documentIds = docs.map((doc: any) => doc.id);
+    const metadataRows = await db
+      .select()
+      .from(phase61DocumentMetadata)
+      .where(inArray(phase61DocumentMetadata.documentId, documentIds));
+
+    const metadataByDocument = new Map<string, Record<string, string>>();
+    for (const row of metadataRows as any[]) {
+      const current = metadataByDocument.get(row.documentId) || {};
+      current[row.metaKey] = row.metaValue;
+      metadataByDocument.set(row.documentId, current);
+    }
+
+    return docs.map((doc: any) => {
+      const meta = metadataByDocument.get(doc.id) || {};
+      return {
+        id: doc.id,
+        projectId: doc.projectId,
+        siteId: meta.SiteId || undefined,
+        documentCategory: meta.ProjectDocumentCategory || 'TECHNICAL',
+        title: doc.title,
+        fileUrl: doc.fileUrl,
+        fileType: doc.fileType,
+        fileSize: Number(doc.fileSizeBytes || 0),
+        version: doc.currentVersion,
+        notes: meta.ProjectDocumentNotes || doc.description || undefined,
+        uploadedById: meta.UploadedById || undefined,
+        uploadedByName: doc.createdBy || undefined,
+        createdAt: doc.createdAt,
+      } as DbProjectDocument;
+    });
   }
 
   async createDocument(data: Partial<DbProjectDocument>): Promise<DbProjectDocument> {
     await ensureProjectSeeded();
-    const newRecord = {
-      id: genId('doc'),
-      projectId: data.projectId!,
-      siteId: data.siteId ?? null,
-      documentCategory: data.documentCategory || 'TECHNICAL',
-      title: data.title || 'Project Document',
-      fileUrl: data.fileUrl || 'https://images.unsplash.com/photo-1541888946425-d0fbb186a5b3?auto=format&fit=crop&w=600&q=80',
-      fileType: data.fileType || 'application/pdf',
-      fileSize: Number(data.fileSize) || 1024000,
-      version: data.version || 'v1.0',
-      notes: data.notes || '',
-      uploadedById: data.uploadedById ?? null,
-      uploadedByName: data.uploadedByName ?? null,
-      createdAt: new Date().toISOString(),
-    };
-    await db.insert(projectDocuments).values(newRecord);
-    return mapProjectDocumentRow(newRecord);
-  }
+    const projectId = String(data.projectId || '').trim();
+    const title = String(data.title || '').trim();
+    const fileUrl = String(data.fileUrl || '').trim();
+    const uploadedById = String(data.uploadedById || '').trim();
+    const uploadedByName = String(data.uploadedByName || '').trim();
 
+    if (!projectId || !title || !fileUrl || !uploadedById || !uploadedByName) {
+      throw new Error('Project, document title, actual file reference and authenticated uploader identity are required.');
+    }
+
+    // Reuse an existing project EDMS folder or create one on demand.
+    let folders = await getEdmsFolders(projectId);
+    let folder = folders.find((f: any) => f.projectId === projectId && !f.isDeleted);
+    if (!folder) {
+      const project = await this.findProjectById(projectId);
+      if (!project) throw new Error('Project not found.');
+      folder = await createEdmsFolder({
+        folderName: `${project.projectCode} Documents`,
+        projectId,
+        department: 'Project Controls',
+        isSystemFolder: false,
+        createdBy: uploadedByName,
+      });
+    }
+
+    const central = await createEdmsDocument({
+      title,
+      description: data.notes || undefined,
+      folderId: folder.id,
+      fileType: data.fileType || 'PDF',
+      fileSizeBytes: Number(data.fileSize || 0),
+      fileUrl,
+      projectId,
+      createdBy: uploadedByName,
+      metadata: {
+        ProjectDocumentCategory: String(data.documentCategory || 'TECHNICAL'),
+        ...(data.siteId ? { SiteId: String(data.siteId) } : {}),
+        UploadedById: uploadedById,
+        ...(data.notes ? { ProjectDocumentNotes: String(data.notes) } : {}),
+      },
+    } as any);
+
+    return {
+      id: central.id,
+      projectId: central.projectId,
+      siteId: data.siteId || undefined,
+      documentCategory: String(data.documentCategory || 'TECHNICAL'),
+      title: central.title,
+      fileUrl: central.fileUrl,
+      fileType: central.fileType,
+      fileSize: Number(central.fileSizeBytes || 0),
+      version: central.currentVersion,
+      notes: data.notes || central.description || undefined,
+      uploadedById,
+      uploadedByName: central.createdBy,
+      createdAt: central.createdAt,
+    };
+  }
   // --- MILESTONES ---
   async findMilestonesByProject(projectId: string): Promise<DbProjectMilestone[]> {
     await ensureProjectSeeded();

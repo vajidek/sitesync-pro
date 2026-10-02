@@ -7439,11 +7439,11 @@ export const phase69ContractVariations = pgTable('phase69_contract_variations', 
   requestedDate: text('requested_date').notNull(),
   approvalDate: text('approval_date'),
   approvedBy: text('approved_by'),
-  status: text('status').notNull().default('APPROVED'), // PROPOSED, CLIENT_SUBMITTED, APPROVED, REJECTED
+  status: text('status').notNull().default('PROPOSED'), // PROPOSED, CLIENT_SUBMITTED, APPROVED, REJECTED
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('Contracts Admin'),
-  updatedBy: text('updated_by').notNull().default('Contracts Admin'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });
@@ -7462,13 +7462,13 @@ export const phase69ContractPayments = pgTable('phase69_contract_payments', {
   netPayableAmount: doublePrecision('net_payable_amount').notNull(),
   vatAmount: doublePrecision('vat_amount').notNull().default(0),
   totalInvoiceAmount: doublePrecision('total_invoice_amount').notNull(),
-  paymentStatus: text('payment_status').notNull().default('PAID'), // CERTIFIED, FINANCE_VERIFIED, PAID, ON_HOLD
+  paymentStatus: text('payment_status').notNull().default('CERTIFIED'), // CERTIFIED, FINANCE_VERIFIED, PAID, ON_HOLD
   certifiedBy: text('certified_by').notNull(),
   paidDate: text('paid_date'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('Contracts Admin'),
-  updatedBy: text('updated_by').notNull().default('Contracts Admin'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
   isDeleted: boolean('is_deleted').notNull().default(false),
 });

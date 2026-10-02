@@ -59,6 +59,7 @@ import { currencyRepository } from './currency.repository';
 import { workflowPolicyEngine } from '../services/workflowPolicyEngine.service';
 import { workflowHistory } from '../../db/schema';
 import { financeRepository } from './finance.repository';
+import { isDemoSeedAllowed } from '../config/env';
 
 export class HrmsRepository {
   private static isTablesEnsured = false;
@@ -156,7 +157,11 @@ export class HrmsRepository {
           created_at TEXT NOT NULL
         );
       `);
-      await this.seedInitialHRMSDataIfEmpty();
+      // Synthetic employees, salary structures, attendance and payroll fixtures are DEMO-only.
+      // UAT/PRODUCTION must begin from controlled HR master provisioning.
+      if (isDemoSeedAllowed()) {
+        await this.seedInitialHRMSDataIfEmpty();
+      }
       HrmsRepository.isTablesEnsured = true;
     } catch (error) {
       console.error('Error ensuring HRMS tables exist:', error);

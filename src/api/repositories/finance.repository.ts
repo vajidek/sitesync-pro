@@ -14,11 +14,20 @@ import {
 } from '../../db/schema';
 import { eq, and, isNull, desc, sql, sum } from 'drizzle-orm';
 import crypto from 'crypto';
+import { isDemoSeedAllowed } from '../config/env';
 
 let tablesCreated = false;
 
 export async function ensureFinanceTablesExist() {
   if (tablesCreated) return;
+
+  // Seeded chart-of-accounts, bank, AP/AR and opening balances are demo fixtures only.
+  // Production/UAT must use controlled finance master-data provisioning.
+  if (!isDemoSeedAllowed()) {
+    tablesCreated = true;
+    return;
+  }
+
   try {
     const existing = await db.select().from(phase60ChartOfAccounts).where(isNull(phase60ChartOfAccounts.deletedAt));
     if (existing.length < 15) {

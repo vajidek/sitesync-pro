@@ -29,17 +29,26 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { employeeExpenseRepository } from './employee_expense.repository';
 import { commercialRepository } from './commercial.repository';
+import { isDemoSeedAllowed } from '../config/env';
 
 export class ProjectControlsRepository {
   private static isTablesEnsured = false;
 
   public async ensureProjectControlsTablesExist(): Promise<void> {
     if (ProjectControlsRepository.isTablesEnsured) return;
+
+    // Synthetic WBS, schedule and EVM records are DEMO fixtures only.
+    // Never populate an empty UAT/PRODUCTION database with sample construction data.
+    if (!isDemoSeedAllowed()) {
+      ProjectControlsRepository.isTablesEnsured = true;
+      return;
+    }
+
     try {
       await this.seedInitialProjectControlsData();
       ProjectControlsRepository.isTablesEnsured = true;
     } catch (err) {
-      console.error('Error ensuring Phase 64 Project Controls tables exist:', err);
+      console.error('Error ensuring demo project-controls fixtures:', err);
     }
   }
 

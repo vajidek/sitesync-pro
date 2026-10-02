@@ -7423,6 +7423,7 @@ export const phase69PoItems = pgTable('phase69_po_items', {
   itemNumber: integer('item_number').notNull(),
   prItemId: text('pr_item_id'),
   rfqItemId: text('rfq_item_id'),
+  quoteItemId: text('quote_item_id'),
   boqItemId: text('boq_item_id'),
   wbsId: text('wbs_id'),
   boqItemCode: text('boq_item_code'),

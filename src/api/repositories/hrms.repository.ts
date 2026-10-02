@@ -81,6 +81,11 @@ export class HrmsRepository {
         ALTER TABLE phase70_pay_slips ADD COLUMN IF NOT EXISTS held_by TEXT;
         ALTER TABLE phase70_pay_slips ADD COLUMN IF NOT EXISTS held_at TEXT;
         ALTER TABLE phase70_pay_slips ADD COLUMN IF NOT EXISTS unheld_reason TEXT;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS employee_code TEXT;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS employee_name TEXT;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS total_repayable_aed DOUBLE PRECISION DEFAULT 0;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS balance_outstanding_aed DOUBLE PRECISION DEFAULT 0;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS purpose TEXT;
         ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS repayment_method TEXT DEFAULT 'PER_DUTY_DAY';
         ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS repayment_rate DOUBLE PRECISION DEFAULT 1000;
         ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS repayment_frequency TEXT DEFAULT 'PER_DUTY_DAY';
@@ -2178,7 +2183,7 @@ export class HrmsRepository {
     return loans;
   }
 
-  public async createLoan(data: any, actor: { userId: string; userName: string }): Promise<any> {
+  public async createLoan(data: any, actor: { userId: string; userName: string; role?: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
 
     const actorId = String(actor?.userId || '').trim();

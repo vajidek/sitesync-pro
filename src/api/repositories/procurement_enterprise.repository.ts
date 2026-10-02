@@ -813,9 +813,11 @@ export class ProcurementEnterpriseRepository {
     }));
   }
 
-  public async createPurchaseOrder(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async createPurchaseOrder(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
     const now = new Date().toISOString();
+    if (!createdBy?.trim()) throw new Error('Authenticated procurement actor identity is required.');
+
     const id = uuidv4();
     const companyId = String(data.companyId || '').trim();
     const projectId = String(data.projectId || '').trim();
@@ -920,9 +922,11 @@ export class ProcurementEnterpriseRepository {
     }));
   }
 
-  public async createContract(data: any, createdBy: string = 'Contracts Admin'): Promise<any> {
+  public async createContract(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
     const now = new Date().toISOString();
+    if (!createdBy?.trim()) throw new Error('Authenticated procurement actor identity is required.');
+
     const id = uuidv4();
     const countRes = await db.select().from(phase69Contracts);
     const codeNum = String(countRes.length + 1).padStart(4, '0');

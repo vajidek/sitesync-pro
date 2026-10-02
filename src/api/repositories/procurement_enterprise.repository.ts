@@ -1274,41 +1274,64 @@ export class ProcurementEnterpriseRepository {
       throw new Error('An accepted/awarded vendor quotation is required before issuing a purchase order.');
     }
 
+    const quotationItems = await db
+      .select()
+      .from(phase69VendorQuotationItems)
+      .where(and(eq(phase69VendorQuotationItems.quotationId, acceptedQuotation.id), eq(phase69VendorQuotationItems.isDeleted, false)));
+
+    if (quotationItems.length === 0) {
+      throw new Error('The accepted quotation has no item-level pricing. Add quotation lines before creating the purchase order.');
+    }
+
     const poItems = [];
     for (const [index, input] of itemsInput.entries()) {
       const rfqItem = rfqItems.find((item) => item.id === input.rfqItemId);
-      if (!rfqItem) throw new Error(`PO line ${index + 1} is not linked to an RFQ item.`);
-      if (rfqItem.prItemId !== input.prItemId || rfqItem.boqItemId !== input.boqItemId) {
-        throw new Error(`PO line ${index + 1} must retain the RFQ PR/BOQ references.`);
+      const quoteItem = quotationItems.find((item) => item.rfqItemId === input.rfqItemId);
+
+      if (!rfqItem || !quoteItem) {
+        throw new Error(`PO line ${index + 1} is not linked to a valid RFQ/quotation item.`);
+      }
+
+      if (rfqItem.prItemId !== input.prItemId || rfqItem.boqItemId !== input.boqItemId || quoteItem.boqItemId !== input.boqItemId) {
+        throw new Error(`PO line ${index + 1} must retain the complete PR → RFQ → BOQ lineage.`);
       }
 
       const quantity = Number(input.orderedQuantity);
-      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`PO quantity for ${rfqItem.boqItemCode} must be greater than zero.`);
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > Number(quoteItem.quotedQuantity)) {
+        throw new Error(`PO quantity for ${rfqItem.boqItemCode || rfqItem.itemCode} must be > 0 and <= accepted quotation quantity ${quoteItem.quotedQuantity}.`);
+      }
 
-      const existingOrders = await db.select({ orderedQuantity: phase69PoItems.orderedQuantity })
+      const existingOrders = await db
+        .select({ orderedQuantity: phase69PoItems.orderedQuantity })
         .from(phase69PoItems)
         .where(and(eq(phase69PoItems.rfqItemId, rfqItem.id), eq(phase69PoItems.isDeleted, false)));
 
       const alreadyOrdered = existingOrders.reduce((sum, row) => sum + Number(row.orderedQuantity || 0), 0);
       const rfqBalance = Number(rfqItem.quantity) - alreadyOrdered;
       if (quantity > rfqBalance) {
-        throw new Error(`PO quantity for ${rfqItem.boqItemCode} exceeds remaining RFQ quantity ${rfqBalance}.`);
+        throw new Error(`PO quantity for ${rfqItem.boqItemCode || rfqItem.itemCode} exceeds remaining RFQ quantity ${rfqBalance}.`);
+      }
+
+      const unitPrice = Number(quoteItem.quotedUnitPrice);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new Error(`Accepted quotation rate for ${rfqItem.itemCode} is invalid.`);
       }
 
       poItems.push({
-        prItemId: rfqItem.prItemId,
+        prItemId: quoteItem.prItemId || rfqItem.prItemId,
         rfqItemId: rfqItem.id,
-        boqItemId: rfqItem.boqItemId,
-        wbsId: rfqItem.wbsId,
-        boqItemCode: rfqItem.boqItemCode,
-        wbsCode: rfqItem.wbsCode,
-        itemCode: rfqItem.itemCode,
-        description: rfqItem.description,
+        boqItemId: quoteItem.boqItemId,
+        wbsId: quoteItem.wbsId,
+        boqItemCode: quoteItem.boqItemCode,
+        wbsCode: quoteItem.wbsCode,
+        itemCode: quoteItem.itemCode,
+        description: quoteItem.description,
         orderedQuantity: quantity,
-        uom: rfqItem.uom,
-        unitPrice: Number(input.unitPrice),
-        totalPrice: Number(input.totalPrice ?? quantity * Number(input.unitPrice)),
+        uom: quoteItem.uom,
+        unitPrice,
+        totalPrice: Math.round(quantity * unitPrice * 100) / 100,
         requiredDate: input.requiredDate || rfqItem.requiredDeliveryDate || rfq.targetDeliveryDate,
+        quoteItemId: quoteItem.id,
       });
     }
 
@@ -1326,9 +1349,17 @@ export class ProcurementEnterpriseRepository {
     const currency = String(data?.currency || acceptedQuotation.currency || '').trim().toUpperCase();
     if (!currency) throw new Error('Currency is required for the purchase order.');
 
-    const subtotal = Number(data?.subtotal);
+    const derivedSubtotal = poItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+    const subtotal = data?.subtotal == null ? derivedSubtotal : Number(data.subtotal);
     const vatRatePercent = Number(data?.vatRatePercent ?? 0);
-    const vatAmount = data?.vatAmount == null ? subtotal * vatRatePercent / 100 : Number(data.vatAmount);
+    const derivedVatAmount = quotationItems
+      .filter((quoteItem) => poItems.some((item) => item.quoteItemId === quoteItem.id))
+      .reduce((sum, quoteItem) => {
+        const poItem = poItems.find((item) => item.quoteItemId === quoteItem.id);
+        const ratio = Number(quoteItem.quotedQuantity) > 0 ? Number(poItem?.orderedQuantity || 0) / Number(quoteItem.quotedQuantity) : 0;
+        return sum + Number(quoteItem.lineVatAmount || 0) * ratio;
+      }, 0);
+    const vatAmount = data?.vatAmount == null ? derivedVatAmount : Number(data.vatAmount);
     const totalAmount = data?.totalAmount == null ? subtotal + vatAmount : Number(data.totalAmount);
     if (!Number.isFinite(subtotal) || subtotal < 0 || !Number.isFinite(vatRatePercent) || vatRatePercent < 0 || !Number.isFinite(vatAmount) || vatAmount < 0 || !Number.isFinite(totalAmount) || totalAmount <= 0) {
       throw new Error('PO commercial amounts must be explicitly supplied and valid.');
@@ -1352,8 +1383,8 @@ export class ProcurementEnterpriseRepository {
       vatRatePercent,
       vatAmount,
       totalAmount,
-      paymentTerms: String(data?.paymentTerms || '').trim(),
-      incoterms: String(data?.incoterms || '').trim(),
+      paymentTerms: String(data?.paymentTerms || acceptedQuotation.paymentTerms || '').trim(),
+      incoterms: String(data?.incoterms || acceptedQuotation.incoterms || '').trim(),
       status: 'PENDING_APPROVAL',
       buyerName: createdBy.trim(),
       approvedBy: null,

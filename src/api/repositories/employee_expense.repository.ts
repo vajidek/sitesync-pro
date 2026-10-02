@@ -686,33 +686,45 @@ export class EmployeeExpenseRepository {
     const count = this.expenseClaims.length + 1;
     const claimNumber = `EXP-2026-${String(count).padStart(4, '0')}`;
 
-    // Perform duplicate detection
+    if (!data.employeeId || !data.employeeName || !data.department) {
+      throw new Error('Authenticated employee identity is required to create an expense claim.');
+    }
+    if (!data.category || !data.currency || !data.expenseDate || !data.vendorShop || !data.description) {
+      throw new Error('Category, currency, date, vendor, and business purpose are required.');
+    }
+
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Expense amount must be greater than zero.');
+    }
+
+    // Perform duplicate detection against the submitted identity and source evidence.
     const dup = this.checkDuplicateClaim({
-      employeeId: data.employeeId || 'emp-101',
+      employeeId: data.employeeId,
       billInvoiceNumber: data.billInvoiceNumber,
       vendorShop: data.vendorShop,
       expenseDate: data.expenseDate,
-      amount: data.amount,
+      amount,
       fileHash: data.attachments?.[0]?.fileHash,
     });
 
     const newClaim: ExpenseClaim = {
       id: `exp-${uuidv4().substring(0, 8)}`,
       claimNumber,
-      employeeId: data.employeeId || 'emp-101',
-      employeeName: data.employeeName || 'Sunil Kumar',
-      employeeCode: data.employeeCode || 'EMP-049',
-      department: data.department || 'SITE_OPERATIONS',
-      projectId: data.projectId || 'PRJ-101',
-      projectName: data.projectName || 'Dubai Creek Harbor Desalination WTP',
-      costCenterCode: data.costCenterCode || 'CC-CIVIL-01',
-      category: data.category || 'MATERIAL_PURCHASE',
+      employeeId: data.employeeId,
+      employeeName: data.employeeName,
+      employeeCode: data.employeeCode || '',
+      department: data.department,
+      projectId: data.projectId,
+      projectName: data.projectName,
+      costCenterCode: data.costCenterCode,
+      category: data.category,
       customCategoryName: data.customCategoryName,
-      amount: Number(data.amount) || 0,
-      currency: data.currency || 'INR',
-      expenseDate: data.expenseDate || now.split('T')[0],
-      vendorShop: data.vendorShop || 'Local Supplier',
-      description: data.description || 'Legitimate business expense request',
+      amount,
+      currency: data.currency,
+      expenseDate: data.expenseDate,
+      vendorShop: data.vendorShop,
+      description: data.description,
       billInvoiceNumber: data.billInvoiceNumber || '',
       attachments: data.attachments || [],
       status: data.status || 'SUBMITTED',
@@ -730,8 +742,8 @@ export class EmployeeExpenseRepository {
       financeVerification: {
         verifiedBy: '',
         verificationDate: '',
-        accountDebitCode: '5001',
-        accountCreditCode: '2001',
+        accountDebitCode: '',
+        accountCreditCode: '',
         advanceDeductionAmount: 0,
         netPayableAmount: Number(data.amount) || 0,
         duplicateWarning: dup,
@@ -772,6 +784,13 @@ export class EmployeeExpenseRepository {
   public async approveByManager(id: string, approver: { id: string; name: string; role: string; remarks?: string }): Promise<ExpenseClaim | null> {
     const claim = await this.getExpenseClaimById(id);
     if (!claim) return null;
+
+    if (!['SUBMITTED', 'CLARIFICATION_REQUESTED'].includes(claim.status)) {
+      throw new Error(`Manager approval is not allowed from status ${claim.status}`);
+    }
+    if (claim.employeeId === approver.id) {
+      throw new Error('Maker-checker violation: claimant cannot approve their own expense.');
+    }
 
     const now = new Date().toISOString();
     const prevStatus = claim.status;
@@ -889,19 +908,35 @@ export class EmployeeExpenseRepository {
     const claim = await this.getExpenseClaimById(id);
     if (!claim) return null;
 
+    if (claim.status !== 'SUPERVISOR_APPROVED') {
+      throw new Error(`Finance verification is allowed only after supervisor approval. Current status: ${claim.status}`);
+    }
+    if (claim.employeeId === financeData.verifierId) {
+      throw new Error('Maker-checker violation: claimant cannot finance-verify their own expense.');
+    }
+    if (!financeData.verifierId || !financeData.verifierName) {
+      throw new Error('Authenticated finance verifier identity is required.');
+    }
+    if (!financeData.accountDebitCode || !financeData.accountCreditCode) {
+      throw new Error('Debit and credit account codes must be explicitly selected from configured finance masters.');
+    }
+
     const now = new Date().toISOString();
     const prev = claim.status;
     claim.status = 'APPROVED_FOR_PAYMENT';
 
-    const deduction = financeData.advanceDeductionAmount || 0;
-    const net = Math.max(0, claim.amount - deduction);
+    const deduction = Number(financeData.advanceDeductionAmount || 0);
+    if (!Number.isFinite(deduction) || deduction < 0 || deduction > claim.amount) {
+      throw new Error('Advance deduction amount is invalid for this expense.');
+    }
+    const net = claim.amount - deduction;
 
     claim.financeVerification = {
       verifiedBy: financeData.verifierName,
       verificationDate: now.split('T')[0],
-      taxAmount: financeData.taxAmount || 0,
-      accountDebitCode: financeData.accountDebitCode || '5001',
-      accountCreditCode: financeData.accountCreditCode || '2001',
+      taxAmount: Number(financeData.taxAmount || 0),
+      accountDebitCode: financeData.accountDebitCode,
+      accountCreditCode: financeData.accountCreditCode,
       advanceDeductionAmount: deduction,
       netPayableAmount: net,
       notes: financeData.notes,
@@ -943,22 +978,41 @@ export class EmployeeExpenseRepository {
     const claim = await this.getExpenseClaimById(id);
     if (!claim) return null;
 
+    if (claim.status !== 'APPROVED_FOR_PAYMENT') {
+      throw new Error(`Payment is allowed only for approved expenses. Current status: ${claim.status}`);
+    }
+    if (!paymentData.paidById || !paymentData.paidByName) {
+      throw new Error('Authenticated payer identity is required.');
+    }
+    if (claim.employeeId === paymentData.paidById) {
+      throw new Error('Maker-checker violation: claimant cannot disburse their own expense.');
+    }
+    if (!paymentData.paymentReference || !paymentData.paymentMethod) {
+      throw new Error('Payment method and reference are required.');
+    }
+
+    const amount = Number(paymentData.amountPaid);
+    const payable = claim.financeVerification?.netPayableAmount ?? claim.amount;
+    if (!Number.isFinite(amount) || amount <= 0 || amount > payable) {
+      throw new Error('Payment amount must be greater than zero and must not exceed the verified net payable amount.');
+    }
+
     const now = new Date().toISOString();
     const prev = claim.status;
-    claim.status = 'PAID';
 
-    // 1. Post real double-entry journal entry to Finance GL
+    // 1. Post the double-entry journal before changing business status.
+    // If the GL post fails, the claim must remain APPROVED_FOR_PAYMENT rather than falsely becoming PAID.
     let jvNumber = `JV-EXP-${claim.claimNumber}`;
     try {
       const debitAccount = claim.financeVerification?.accountDebitCode || '5001';
       const creditAccount = claim.financeVerification?.accountCreditCode || '1001'; // Cash/Bank
-      const amount = paymentData.amountPaid || claim.financeVerification?.netPayableAmount || claim.amount;
+      const journalAmount = amount;
 
       const lines = [
         {
           accountCode: debitAccount,
           accountName: `Direct Expense - ${claim.category} (${claim.projectName || 'Site'})`,
-          debitAmount: amount,
+          debitAmount: journalAmount,
           creditAmount: 0,
           narration: `Reimbursement claim ${claim.claimNumber}: ${claim.description} [Vendor: ${claim.vendorShop}]`,
         },
@@ -966,7 +1020,7 @@ export class EmployeeExpenseRepository {
           accountCode: creditAccount,
           accountName: paymentData.paymentMethod === 'CASH' ? 'Petty Cash / Imprest Float' : 'Main Operational Bank Account',
           debitAmount: 0,
-          creditAmount: amount,
+          creditAmount: journalAmount,
           narration: `Settlement via ${paymentData.paymentMethod} Ref: ${paymentData.paymentReference} to ${claim.employeeName}`,
         }
       ];
@@ -984,14 +1038,17 @@ export class EmployeeExpenseRepository {
         jvNumber = jv.voucherNumber;
       }
     } catch (err) {
-      console.warn('Auto-posting to finance GL encountered fallback:', err);
+      console.error('Expense payment blocked because finance GL posting failed:', err);
+      throw new Error('Payment was not completed because the finance journal could not be posted.');
     }
+
+    claim.status = 'PAID';
 
     claim.paymentDetails = {
       paymentMethod: paymentData.paymentMethod,
       paymentReference: paymentData.paymentReference,
       paymentDate: now.split('T')[0],
-      amountPaid: paymentData.amountPaid,
+      amountPaid: amount,
       journalVoucherNumber: jvNumber,
       paidBy: paymentData.paidByName,
     };

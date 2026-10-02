@@ -60,7 +60,8 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
     setSelectedProjectId 
   } = useShell();
 
-  const [punchedIn, setPunchedIn] = useState(true);
+  // Real attendance state must not default to a completed punch. DEMO may show a sample state; real environments start neutral.
+  const [punchedIn, setPunchedIn] = useState(false);
   const [siteLogSubmitted, setSiteLogSubmitted] = useState(false);
   const [logNotes, setLogNotes] = useState('');
   const [viewMode, setViewMode] = useState<'workspace' | 'legacy'>('workspace');
@@ -124,17 +125,32 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
     e.preventDefault();
     setQuickExpenseLoading(true);
     try {
+      if (!user?.id) {
+        throw new Error('Authenticated employee context is required.');
+      }
+
+      if (!selectedProjectId || selectedProjectId === 'ALL') {
+        window.alert('Select a specific project before submitting a project expense.');
+        return;
+      }
+
+      const selectedProject = projects.find((project: any) => project.id === selectedProjectId);
+      if (!selectedProject) {
+        window.alert('The selected project could not be resolved from the authoritative project list.');
+        return;
+      }
+
       const payload = {
-        employeeName: user?.name || 'Field Engineer',
-        employeeId: user?.id || 'emp-101',
-        employeeCode: user?.employeeId || 'EMP-049',
-        department: user?.department || 'SITE_OPERATIONS',
-        projectId: selectedProjectId === 'ALL' ? 'PRJ-101' : selectedProjectId,
-        projectName: projectOptions.find(p => p.id === selectedProjectId)?.label || 'Dubai Creek Harbor Desalination WTP',
-        costCenterCode: 'CC-CIVIL-01',
+        employeeName: user.name,
+        employeeId: user.id,
+        employeeCode: user.employeeId || '',
+        department: user.department || '',
+        projectId: selectedProject.id,
+        projectName: selectedProject.projectName || selectedProject.name || selectedProject.projectCode || selectedProject.id,
+        costCenterCode: selectedProject.costCenterCode || undefined,
         category: quickExpenseForm.category,
         amount: Number(quickExpenseForm.amount),
-        currency: 'INR',
+        currency: selectedProject.currency || undefined,
         expenseDate: quickExpenseForm.expenseDate,
         vendorShop: quickExpenseForm.vendorShop,
         description: quickExpenseForm.description,
@@ -188,10 +204,16 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
   };
 
   const projectOptions = [
-    { id: 'ALL', label: isDemo ? 'All Active Sites (3)' : 'All Active Sites' },
-    { id: 'proj-001', label: 'Metro Rail Viaduct Segment 4B' },
-    { id: 'proj-002', label: 'Water Treatment & Transmission Main' },
-    { id: 'proj-003', label: 'Commercial Complex & Energy Substation' },
+    {
+      id: 'ALL',
+      label: isDemo
+        ? `All Active Sites (${projects.length})`
+        : 'All Active Projects',
+    },
+    ...projects.map((project: any) => ({
+      id: project.id,
+      label: project.projectName || project.name || project.projectCode || project.code || project.id,
+    })),
   ];
 
   useEffect(() => {
@@ -427,16 +449,18 @@ export const RoleDashboard: React.FC<RoleDashboardProps> = ({ onNavigateToTab, o
           >
             Role Workspaces
           </button>
-          <button
-            onClick={() => setViewMode('legacy')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
-              viewMode === 'legacy'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Legacy View
-          </button>
+          {isDemo && (
+            <button
+              onClick={() => setViewMode('legacy')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                viewMode === 'legacy'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Legacy View
+            </button>
+          )}
         </div>
       </div>
 

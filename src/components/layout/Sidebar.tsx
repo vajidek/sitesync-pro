@@ -46,7 +46,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { useShell } from './ShellContext';
-import { DSSearchBox, DSBadge } from '../ui/design-system';
+import { DSSearchBox } from '../ui/design-system';
 
 export type NavTab =
   | 'commandCenter'
@@ -146,8 +146,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Operations Command Center',
         shortLabel: 'Command Center',
         icon: <Activity className="w-4 h-4 text-rose-400" />,
-        badgeCount: 1,
-        badgeVariant: 'danger',
         description: 'Real-time telemetry, incidents & active alarms',
       },
     ],
@@ -165,8 +163,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Enterprise HRMS & Payroll',
         shortLabel: 'HR & Payroll',
         icon: <Users className="w-4 h-4 text-rose-400" />,
-        badgeCount: 5,
-        badgeVariant: 'primary',
         description: 'Employee Master, attendance, leaves, payroll & documents',
       },
       {
@@ -174,8 +170,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Enterprise Resource Management',
         shortLabel: 'Resources',
         icon: <Layers className="w-4 h-4 text-indigo-400" />,
-        badgeCount: 4,
-        badgeVariant: 'primary',
         description: 'Labor allocation, skill matrix & equipment dispatch',
       },
     ],
@@ -193,8 +187,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Projects & Sites',
         shortLabel: 'Project Master',
         icon: <Building2 className="w-4 h-4 text-emerald-400" />,
-        badgeCount: 12,
-        badgeVariant: 'primary',
         description: 'Site setup, project details, WBS & milestones',
       },
       {
@@ -202,8 +194,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Project Controls & Planning',
         shortLabel: 'Controls & EVM',
         icon: <BarChart3 className="w-4 h-4 text-blue-400" />,
-        badgeCount: 4,
-        badgeVariant: 'primary',
         description: 'S-Curves, Earned Value, CPM schedule & progress curves',
       },
       {
@@ -211,8 +201,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Water & Utility Engineering',
         shortLabel: 'Water Utility',
         icon: <Droplets className="w-4 h-4 text-cyan-400" />,
-        badgeCount: 3,
-        badgeVariant: 'info',
         description: 'Pipeline trenching, pressure tests, WTP network & valves',
       },
       {
@@ -220,8 +208,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Work Orders & Site Execution',
         shortLabel: 'Work Orders',
         icon: <ClipboardCheck className="w-4 h-4 text-amber-400" />,
-        badgeCount: 5,
-        badgeVariant: 'warning',
         description: 'Daily duty logs, task execution & site work orders',
       },
       {
@@ -229,8 +215,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Mobile Field Ops & GIS',
         shortLabel: 'Field Ops GIS',
         icon: <Smartphone className="w-4 h-4 text-teal-400" />,
-        badgeCount: 3,
-        badgeVariant: 'info',
         description: 'Offline site inspections, GPS geotagging & mobile sync',
       },
     ],
@@ -248,8 +232,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Procurement & Vendor Orders',
         shortLabel: 'Procurement',
         icon: <FileSpreadsheet className="w-4 h-4 text-indigo-400" />,
-        badgeCount: 4,
-        badgeVariant: 'primary',
         description: 'Material Requisitions (PR), RFQs, POs & Vendor evaluations',
       },
     ],
@@ -284,8 +266,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Fleet & Heavy Logistics',
         shortLabel: 'Fleet Management',
         icon: <Truck className="w-4 h-4 text-amber-400" />,
-        badgeCount: 8,
-        badgeVariant: 'primary',
         description: 'Vehicle tracking, fuel logs, driver dispatch & trips',
       },
       {
@@ -293,8 +273,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'EAM & Plant Maintenance',
         shortLabel: 'Plant & Machinery',
         icon: <Wrench className="w-4 h-4 text-blue-400" />,
-        badgeCount: 6,
-        badgeVariant: 'primary',
         description: 'Heavy equipment master, preventive maintenance & work orders',
       },
     ],
@@ -312,8 +290,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Finance & Cost Control',
         shortLabel: 'Finance & Accounts',
         icon: <DollarSign className="w-4 h-4 text-emerald-400" />,
-        badgeCount: 5,
-        badgeVariant: 'success',
         description: 'Budgets, BOQ tracking, Subcontract WO, RA Bills & Multi-Currency',
       },
       {
@@ -321,8 +297,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Commercial & Tendering Lifecycle',
         shortLabel: 'Commercial & Tenders',
         icon: <Award className="w-4 h-4 text-emerald-400" />,
-        badgeCount: 3,
-        badgeVariant: 'primary',
         description: 'Tenders & Bidding, BOQ rate analysis & subcontract agreement management',
       },
       {
@@ -330,8 +304,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Employee Expenses & Petty Cash',
         shortLabel: 'Expenses & Petty Cash',
         icon: <Receipt className="w-4 h-4 text-emerald-400" />,
-        badgeCount: 2,
-        badgeVariant: 'warning',
         description: 'Expense claims, receipts, approval workflow, cash advances & petty cash float reconciliation',
       },
     ],
@@ -349,8 +321,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'QA/QC Quality Management',
         shortLabel: 'QA/QC System',
         icon: <ShieldCheck className="w-4 h-4 text-blue-400" />,
-        badgeCount: 3,
-        badgeVariant: 'warning',
         description: 'Inspection Test Plans (ITP), NCRs, checklists & lab certificates',
       },
       {
@@ -358,8 +328,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'HSE Safety & Environment',
         shortLabel: 'HSE Safety',
         icon: <HardHat className="w-4.5 h-4.5 text-emerald-400" />,
-        badgeCount: 2,
-        badgeVariant: 'danger',
         description: 'Toolbox talks, incident logs, hazard reports & PTW permits',
       },
     ],
@@ -377,8 +345,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Industrial IoT & SCADA',
         shortLabel: 'SCADA & Sensors',
         icon: <Cpu className="w-4 h-4 text-cyan-400" />,
-        badgeCount: 4,
-        badgeVariant: 'info',
         description: 'RTU devices, pump telemetry, flow sensors & remote control',
       },
     ],
@@ -396,8 +362,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'AI Intelligence & Decisions',
         shortLabel: 'AI Decision Engine',
         icon: <Brain className="w-4 h-4 text-indigo-400" />,
-        badgeCount: 4,
-        badgeVariant: 'primary',
         description: 'Automated decision engine, predictive models & anomaly detection',
       },
       {
@@ -405,8 +369,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Multi-Model AI Gateway',
         shortLabel: 'AI Gateway',
         icon: <Cpu className="w-4 h-4 text-cyan-400" />,
-        badgeCount: 3,
-        badgeVariant: 'info',
         description: 'Gemini, model routing, token usage & prompt orchestration',
       },
       {
@@ -414,8 +376,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Executive BI & Analytics',
         shortLabel: 'BI & Analytics',
         icon: <Sparkles className="w-4 h-4 text-indigo-400" />,
-        badgeCount: 3,
-        badgeVariant: 'primary',
         description: 'Interactive management charts, multi-project reports & BI trends',
       },
       {
@@ -423,8 +383,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Document System (EDMS)',
         shortLabel: 'EDMS Documents',
         icon: <FileText className="w-4 h-4 text-blue-400" />,
-        badgeCount: 14,
-        badgeVariant: 'primary',
         description: 'Engineering drawings, submittals, transmittals & versioning',
       },
     ],
@@ -442,8 +400,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Enterprise CRM & Client Portal',
         shortLabel: 'CRM & Clients',
         icon: <Users className="w-4 h-4 text-cyan-400" />,
-        badgeCount: 3,
-        badgeVariant: 'info',
         description: 'Clients, consultants, funding agencies, tenders & client portal',
       },
     ],
@@ -469,8 +425,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Office Administration & General Services',
         shortLabel: 'Office Admin',
         icon: <Building className="w-4 h-4 text-emerald-400" />,
-        badgeCount: 4,
-        badgeVariant: 'primary',
         description: 'Visitor management, meeting rooms, company circulars & service requests',
       },
       {
@@ -478,8 +432,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'IT & Digital Asset Management (ITAM / ITSM)',
         shortLabel: 'IT & Helpdesk',
         icon: <Laptop className="w-4 h-4 text-indigo-400" />,
-        badgeCount: 5,
-        badgeVariant: 'warning',
         description: 'IT hardware assets, software licenses, helpdesk tickets & access governance',
       },
       {
@@ -487,8 +439,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Master Data Governance (MDM)',
         shortLabel: 'Master Data MDM',
         icon: <Database className="w-4 h-4 text-emerald-400" />,
-        badgeCount: 6,
-        badgeVariant: 'primary',
         description: '32 Master Domains, data registry, golden records & lineage',
       },
       {
@@ -496,8 +446,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Workflow Engine & Approvals',
         shortLabel: 'Workflows',
         icon: <GitPullRequest className="w-4 h-4 text-amber-400" />,
-        badgeCount: 4,
-        badgeVariant: 'warning',
         description: 'Multi-step approval workflows, notifications & triggers',
       },
       {
@@ -505,8 +453,6 @@ export const ENTERPRISE_NAV_DOMAINS: EnterpriseDomainGroup[] = [
         label: 'Enterprise Help Center & Admin Manual',
         shortLabel: 'Help & Manual',
         icon: <HelpCircle className="w-4 h-4 text-cyan-400" />,
-        badgeCount: 8,
-        badgeVariant: 'info',
         description: 'Plain-English role guides, visual workflow steppers, ERP jargon glossary & administrator manual',
       },
       {
@@ -878,11 +824,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               <span className="shrink-0">{sub.icon}</span>
                               <span className="truncate">{sub.label}</span>
                             </div>
-                            {sub.badgeCount && (
-                              <DSBadge variant={sub.badgeVariant || 'primary'} size="xs">
-                                {sub.badgeCount}
-                              </DSBadge>
-                            )}
+
                           </div>
                         );
                       })}
@@ -924,11 +866,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             </div>
 
                             <div className="flex items-center space-x-1 shrink-0">
-                              {sub.badgeCount && (
-                                <DSBadge variant={sub.badgeVariant || 'primary'} size="xs">
-                                  {sub.badgeCount}
-                                </DSBadge>
-                              )}
+
                               <button
                                 type="button"
                                 onClick={(e) => {

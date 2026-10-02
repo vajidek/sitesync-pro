@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "sitesync-pro",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -51,5 +51,6 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
     "@types/express": "^4.17.21"
-  }
+  },
+  "description": "SiteSync Pro — Construction & Infrastructure Project Management Platform"
 }

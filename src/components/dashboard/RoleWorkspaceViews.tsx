@@ -43,7 +43,7 @@ export const RoleWorkspaceViews: React.FC<RoleWorkspaceViewsProps> = ({
   onOpenQuickExpense,
 }) => {
   const { isDemo } = useShell();
-  const [punchState, setPunchState] = useState<'CLOCKED_IN' | 'CLOCKED_OUT'>('CLOCKED_IN');
+  const [punchState, setPunchState] = useState<'CLOCKED_IN' | 'CLOCKED_OUT' | 'UNKNOWN'>(isDemo ? 'CLOCKED_IN' : 'UNKNOWN');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -64,16 +64,24 @@ export const RoleWorkspaceViews: React.FC<RoleWorkspaceViewsProps> = ({
             Daily Attendance & Field Tasks
           </h3>
           <p className="text-xs text-slate-300">
-            Current Shift: <strong className="text-emerald-400">Shift 1 (07:00 - 15:30)</strong> · Geofence: Active on Project Site
+            {isDemo ? (
+              <>Current Shift: <strong className="text-emerald-400">Demo Shift (07:00 - 15:30)</strong> · Demo geofence</>
+            ) : (
+              <>Live attendance status and shift details are loaded from the configured attendance source.</>
+            )}
           </p>
         </div>
 
         <div className="flex items-center space-x-2 shrink-0">
           <button
             onClick={() => {
+              if (!isDemo) {
+                showToast('Manual demo punching is disabled. Use the configured attendance source for live punches.');
+                return;
+              }
               const next = punchState === 'CLOCKED_IN' ? 'CLOCKED_OUT' : 'CLOCKED_IN';
               setPunchState(next);
-              showToast(next === 'CLOCKED_IN' ? 'Clocked in successfully!' : 'Clocked out for the day.');
+              showToast(next === 'CLOCKED_IN' ? 'Demo clock-in recorded.' : 'Demo clock-out recorded.');
             }}
             className={`px-4 py-2.5 rounded-xl font-bold text-xs transition flex items-center space-x-2 shadow-md ${
               punchState === 'CLOCKED_IN'
@@ -82,7 +90,13 @@ export const RoleWorkspaceViews: React.FC<RoleWorkspaceViewsProps> = ({
             }`}
           >
             <Clock className="w-4 h-4" />
-            <span>{punchState === 'CLOCKED_IN' ? 'Clocked In (07:15 AM)' : 'Punch Clock In'}</span>
+            <span>
+              {punchState === 'UNKNOWN'
+                ? 'Attendance status unavailable'
+                : punchState === 'CLOCKED_IN'
+                ? 'Clocked In (Demo)'
+                : 'Punch Clock In (Demo)'}
+            </span>
           </button>
         </div>
       </div>
@@ -202,7 +216,9 @@ export const RoleWorkspaceViews: React.FC<RoleWorkspaceViewsProps> = ({
             <h4 className="font-extrabold text-xs text-slate-900 dark:text-white group-hover:text-indigo-600 transition">
               Site Safety Notices & Circulars
             </h4>
-            <p className="text-[10px] text-slate-500">Mandatory PPE inspection scheduled for 10:00 AM</p>
+            <p className="text-[10px] text-slate-500">
+              {isDemo ? 'Mandatory PPE inspection scheduled for 10:00 AM' : 'Live safety notices will appear here'}
+            </p>
           </div>
         </button>
       </div>
@@ -225,7 +241,7 @@ export const RoleWorkspaceViews: React.FC<RoleWorkspaceViewsProps> = ({
               {isDemo ? 'Demo Approval Queue' : 'Pending Approvals'}
             </h4>
             <p className="text-[10px] text-slate-500">
-              {isDemo ? '3 Demo Sign-offs' : 'Workflow Queue'}
+              {isDemo ? '3 Demo Sign-offs' : 'Live workflow queue'}
             </p>
           </div>
         </button>

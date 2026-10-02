@@ -1,13 +1,13 @@
 export const BRANDING_CONFIG = {
-  companyName: 'SiteSync Enterprise Global Ltd.',
-  companyShortName: 'SiteSync Global',
+  companyName: 'SiteSync Pro',
+  companyShortName: 'SiteSync Pro',
   appName: 'SiteSync Pro',
-  appFullName: 'SiteSync Pro Enterprise ERP',
+  appFullName: 'SiteSync Pro',
   subtitle: 'Construction & Infrastructure Project Management Platform',
-  version: '1.0.0 (Enterprise Production)',
+  version: '1.0.0',
   footerText: 'SiteSync Pro • Construction & Infrastructure Project Management Platform',
   developer: 'Abdul Vajid EK',
-  developerRole: 'Lead Enterprise Solution Architect',
+  developerRole: 'Product Architect',
   contactEmail: 'vajidek1@gmail.com',
   location: 'Kerala, India',
 };
@@ -15,7 +15,7 @@ export const BRANDING_CONFIG = {
 export const CREATOR_INFO = {
   name: BRANDING_CONFIG.developer,
   role: BRANDING_CONFIG.developerRole,
-  bio: 'Lead enterprise architect of SiteSync Pro Construction Enterprise ERP, specializing in multi-discipline project controls, commercial workflow automation, and multi-tenant enterprise data architecture.',
+  bio: 'Creator of SiteSync Pro, focused on construction and infrastructure project operations, project controls, commercial workflows, ERP architecture, and digital field systems.',
   appName: BRANDING_CONFIG.appName,
   companyName: BRANDING_CONFIG.companyName,
   subtitle: BRANDING_CONFIG.subtitle,
@@ -23,10 +23,10 @@ export const CREATOR_INFO = {
   footerText: `Designed & Developed by ${BRANDING_CONFIG.developer}`,
   techStack: [
     'React 19 & TypeScript',
-    'Tailwind CSS Engine',
-    'Node.js & Express API',
-    'PostgreSQL & Prisma ORM Blueprint',
-    'Progressive Web App (PWA Engine)',
+    'Tailwind CSS',
+    'Node.js & Express',
+    'PostgreSQL & Drizzle ORM',
+    'Progressive Web App (PWA)',
   ],
   contact: {
     email: BRANDING_CONFIG.contactEmail,

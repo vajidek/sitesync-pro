@@ -13,26 +13,29 @@ async function startServer() {
   const app = express();
   const PORT = ENV.PORT;
 
-  // Production Security Verification: Fail safely or issue critical warning if fallback secrets are used
-  if (ENV.NODE_ENV === 'production') {
-    const isDefaultJwt = !process.env.JWT_SECRET || process.env.JWT_SECRET.includes('sitesync-pro-enterprise-jwt-access-secret-2026-key');
-    const isDefaultRefresh = !process.env.JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET.includes('sitesync-pro-enterprise-jwt-refresh-secret-2026-key');
-    if (isDefaultJwt || isDefaultRefresh) {
-      if (process.env.STRICT_PROD_SECRETS === 'true') {
-        throw new Error('FATAL PRODUCTION SECURITY ERROR: Production deployment requires unique cryptographically secure JWT_SECRET and JWT_REFRESH_SECRET environment variables. Refusing to start with development fallback secrets.');
-      } else {
-        logger.warn('[SECURITY WARNING] Production running with default development fallback secrets. Set custom JWT_SECRET and JWT_REFRESH_SECRET in production environment.');
-      }
-    }
-  }
-
   // Trust proxy for reverse proxy / Cloud Run container environment
   app.set('trust proxy', 1);
 
   // Security Middlewares
+  const isProduction = ENV.NODE_ENV === 'production';
+
   app.use(
     helmet({
-      contentSecurityPolicy: false, // Disabled for internal dev preview scripts compatibility
+      contentSecurityPolicy: isProduction
+        ? {
+            directives: {
+              defaultSrc: ["'self'"],
+              baseUri: ["'self'"],
+              objectSrc: ["'none'"],
+              frameAncestors: ["'self'"],
+              scriptSrc: ["'self'"],
+              styleSrc: ["'self'", "'unsafe-inline'"],
+              imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+              fontSrc: ["'self'", 'data:', 'https:'],
+              connectSrc: ["'self'", 'https:'],
+            },
+          }
+        : false,
       crossOriginEmbedderPolicy: false,
     })
   );
@@ -73,7 +76,7 @@ async function startServer() {
       subtitle: 'Construction & Infrastructure Project Management Platform',
       developer: ENV.DEVELOPER,
       timestamp: new Date().toISOString(),
-      architecture: 'Enterprise Clean Architecture (Node.js + Express + TypeScript + Prisma + JWT + Zod + Winston + Helmet)',
+      architecture: 'Enterprise modular architecture (Node.js + Express + TypeScript + Drizzle ORM + PostgreSQL + JWT + Zod + Winston + Helmet)',
     });
   };
 
@@ -125,7 +128,7 @@ async function startServer() {
         'Zod Validation',
         'Winston Logging',
         'Helmet Security',
-        'PostgreSQL & Prisma v6',
+        'PostgreSQL & Drizzle ORM',
       ],
     });
   });

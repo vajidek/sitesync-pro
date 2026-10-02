@@ -25,6 +25,8 @@ import {
   materialIssueItems,
   phase69PurchaseOrders,
   fleetFuelLogs,
+  projects,
+  boqItems,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 import { employeeExpenseRepository } from './employee_expense.repository';
@@ -1241,215 +1243,156 @@ export class ProjectControlsRepository {
   }
 
   // 21. Multi-Dimensional Project Cost Control Matrix (Budget vs Committed vs Actual vs Certified vs Revenue vs Forecast)
-  public async getCostControlMatrix(projectId = 'PRJ-101') {
+  public async getCostControlMatrix(projectId?: string) {
     await this.ensureProjectControlsTablesExist();
-    const wbsItems = await this.getWbsList(projectId);
 
-    // 1. Fetch real Material Issues for this project
+    const resolvedProjectId = String(projectId || '').trim();
+    if (!resolvedProjectId) throw new Error('Project ID is required for cost control reporting.');
+
+    const [project] = await db.select().from(projects).where(eq(projects.id, resolvedProjectId)).limit(1);
+    if (!project) throw new Error('Project not found.');
+
+    // WBS budget is sourced from the project-controls WBS master only; never invent a fallback budget.
+    const wbsRows = await this.getWbsList(resolvedProjectId);
+    const activities = await this.getActivities(resolvedProjectId);
+    const boqRows = await db.select().from(boqItems).where(eq(boqItems.projectId, resolvedProjectId));
+
+    // Actual material cost from issued quantities.
+    const issueRows = await db.select().from(materialIssues).where(eq(materialIssues.projectId, resolvedProjectId));
+    const issueIds = issueRows.map((row) => row.id);
     let realMaterialsCost = 0;
-    try {
-      const issueRows = await db.select().from(materialIssues).where(eq(materialIssues.projectId, projectId));
-      for (const issue of issueRows) {
-        const itemRows = await db.select().from(materialIssueItems).where(eq(materialIssueItems.issueId, issue.id));
-        for (const it of itemRows) {
-          realMaterialsCost += (it.issuedQty || 0) * (it.unitPrice || 0);
+    if (issueIds.length > 0) {
+      const issueItems = await db.select().from(materialIssueItems).where(sql`${materialIssueItems.issueId} IN ${issueIds}`);
+      realMaterialsCost = issueItems.reduce((sum, item) => sum + Number(item.issuedQty || 0) * Number(item.unitPrice || 0), 0);
+    }
+
+    const poRows = await db.select().from(phase69PurchaseOrders).where(eq(phase69PurchaseOrders.projectId, resolvedProjectId));
+    const realPOCommitments = poRows.filter((row) => row.status !== 'CANCELLED').reduce((sum, row) => sum + Number(row.totalAmount || 0), 0);
+
+    const subcontractRows = await commercialRepository.getSubcontracts();
+    const projectSubcontracts = subcontractRows.filter((row: any) => row.projectId === resolvedProjectId);
+    const realSubcontractCommitments = projectSubcontracts.reduce((sum: number, row: any) => sum + Number(row.contractValue || 0), 0);
+    const subcontractBills = await commercialRepository.getSubcontractBills();
+    const projectSubcontractBills = subcontractBills.filter((bill: any) => projectSubcontracts.some((sub: any) => sub.id === bill.subcontractId));
+    const realSubcontractCertified = projectSubcontractBills.reduce((sum: number, bill: any) => sum + Number(bill.certifiedAmount || 0), 0);
+    const realSubcontractActual = projectSubcontractBills.filter((bill: any) => ['PAID', 'CERTIFIED'].includes(bill.status)).reduce((sum: number, bill: any) => sum + Number(bill.certifiedAmount || 0), 0);
+
+    const claims = await employeeExpenseRepository.getExpenseClaims({ projectId: resolvedProjectId });
+    const realEmployeeExpenses = claims.filter((claim: any) => ['APPROVED_FOR_PAYMENT', 'PAID', 'FINANCE_VERIFIED'].includes(claim.status)).reduce((sum: number, claim: any) => sum + Number(claim.amount || 0), 0);
+
+    const vouchers = await employeeExpenseRepository.getPettyCashVouchers();
+    const realPettyCashExpenses = vouchers.filter((voucher: any) => ['POSTED', 'DISBURSED'].includes(voucher.status) && voucher.projectId === resolvedProjectId).reduce((sum: number, voucher: any) => sum + Number(voucher.totalAmount || 0), 0);
+
+    const fuelRows = await db.select().from(fleetFuelLogs).where(eq(fleetFuelLogs.projectId, resolvedProjectId));
+    const realFleetFuelCost = fuelRows.reduce((sum, row: any) => sum + Number(row.totalCost || 0), 0);
+
+    const ipcs = await commercialRepository.getClientIPCs(resolvedProjectId);
+    const realBilledRevenue = ipcs.filter((ipc: any) => ['CERTIFIED', 'PAID'].includes(ipc.status)).reduce((sum: number, ipc: any) => sum + Number(ipc.grossWorkDoneCertified || 0), 0);
+
+    // Project-level actual cost from real operational postings. This is intentionally kept
+    // separate from WBS actuals when source records do not carry a WBS ID, avoiding false allocation.
+    const projectActualCost = realMaterialsCost + realSubcontractActual + realEmployeeExpenses + realPettyCashExpenses + realFleetFuelCost;
+    const projectCommittedCost = realPOCommitments + realSubcontractCommitments;
+
+    const now = new Date();
+    const elapsedDays = Math.max(1, Math.ceil((now.getTime() - new Date(project.startDate).getTime()) / 86400000));
+    const burnRate = projectActualCost / elapsedDays;
+
+    const activityByWbs = new Map<string, any[]>();
+    for (const activity of activities as any[]) {
+      const list = activityByWbs.get(activity.wbsId) || [];
+      list.push(activity);
+      activityByWbs.set(activity.wbsId, list);
+    }
+
+    const boqByWbs = new Map<string, any[]>();
+    for (const item of boqRows as any[]) {
+      const list = boqByWbs.get(item.wbsId) || [];
+      list.push(item);
+      boqByWbs.set(item.wbsId, list);
+    }
+
+    const items = (wbsRows as any[]).map((wbs: any) => {
+      const wbsActivities = activityByWbs.get(wbs.id) || [];
+      const wbsBoq = boqByWbs.get(wbs.id) || [];
+      const budgetFromWbs = Number(wbs.budgetAmount || 0);
+      const budgetFromBoq = wbsBoq.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      const budget = budgetFromWbs > 0 ? budgetFromWbs : budgetFromBoq;
+
+      const plannedActivityCost = wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.plannedCost || 0), 0);
+      const actualActivityCost = wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.actualCost || 0), 0);
+      const weightedProgress = plannedActivityCost > 0
+        ? wbsActivities.reduce((sum: number, activity: any) => sum + Number(activity.plannedCost || 0) * Number(activity.percentComplete || 0), 0) / plannedActivityCost
+        : wbsBoq.reduce((sum: number, item: any) => sum + Number(item.quantity || 0) * Number(item.rate || 0) * (Number(item.executedQty || 0) / Math.max(1, Number(item.quantity || 0))), 0) / Math.max(1, budgetFromBoq) * 100;
+
+      const progressPercent = Math.max(0, Math.min(100, Number(weightedProgress || 0)));
+      const earnedValue = budget > 0 ? budget * progressPercent / 100 : 0;
+
+      let plannedPercent = 0;
+      if (wbsActivities.length > 0) {
+        const plannedStartDates = wbsActivities.map((a: any) => a.plannedStartDate).filter(Boolean).map((d: string) => new Date(d));
+        const plannedEndDates = wbsActivities.map((a: any) => a.plannedEndDate).filter(Boolean).map((d: string) => new Date(d));
+        const startDate = plannedStartDates.length ? new Date(Math.min(...plannedStartDates.map((d) => d.getTime()))) : null;
+        const endDate = plannedEndDates.length ? new Date(Math.max(...plannedEndDates.map((d) => d.getTime()))) : null;
+        if (startDate && endDate && endDate > startDate) {
+          plannedPercent = Math.max(0, Math.min(100, ((now.getTime() - startDate.getTime()) / (endDate.getTime() - startDate.getTime())) * 100));
         }
       }
-    } catch {
-      realMaterialsCost = 0;
-    }
+      const plannedValue = budget * plannedPercent / 100;
 
-    // 2. Fetch real Purchase Orders committed for this project
-    let realPOCommitments = 0;
-    try {
-      const poRows = await db.select().from(phase69PurchaseOrders).where(eq(phase69PurchaseOrders.projectId, projectId));
-      realPOCommitments = poRows.filter((p: any) => p.status !== 'CANCELLED').reduce((sum: number, p: any) => sum + (p.totalAmount || 0), 0);
-    } catch {
-      realPOCommitments = 0;
-    }
-
-    // 3. Fetch real Subcontract Commitments and Certified Bills for this project
-    let realSubcontractCommitments = 0;
-    let realSubcontractCertified = 0;
-    let realSubcontractActual = 0;
-    try {
-      const subcontracts = await commercialRepository.getSubcontracts();
-      const projectSubcontracts = subcontracts.filter((s: any) => s.projectId === projectId || s.projectId === 'PRJ-101');
-      realSubcontractCommitments = projectSubcontracts.reduce((sum: number, s: any) => sum + (s.contractValue || 0), 0);
-
-      const subcontractBills = await commercialRepository.getSubcontractBills();
-      const projectSubcontractBills = subcontractBills.filter((b: any) => 
-        projectSubcontracts.some((s: any) => s.id === b.subcontractId)
-      );
-      realSubcontractCertified = projectSubcontractBills.reduce((sum: number, b: any) => sum + (b.certifiedAmount || 0), 0);
-      realSubcontractActual = projectSubcontractBills
-        .filter((b: any) => b.status === 'PAID' || b.status === 'CERTIFIED')
-        .reduce((sum: number, b: any) => sum + (b.certifiedAmount || 0), 0);
-    } catch {
-      realSubcontractCommitments = 0;
-      realSubcontractCertified = 0;
-      realSubcontractActual = 0;
-    }
-
-    // 4. Fetch real Employee Expenses for this project
-    let realEmployeeExpenses = 0;
-    try {
-      const claims = await employeeExpenseRepository.getExpenseClaims({ projectId });
-      realEmployeeExpenses = claims
-        .filter((c: any) => c.status === 'APPROVED_FOR_PAYMENT' || c.status === 'PAID' || c.status === 'FINANCE_VERIFIED')
-        .reduce((sum: number, c: any) => sum + (c.amount || 0), 0);
-    } catch {
-      realEmployeeExpenses = 0;
-    }
-
-    // 5. Fetch real Site Petty Cash Vouchers for this project
-    let realPettyCashExpenses = 0;
-    try {
-      const vouchers = await employeeExpenseRepository.getPettyCashVouchers();
-      realPettyCashExpenses = vouchers
-        .filter((v: any) => (v.status === 'POSTED' || v.status === 'DISBURSED') && (!v.projectId || v.projectId === projectId))
-        .reduce((sum: number, v: any) => sum + (v.totalAmount || 0), 0);
-    } catch {
-      realPettyCashExpenses = 0;
-    }
-
-    // 6. Fetch real Fleet & Equipment fuel logs for this project
-    let realFleetFuelCost = 0;
-    try {
-      const fuelRows = await db.select().from(fleetFuelLogs).where(eq(fleetFuelLogs.projectId, projectId));
-      realFleetFuelCost = fuelRows.reduce((sum: number, f: any) => sum + (f.totalCost || 0), 0);
-    } catch {
-      realFleetFuelCost = 0;
-    }
-
-    // 7. Fetch real Client IPCs (Revenue) for this project
-    let realBilledRevenue = 0;
-    try {
-      const ipcs = await commercialRepository.getClientIPCs(projectId);
-      realBilledRevenue = ipcs.reduce((sum: number, ipc: any) => sum + (ipc.grossWorkDoneCertified || ipc.grossWorkDoneClaimed || 0), 0);
-    } catch {
-      realBilledRevenue = 0;
-    }
-
-    // Base actual cost baseline for existing work packages
-    const totalBaselineBudget = wbsItems.reduce((sum: number, w: any) => sum + Number(w.budgetAmount || 1000000), 0);
-
-    // Multi-dimensional metrics per WBS package dynamically incorporating live transactions
-    const items = wbsItems.map((w: any, idx: number) => {
-      const budget = Number(w.budgetAmount || 1000000);
-      const isMaterials = w.code?.includes('PROC') || w.name?.toLowerCase().includes('procurement') || idx === 1;
-      const isSubcontractCivil = w.code?.includes('EREC') || w.name?.toLowerCase().includes('installation') || idx === 2;
-      const isEngineering = idx === 0;
-
-      // Base operational factors mapped to engineering reality
-      const baseCommitted = Math.round(budget * (isMaterials ? 0.85 : isSubcontractCivil ? 0.78 : 0.70));
-      const baseActual = Math.round(budget * (isMaterials ? 0.80 : isSubcontractCivil ? 0.72 : 0.65));
-      const baseCertified = Math.round(budget * (isMaterials ? 0.78 : isSubcontractCivil ? 0.70 : 0.62));
-      const baseRevenue = Math.round(budget * (isMaterials ? 0.95 : isSubcontractCivil ? 0.88 : 0.80));
-
-      // Dynamic additive live transaction integration:
-      const addedCommitted = isMaterials ? realPOCommitments : isSubcontractCivil ? realSubcontractCommitments : 0;
-      const addedActual = isMaterials
-        ? (realMaterialsCost)
-        : isSubcontractCivil
-        ? (realSubcontractActual + realFleetFuelCost + realPettyCashExpenses)
-        : (realEmployeeExpenses);
-      const addedCertified = isSubcontractCivil ? realSubcontractCertified : 0;
-      const addedRevenue = isSubcontractCivil ? realBilledRevenue : 0;
-
-      const committedCost = baseCommitted + addedCommitted;
-      const actualCost = baseActual + addedActual;
-      const certifiedCost = baseCertified + addedCertified;
-      const billedRevenue = baseRevenue + addedRevenue;
-
-      // Dynamic earned value & scheduling calculation
-      const pct = isMaterials ? 88 : isSubcontractCivil ? 74 : 92;
-      const earnedValue = Math.round((budget * pct) / 100);
-      const plannedValue = Math.round(budget * 0.78);
-
+      // Only WBS-tagged activity actuals are shown here. Project-level transactions without WBS tags
+      // remain in the transparent unallocated project-cost figure below.
+      const actualCost = actualActivityCost;
       const costVariance = earnedValue - actualCost;
       const scheduleVariance = earnedValue - plannedValue;
-      const cpi = actualCost > 0 ? Number((earnedValue / actualCost).toFixed(2)) : 1.0;
-      const spi = plannedValue > 0 ? Number((earnedValue / plannedValue).toFixed(2)) : 1.0;
-
-      // Forecast EAC and CTC
-      const estimateAtCompletion = cpi > 0 ? Math.round(budget / cpi) : budget;
+      const cpi = actualCost > 0 ? Number((earnedValue / actualCost).toFixed(2)) : null;
+      const spi = plannedValue > 0 ? Number((earnedValue / plannedValue).toFixed(2)) : null;
+      const estimateAtCompletion = cpi && cpi > 0 ? budget / cpi : budget;
       const costToComplete = Math.max(0, estimateAtCompletion - actualCost);
       const varianceAtCompletion = budget - estimateAtCompletion;
 
-      let costStatus: 'UNDER_BUDGET' | 'ON_TRACK' | 'COST_OVERRUN' = 'ON_TRACK';
-      if (costVariance > 25000) costStatus = 'UNDER_BUDGET';
-      else if (costVariance < -25000) costStatus = 'COST_OVERRUN';
-
       return {
-        id: w.id,
-        wbsNumber: w.wbsNumber,
-        wbsCode: w.code,
-        name: w.name,
-        projectId: w.projectId,
-        progressPercent: pct,
-        budget,
-        committedCost,
-        actualCost,
-        certifiedCost,
-        billedRevenue,
-        earnedValue,
-        costVariance,
-        scheduleVariance,
-        costToComplete,
-        estimateAtCompletion,
-        varianceAtCompletion,
-        cpi,
-        spi,
-        costStatus,
+        id: wbs.id, wbsNumber: wbs.wbsNumber, wbsCode: wbs.code, name: wbs.name, projectId: resolvedProjectId,
+        progressPercent, budget, committedCost: 0, actualCost, certifiedCost: 0, billedRevenue: 0,
+        earnedValue, plannedValue, costVariance, scheduleVariance, costToComplete, estimateAtCompletion, varianceAtCompletion,
+        cpi, spi, costStatus: cpi === null ? 'NO_ACTUAL_COST' : cpi >= 1 ? 'UNDER_BUDGET' : 'COST_PRESSURE',
+        actualCostAllocationStatus: actualActivityCost > 0 ? 'WBS_ALLOCATED' : 'PROJECT_LEVEL_UNALLOCATED',
+        plannedCostSource: plannedActivityCost > 0 ? 'ACTIVITY_PLAN' : 'BOQ_TIME_PHASING_UNAVAILABLE',
       };
     });
 
-    // Aggregate Enterprise Totals
-    const totalBudget = items.reduce((acc: number, cur: any) => acc + cur.budget, 0);
-    const totalCommitted = items.reduce((acc: number, cur: any) => acc + cur.committedCost, 0);
-    const totalActual = items.reduce((acc: number, cur: any) => acc + cur.actualCost, 0);
-    const totalCertified = items.reduce((acc: number, cur: any) => acc + cur.certifiedCost, 0);
-    const totalRevenue = items.reduce((acc: number, cur: any) => acc + cur.billedRevenue, 0);
-    const totalEarnedValue = items.reduce((acc: number, cur: any) => acc + cur.earnedValue, 0);
-    const totalEAC = items.reduce((acc: number, cur: any) => acc + cur.estimateAtCompletion, 0);
-    const totalCTC = items.reduce((acc: number, cur: any) => acc + cur.costToComplete, 0);
-    const totalCostVariance = totalEarnedValue - totalActual;
-    const totalVarianceAtCompletion = totalBudget - totalEAC;
-    const overallCPI = totalActual > 0 ? Number((totalEarnedValue / totalActual).toFixed(2)) : 1.0;
-    const realTimeMargin = totalRevenue - totalActual;
-    const realTimeMarginPercent = totalRevenue > 0 ? Number(((realTimeMargin / totalRevenue) * 100).toFixed(1)) : 0;
+    const totalBudget = items.reduce((sum: number, item: any) => sum + item.budget, 0);
+    const totalActualWbs = items.reduce((sum: number, item: any) => sum + item.actualCost, 0);
+    const totalEarnedValue = items.reduce((sum: number, item: any) => sum + item.earnedValue, 0);
+    const totalPlannedValue = items.reduce((sum: number, item: any) => sum + item.plannedValue, 0);
+    const overallCPI = projectActualCost > 0 ? Number((totalEarnedValue / projectActualCost).toFixed(2)) : null;
+    const totalEAC = overallCPI && overallCPI > 0 ? projectActualCost + Math.max(0, totalBudget - totalEarnedValue) / overallCPI : totalBudget;
+    const totalCTC = Math.max(0, totalEAC - projectActualCost);
 
     return {
-      projectId,
+      projectId: resolvedProjectId,
       summary: {
         totalBudget,
-        totalCommitted,
-        totalActual,
-        totalCertified,
-        totalRevenue,
+        totalCommitted: projectCommittedCost,
+        totalActual: projectActualCost,
+        totalCertified: realSubcontractCertified,
+        totalRevenue: realBilledRevenue,
         totalEarnedValue,
-        totalCostVariance,
+        totalPlannedValue,
+        totalWbsAllocatedActualCost: totalActualWbs,
+        unallocatedProjectActualCost: Math.max(0, projectActualCost - totalActualWbs),
+        totalCostVariance: totalEarnedValue - projectActualCost,
         totalEAC,
         totalCTC,
-        totalVarianceAtCompletion,
+        totalVarianceAtCompletion: totalBudget - totalEAC,
         overallCPI,
-        committedPercentage: totalBudget > 0 ? Math.round((totalCommitted / totalBudget) * 100) : 0,
-        actualPercentage: totalBudget > 0 ? Math.round((totalActual / totalBudget) * 100) : 0,
-        burnRateUSDPerDay: 18450,
-        realTimeMargin,
-        realTimeMarginPercent,
-        costBreakdown: {
-          realMaterialsCost,
-          realPOCommitments,
-          realSubcontractCommitments,
-          realSubcontractCertified,
-          realSubcontractActual,
-          realEmployeeExpenses,
-          realPettyCashExpenses,
-          realFleetFuelCost,
-          realBilledRevenue,
-        },
+        overallSPI: totalPlannedValue > 0 ? Number((totalEarnedValue / totalPlannedValue).toFixed(2)) : null,
+        committedPercentage: totalBudget > 0 ? Math.round((projectCommittedCost / totalBudget) * 100) : 0,
+        actualPercentage: totalBudget > 0 ? Math.round((projectActualCost / totalBudget) * 100) : 0,
+        burnRatePerElapsedDay: Number(burnRate.toFixed(2)),
+        realTimeMargin: realBilledRevenue - projectActualCost,
+        realTimeMarginPercent: realBilledRevenue > 0 ? Number((((realBilledRevenue - projectActualCost) / realBilledRevenue) * 100).toFixed(1)) : 0,
+        costBreakdown: { realMaterialsCost, realPOCommitments, realSubcontractCommitments, realSubcontractCertified, realSubcontractActual, realEmployeeExpenses, realPettyCashExpenses, realFleetFuelCost, realBilledRevenue },
       },
       wbsBreakdown: items,
     };

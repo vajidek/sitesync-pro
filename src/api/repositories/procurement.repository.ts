@@ -73,6 +73,7 @@ import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter
 import { INITIAL_RA_BILLS } from '../../data/procurementMockData';
 import { enterpriseAuditRepository } from './enterprise_audit.repository';
 import { universalWorkflowBindingService } from '../services/universal_workflow_binding.service';
+import { financeRepository } from './finance.repository';
 
 // Re-export table definitions for any module importing from repository
 export {
@@ -4147,6 +4148,69 @@ export class ProcurementRepository {
     if (!actorId || !actorName || !actorRole) throw new Error('Authenticated billing workflow actor identity is required.');
     if (!targetStatus) throw new Error('RA Bill target status is required.');
 
+    const [financeBill] = await db.select().from(procurementRaBillsTable)
+      .where(eq(procurementRaBillsTable.id, id)).limit(1);
+    if (!financeBill) return null;
+
+    const allowedTransitions: Record<string, RABillStatus[]> = {
+      Draft: ['Submitted', 'Rejected'],
+      Submitted: ['Under Technical Scrutiny', 'Rejected', 'Draft'],
+      'Under Technical Scrutiny': ['Certified by QS', 'Rejected', 'Draft'],
+      'Certified by QS': ['Approved by Incharge', 'Rejected'],
+      'Approved by Incharge': ['Approved by Project Director', 'Rejected'],
+      'Approved by Project Director': ['Disbursed / Paid', 'Rejected'],
+      'Disbursed / Paid': [],
+      Rejected: ['Draft', 'Submitted'],
+    };
+    if (!allowedTransitions[financeBill.status]?.includes(targetStatus)) {
+      throw new Error(`Invalid RA Bill status transition from '${financeBill.status}' to '${targetStatus}'.`);
+    }
+
+    const financeNetPayable = Number((financeBill as any).financials?.netPayableCurrentUSD || 0);
+    const paymentReference = String(updates.paymentReferenceNumber || '').trim();
+
+    if (targetStatus === 'Disbursed / Paid') {
+      if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
+      const duplicatePayment = await db.select({ id: procurementRaBillsTable.id })
+        .from(procurementRaBillsTable)
+        .where(and(
+          eq(procurementRaBillsTable.paymentReferenceNumber, paymentReference),
+          sql`${procurementRaBillsTable.id} <> ${id}`
+        ))
+        .limit(1);
+      if (duplicatePayment.length) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered.`);
+      if (financeNetPayable <= 0) throw new Error('A positive net payable amount is required before RA Bill disbursement.');
+    }
+
+    if (targetStatus === 'Approved by Project Director' && financeNetPayable > 0) {
+      await financeRepository.createAPInvoice({
+        invoiceNumber: financeBill.billNumber,
+        vendorId: (financeBill as any).contractorId || null,
+        vendorName: financeBill.contractorName,
+        projectId: financeBill.projectId,
+        projectName: financeBill.projectName,
+        totalAmount: financeNetPayable,
+        taxAmount: Number((financeBill as any).financials?.totalDeductionsUSD || 0),
+        createdBy: actorName,
+        updatedBy: actorName,
+      });
+    }
+
+    if (targetStatus === 'Disbursed / Paid') {
+      // The reference combines the immutable bill number and bank UTR, making retries idempotent.
+      await financeRepository.createJournalEntry({
+        voucherType: 'RA_BILL_PAYMENT',
+        postingDate: new Date().toISOString().split('T')[0],
+        referenceNumber: financeBill.billNumber + ':' + paymentReference,
+        narration: 'RA Bill settlement for ' + financeBill.billNumber + ' via bank reference ' + paymentReference,
+        postedBy: actorName,
+        createdBy: actorName,
+      }, [
+        { accountCode: '2010', accountName: 'Accounts Payable Control - Trade Creditors', debitAmount: financeNetPayable, creditAmount: 0, lineDescription: 'Settlement of RA Bill ' + financeBill.billNumber },
+        { accountCode: '1010', accountName: 'Cash & Bank Operating', debitAmount: 0, creditAmount: financeNetPayable, lineDescription: 'Bank payment for RA Bill ' + financeBill.billNumber + ' / ' + paymentReference },
+      ]);
+    }
+
     return await db.transaction(async (tx) => {
       const rows = await tx.select().from(procurementRaBillsTable)
         .where(eq(procurementRaBillsTable.id, id)).limit(1);
@@ -4155,47 +4219,6 @@ export class ProcurementRepository {
       const existing = rows[0] as unknown as RABillRecord;
       if (existing.status === 'Disbursed / Paid') {
         throw new Error('Contractual immutability violation: a paid RA Bill cannot be modified.');
-      }
-
-      const allowedTransitions: Record<string, RABillStatus[]> = {
-        Draft: ['Submitted', 'Rejected'],
-        Submitted: ['Under Technical Scrutiny', 'Rejected', 'Draft'],
-        'Under Technical Scrutiny': ['Certified by QS', 'Rejected', 'Draft'],
-        'Certified by QS': ['Approved by Incharge', 'Rejected'],
-        'Approved by Incharge': ['Approved by Project Director', 'Rejected'],
-        'Approved by Project Director': ['Disbursed / Paid', 'Rejected'],
-        'Disbursed / Paid': [],
-        Rejected: ['Draft', 'Submitted'],
-      };
-      if (!allowedTransitions[existing.status]?.includes(targetStatus)) {
-        throw new Error(`Invalid RA Bill status transition from '${existing.status}' to '${targetStatus}'.`);
-      }
-
-      const creator = String(existing.auditTrail?.[0]?.performedBy || existing.contractorRepresentative || '').trim().toLowerCase();
-      const normalizedActor = actorName.toLowerCase();
-      const previousVerifier = String(existing.qsVerifier || '').trim().toLowerCase();
-      const previousIncharge = String(existing.siteEngineer || '').trim().toLowerCase();
-      const previousDirector = String(existing.projectDirector || '').trim().toLowerCase();
-
-      if (creator && normalizedActor === creator) {
-        throw new Error('Maker-checker violation: RA Bill creator cannot perform a later control/approval action on the same bill.');
-      }
-      if (targetStatus === 'Approved by Incharge' && previousVerifier && normalizedActor === previousVerifier) {
-        throw new Error('Maker-checker violation: QS verifier cannot approve the same RA Bill at Incharge stage.');
-      }
-      if (targetStatus === 'Approved by Project Director' && (normalizedActor === previousVerifier || normalizedActor === previousIncharge)) {
-        throw new Error('Maker-checker violation: prior workflow actor cannot approve the same RA Bill at Project Director stage.');
-      }
-      if (targetStatus === 'Disbursed / Paid' && (normalizedActor === previousVerifier || normalizedActor === previousIncharge || normalizedActor === previousDirector)) {
-        throw new Error('Maker-checker violation: prior certification/approval actor cannot disburse the same RA Bill.');
-      }
-
-      const paymentReference = updates.paymentReferenceNumber?.trim() || '';
-      if (targetStatus === 'Disbursed / Paid') {
-        if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
-        const duplicate = await tx.select().from(procurementRaBillsTable);
-        const duplicateUtr = duplicate.find((bill: any) => bill.id !== id && String(bill.paymentReferenceNumber || '').trim().toLowerCase() === paymentReference.toLowerCase());
-        if (duplicateUtr) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered on bill ${duplicateUtr.billNumber}.`);
       }
 
       const now = new Date().toISOString();

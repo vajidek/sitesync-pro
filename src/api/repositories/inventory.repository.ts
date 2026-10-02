@@ -31,7 +31,7 @@ import {
   procurementGrnsTable,
   procurementLogs,
 } from '../../db/schema';
-import { eq, and, ilike, or } from 'drizzle-orm';
+import { eq, and, ilike, or, gte, sql } from 'drizzle-orm';
 import { PaginationParams } from '../utils/pagination';
 import { numberingService } from '../services/numbering.service';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';
@@ -1228,49 +1228,68 @@ export class InventoryRepository {
     await ensureInventorySeeded();
     const client = txOrDb || db;
     const now = new Date().toISOString();
-    const mat = await this.getMaterialById(data.materialId || '');
-    const wh = await this.getWarehouseById(data.warehouseId || '');
-    const targetWh = data.targetWarehouseId ? await this.getWarehouseById(data.targetWarehouseId) : null;
+    const materialId = String(data.materialId || '').trim();
+    const warehouseId = String(data.warehouseId || '').trim();
+    const transactionType = String(data.transactionType || '').trim().toUpperCase();
+    const qty = Number(data.quantity);
 
-    if (!mat || !wh) {
-      throw new Error('Invalid Material or Warehouse specified for stock transaction');
+    const allowedTypes = ['GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER', 'RETURN', 'ADJUSTMENT', 'OPENING_STOCK', 'PHYSICAL_VERIFICATION', 'DAMAGE', 'SCRAP'];
+    if (!materialId || !warehouseId || !allowedTypes.includes(transactionType)) {
+      throw new Error('Material, warehouse and a valid stock transaction type are required.');
+    }
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error('Stock transaction quantity must be greater than zero.');
+
+    if (['GOODS_ISSUE', 'DAMAGE', 'SCRAP'].includes(transactionType) && !String(data.issuedByName || '').trim()) {
+      throw new Error('Issuer identity is required for stock-out transactions.');
+    }
+    if (['GOODS_RECEIPT', 'RETURN'].includes(transactionType) && !String(data.receivedByName || '').trim()) {
+      throw new Error('Receiver identity is required for stock-in transactions.');
+    }
+    if (transactionType === 'TRANSFER') {
+      if (!String(data.issuedByName || '').trim() || !String(data.receivedByName || '').trim()) throw new Error('Dispatch and receiving identities are required for stock transfers.');
+      if (!data.targetWarehouseId || data.targetWarehouseId === warehouseId) throw new Error('Transfer requires a distinct target warehouse.');
     }
 
-    let prjName = data.projectName;
-    if (data.projectId && !prjName) {
-      const prjRows = await client.select().from(projects).where(eq(projects.id, data.projectId));
-      if (prjRows[0]) prjName = prjRows[0].projectName;
+    const [mat] = await client.select().from(materials).where(eq(materials.id, materialId)).limit(1);
+    const [wh] = await client.select().from(warehouses).where(eq(warehouses.id, warehouseId)).limit(1);
+    if (!mat || !mat.isActive) throw new Error('Material not found or inactive.');
+    if (!wh || !wh.isActive) throw new Error('Warehouse not found or inactive.');
+
+    let targetWh: any = null;
+    if (transactionType === 'TRANSFER') {
+      const [target] = await client.select().from(warehouses).where(eq(warehouses.id, data.targetWarehouseId!)).limit(1);
+      if (!target || !target.isActive) throw new Error('Target warehouse not found or inactive.');
+      targetWh = target;
     }
 
-    let siteName = data.siteName;
-    if (data.siteId && !siteName) {
-      const siteRows = await client.select().from(sites).where(eq(sites.id, data.siteId));
-      if (siteRows[0]) siteName = siteRows[0].siteName;
+    const projectId = data.projectId ? String(data.projectId).trim() : undefined;
+    let projectName = data.projectName?.trim() || undefined;
+    if (projectId) {
+      const [project] = await client.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+      if (!project) throw new Error('Linked project not found or inactive.');
+      projectName = projectName || project.projectName;
     }
 
-    const type = data.transactionType || 'GOODS_ISSUE';
-    const qty = Number(data.quantity) || 0;
-    const unitPrice = data.unitPrice ?? mat.unitPrice;
+    const siteId = data.siteId ? String(data.siteId).trim() : undefined;
+    let siteName = data.siteName?.trim() || undefined;
+    if (siteId) {
+      const [site] = await client.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.isActive, true))).limit(1);
+      if (!site || (projectId && site.projectId !== projectId)) throw new Error('Linked site not found, inactive, or outside the selected project.');
+      siteName = siteName || site.siteName;
+    }
+
+    const unitPrice = data.unitPrice == null ? Number(mat.unitPrice) : Number(data.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('Unit price must be a valid non-negative amount.');
     const totalValue = qty * unitPrice;
-
-    const prefixMap: Record<string, string> = {
-      GOODS_RECEIPT: 'GRN',
-      GOODS_ISSUE: 'GI',
-      TRANSFER: 'TRF',
-      RETURN: 'RET',
-      ADJUSTMENT: 'ADJ',
-      OPENING_STOCK: 'OPN',
-      PHYSICAL_VERIFICATION: 'STV',
-      DAMAGE: 'DMG',
-      SCRAP: 'SCP',
-    };
-    const codePrefix = prefixMap[type] || 'STX';
-    const txnCode = `${codePrefix}-2026-${Math.floor(100 + Math.random() * 900)}`;
+    const year = now.slice(0, 4);
+    const codePrefix: Record<string, string> = { GOODS_RECEIPT: 'GRN', GOODS_ISSUE: 'GI', TRANSFER: 'TRF', RETURN: 'RET', ADJUSTMENT: 'ADJ', OPENING_STOCK: 'OPN', PHYSICAL_VERIFICATION: 'STV', DAMAGE: 'DMG', SCRAP: 'SCP' };
+    const txnCode = `${codePrefix[transactionType] || 'STX'}-${year}-${Date.now().toString().slice(-8)}`;
+    const referenceDoc = String(data.referenceDoc || txnCode).trim();
 
     const transaction: DbStockTransaction = {
       id: genId('stx'),
       transactionCode: txnCode,
-      transactionType: type,
+      transactionType,
       materialId: mat.id,
       materialName: mat.name,
       materialCode: mat.itemCode,
@@ -1281,97 +1300,64 @@ export class InventoryRepository {
       quantity: qty,
       unitPrice,
       totalValue,
-      projectId: data.projectId,
-      projectName: prjName,
-      siteId: data.siteId,
+      projectId,
+      projectName,
+      siteId,
       siteName,
-      workCategory: data.workCategory || 'General Field Works',
+      workCategory: data.workCategory?.trim(),
       issuedById: data.issuedById,
-      issuedByName: data.issuedByName || 'Store Keeper',
+      issuedByName: data.issuedByName?.trim(),
       receivedById: data.receivedById,
-      receivedByName: data.receivedByName || 'Site Supervisor',
+      receivedByName: data.receivedByName?.trim(),
       supervisorId: data.supervisorId,
-      supervisorName: data.supervisorName || 'Site Engineer',
-      referenceDoc: data.referenceDoc || 'Internal Requisition',
+      supervisorName: data.supervisorName?.trim(),
+      referenceDoc,
       notes: data.notes || '',
       status: 'COMPLETED',
       approvedById: data.approvedById,
-      approvedByName: data.approvedByName || 'Project Manager',
+      approvedByName: data.approvedByName?.trim(),
       transactionDate: data.transactionDate || now.slice(0, 10),
       createdAt: now,
     };
 
     await client.insert(stockTransactions).values(transaction);
 
-    // REAL-TIME ATOMIC STOCK BALANCE UPDATE
-    const existingStocks = await client
-      .select()
-      .from(stocks)
-      .where(and(eq(stocks.warehouseId, wh.id), eq(stocks.materialId, mat.id)));
+    const [stockEntry] = await client.select().from(stocks).where(and(eq(stocks.warehouseId, wh.id), eq(stocks.materialId, mat.id))).limit(1);
 
-    let stockEntry = existingStocks[0];
-    if (!stockEntry) {
-      stockEntry = {
-        id: genId('stk'),
-        warehouseId: wh.id,
-        materialId: mat.id,
-        quantity: 0,
-        reservedQuantity: 0,
-        batchNumber: null,
-        rackLocation: 'General Bin',
+    if (['GOODS_ISSUE', 'DAMAGE', 'SCRAP', 'TRANSFER'].includes(transactionType)) {
+      if (!stockEntry) throw new Error('No stock balance exists for the selected material and warehouse.');
+      const [decremented] = await client.update(stocks).set({
+        quantity: sql`${stocks.quantity} - ${qty}`,
         updatedAt: now,
-      };
-      await client.insert(stocks).values(stockEntry);
-    }
+      }).where(and(eq(stocks.id, stockEntry.id), gte(stocks.quantity, qty))).returning();
+      if (!decremented) throw new Error(`Insufficient available stock for ${mat.itemCode}. Requested ${qty}, available ${stockEntry.quantity}.`);
 
-    let newStockQty = stockEntry.quantity;
-    let newMatStockQty = mat.currentStock;
-
-    if (type === 'GOODS_RECEIPT' || type === 'RETURN' || type === 'OPENING_STOCK') {
-      newStockQty += qty;
-      newMatStockQty += qty;
-    } else if (type === 'GOODS_ISSUE' || type === 'DAMAGE' || type === 'SCRAP') {
-      newStockQty = Math.max(0, newStockQty - qty);
-      newMatStockQty = Math.max(0, newMatStockQty - qty);
-    } else if (type === 'TRANSFER' && targetWh) {
-      newStockQty = Math.max(0, newStockQty - qty);
-
-      const targetStocks = await client
-        .select()
-        .from(stocks)
-        .where(and(eq(stocks.warehouseId, targetWh.id), eq(stocks.materialId, mat.id)));
-
-      let targetStockEntry = targetStocks[0];
-      if (!targetStockEntry) {
-        targetStockEntry = {
-          id: genId('stk'),
-          warehouseId: targetWh.id,
-          materialId: mat.id,
-          quantity: 0,
-          reservedQuantity: 0,
-          batchNumber: null,
-          rackLocation: 'Transfer Bin',
+      if (transactionType !== 'TRANSFER') {
+        const [materialUpdated] = await client.update(materials).set({
+          currentStock: sql`${materials.currentStock} - ${qty}`,
           updatedAt: now,
-        };
-        await client.insert(stocks).values(targetStockEntry);
+        }).where(and(eq(materials.id, mat.id), gte(materials.currentStock, qty))).returning();
+        if (!materialUpdated) throw new Error(`Material aggregate stock is insufficient for ${mat.itemCode}.`);
       }
-
-      await client
-        .update(stocks)
-        .set({ quantity: targetStockEntry.quantity + qty, updatedAt: now })
-        .where(eq(stocks.id, targetStockEntry.id));
-    } else if (type === 'ADJUSTMENT') {
-      const diff = qty - newStockQty;
-      newStockQty = qty;
-      newMatStockQty += diff;
+    } else if (transactionType === 'TRANSFER') {
+      const [targetEntry] = await client.select().from(stocks).where(and(eq(stocks.warehouseId, targetWh.id), eq(stocks.materialId, mat.id))).limit(1);
+      if (targetEntry) {
+        await client.update(stocks).set({ quantity: sql`${stocks.quantity} + ${qty}`, updatedAt: now }).where(eq(stocks.id, targetEntry.id));
+      } else {
+        await client.insert(stocks).values({ id: genId('stk'), warehouseId: targetWh.id, materialId: mat.id, quantity: qty, reservedQuantity: 0, batchNumber: null, rackLocation: null, updatedAt: now });
+      }
+    } else {
+      if (stockEntry) {
+        await client.update(stocks).set({ quantity: sql`${stocks.quantity} + ${qty}`, updatedAt: now }).where(eq(stocks.id, stockEntry.id));
+      } else {
+        await client.insert(stocks).values({ id: genId('stk'), warehouseId: wh.id, materialId: mat.id, quantity: qty, reservedQuantity: 0, batchNumber: null, rackLocation: null, updatedAt: now });
+      }
+      const [materialUpdated] = await client.update(materials).set({ currentStock: sql`${materials.currentStock} + ${qty}`, updatedAt: now }).where(eq(materials.id, mat.id)).returning();
+      if (!materialUpdated) throw new Error('Material stock balance could not be updated.');
     }
-
-    await client.update(stocks).set({ quantity: newStockQty, updatedAt: now }).where(eq(stocks.id, stockEntry.id));
-    await client.update(materials).set({ currentStock: newMatStockQty, updatedAt: now }).where(eq(materials.id, mat.id));
 
     return transaction;
   }
-
   // ==========================================
   // PURCHASE REQUISITIONS & REQUESTS
   // ==========================================

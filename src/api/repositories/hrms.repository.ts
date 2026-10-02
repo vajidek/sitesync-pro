@@ -608,48 +608,61 @@ export class HrmsRepository {
 
   public async syncEsslBiometric(deviceId: string, punches: any[]): Promise<any> {
     await this.ensureHrmsTablesExist();
-    const now = new Date().toISOString();
-    const results = [];
+    const normalizedDeviceId = String(deviceId || '').trim();
+    if (!normalizedDeviceId) throw new Error('Biometric device ID is required.');
+    if (!Array.isArray(punches)) throw new Error('Biometric source records must be an array.');
 
-    // Preload employees for fast biometricId resolution
+    const now = new Date().toISOString();
+    const results: any[] = [];
+
+    // Resolve employee identity for convenience, but do not alter the immutable source payload.
     const employees = await this.getEmployees();
     const empMap = new Map<string, any>();
     for (const emp of employees) {
-      if (emp.biometricId) empMap.set(emp.biometricId, emp);
-      if (emp.employeeCode) empMap.set(emp.employeeCode, emp);
+      if (emp.biometricId) empMap.set(String(emp.biometricId), emp);
+      if (emp.employeeCode) empMap.set(String(emp.employeeCode), emp);
     }
 
-    for (const p of punches) {
-      const id = uuidv4();
-      const matchedEmp = empMap.get(p.biometricId) || empMap.get(p.employeeCode);
-      const rawTimestamp = p.timestamp || p.punchTimestamp || now;
-      const punchType = (p.punchType || p.type || 'CHECK_IN').toUpperCase();
-      const verificationMode = (p.verificationMode || p.authMode || 'FINGERPRINT').toUpperCase();
+    for (const sourcePunch of punches) {
+      if (!sourcePunch || typeof sourcePunch !== 'object') {
+        throw new Error('Each biometric record must be a valid source object.');
+      }
 
-      // 1. IMMUTABLE RAW BIOMETRIC PUNCH PERSISTENCE (Append-only)
+      const rawTimestampValue = sourcePunch.timestamp ?? sourcePunch.punchTimestamp;
+      if (!rawTimestampValue) {
+        throw new Error('Biometric source timestamp is required; the system will not invent one.');
+      }
+
+      const id = uuidv4();
+      const biometricId = String(sourcePunch.biometricId ?? sourcePunch.employeeCode ?? 'UNKNOWN').trim();
+      const matchedEmp = empMap.get(biometricId) || empMap.get(String(sourcePunch.employeeCode ?? '').trim());
+      const punchType = String(sourcePunch.punchType ?? sourcePunch.type ?? 'UNSPECIFIED').trim().toUpperCase();
+      const verificationMode = String(sourcePunch.verificationMode ?? sourcePunch.authMode ?? 'UNSPECIFIED').trim().toUpperCase();
+
+      // Raw source record: append-only. It remains UNPROCESSED until the attendance processor
+      // interprets it into a normalized attendance record.
       await db.insert(hrBiometricRawPunches).values({
         id,
-        deviceId,
-        biometricId: p.biometricId || 'UNKNOWN',
-        employeeId: matchedEmp?.id || p.employeeId || null,
-        employeeCode: matchedEmp?.employeeCode || p.employeeCode || null,
-        employeeName: matchedEmp ? `${matchedEmp.firstName || ''} ${matchedEmp.lastName || ''}`.trim() : p.employeeName || null,
-        rawTimestamp,
+        deviceId: normalizedDeviceId,
+        biometricId,
+        employeeId: matchedEmp?.id || sourcePunch.employeeId || null,
+        employeeCode: matchedEmp?.employeeCode || sourcePunch.employeeCode || null,
+        employeeName: matchedEmp ? `${matchedEmp.firstName || ''} ${matchedEmp.lastName || ''}`.trim() : sourcePunch.employeeName || null,
+        rawTimestamp: String(rawTimestampValue),
         punchType,
         verificationMode,
-        rawPayload: JSON.stringify(p),
-        isProcessed: true,
+        rawPayload: JSON.stringify(sourcePunch),
+        isProcessed: false,
         createdAt: now,
       }).onConflictDoNothing();
 
       const log = {
         id,
-        deviceId,
-        biometricId: p.biometricId,
-        employeeCode: matchedEmp?.employeeCode,
-        punchTimestamp: rawTimestamp,
-        punchType,
-        verificationMode,
+        deviceId: normalizedDeviceId,
+        biometricId,
+        employeeCode: matchedEmp?.employeeCode || sourcePunch.employeeCode || null,
+        punchTimestamp: String(rawTimestampValue),
+        ingestionStatus: 'RAW_STORED_UNPROCESSED',
       };
 
       await db.insert(phase70HrAuditLogs).values({
@@ -657,17 +670,18 @@ export class HrmsRepository {
         actionType: 'BIOMETRIC_PUNCH_RAW_SYNC',
         entityType: 'ATTENDANCE_PUNCH',
         entityId: id,
-        referenceNumber: deviceId,
-        performedBy: 'Biometric Gateway',
+        referenceNumber: normalizedDeviceId,
+        performedBy: 'SYSTEM_BIOMETRIC_INGESTION',
         detailsJson: JSON.stringify(log),
         timestamp: now,
         createdAt: now,
         updatedAt: now,
       }).onConflictDoNothing();
+
       results.push(log);
     }
 
-    return { deviceId, processedCount: results.length, timestamp: now };
+    return { deviceId: normalizedDeviceId, receivedCount: results.length, storedCount: results.length, timestamp: now };
   }
 
   public async getRawBiometricPunches(params: { deviceId?: string; biometricId?: string; employeeId?: string; limit?: number } = {}): Promise<any[]> {
@@ -1559,8 +1573,12 @@ export class HrmsRepository {
       const res = await db.execute(query);
       const rows = res?.rows || [];
 
-      // If empty for Aug 2026, auto-populate initial finalization snapshot from active employees
-      if (rows.length === 0 && (monthYear === '2026-08' || periodId === 'pp-2026-08' || !monthYear)) {
+      // Synthetic finalization records are DEMO fixtures only.
+      if (
+        rows.length === 0 &&
+        isDemoSeedAllowed() &&
+        (monthYear === '2026-08' || periodId === 'pp-2026-08' || !monthYear)
+      ) {
         return this.seedDefaultAttendanceFinalization('pp-2026-08', '2026-08');
       }
 
@@ -1651,12 +1669,19 @@ export class HrmsRepository {
   }): Promise<any[]> {
     await this.ensureHrmsTablesExist();
     const now = new Date().toISOString();
-    const periodId = data.periodId || 'pp-2026-08';
-    const monthYear = data.monthYear || '2026-08';
-    const finalizedBy = data.finalizedBy || 'HR Operations Supervisor';
+    const periodId = String(data.periodId || '').trim();
+    const monthYear = String(data.monthYear || '').trim();
+    const finalizedBy = String(data.finalizedBy || '').trim();
+
+    if (!periodId || !monthYear || !finalizedBy) {
+      throw new Error('Payroll period, month-year and authenticated finalizer identity are required.');
+    }
 
     let employeeSnapshots = data.records;
     if (!employeeSnapshots || employeeSnapshots.length === 0) {
+      if (!isDemoSeedAllowed()) {
+        throw new Error('Explicit finalized attendance records are required. The system will not invent attendance data outside DEMO mode.');
+      }
       const employees = await this.getEmployees();
       employeeSnapshots = employees.map((emp) => {
         const isSite = emp.id === 'emp-002' || emp.id === 'emp-003';
@@ -1694,7 +1719,7 @@ export class HrmsRepository {
     const savedRecords = [];
     for (const rec of employeeSnapshots) {
       const id = `fin-${periodId}-${rec.employeeId}`;
-      const payableDutyDays = rec.payableDutyDays ?? (rec.presentDays + (rec.paidLeaveDays || 0) + (rec.weeklyOffs || 4) + (rec.holidays || 1));
+      const payableDutyDays = rec.payableDutyDays ?? (rec.presentDays + (rec.paidLeaveDays ?? 0) + (rec.weeklyOffs ?? 0) + (rec.holidays ?? 0));
       const lockHash = statutoryEngineService.generateLockHash(`att-${periodId}`, monthYear, [rec]);
 
       await db.execute(sql`
@@ -1706,11 +1731,11 @@ export class HrmsRepository {
           created_at, updated_at
         ) VALUES (
           ${id}, ${periodId}, ${monthYear}, ${rec.employeeId}, ${rec.employeeCode || `EMP-${rec.employeeId}`},
-          ${rec.employeeName}, ${rec.department || 'Operations'}, ${rec.wageType || 'MONTHLY'},
-          ${rec.dailyWageRate || 0}, ${rec.hourlyWageRate || 0}, ${rec.totalDaysInMonth || 31},
-          ${rec.presentDays || 0}, ${rec.halfDays || 0}, ${rec.paidLeaveDays || 0}, ${rec.unpaidLeaveDays || 0},
-          ${rec.weeklyOffs || 4}, ${rec.holidays || 0}, ${payableDutyDays}, ${rec.absentDays || 0},
-          ${rec.overtimeHours || 0}, ${rec.totalDutyHours || payableDutyDays * 8}, 'FINALIZED',
+          ${rec.employeeName}, ${rec.department ?? ''}, ${rec.wageType || 'MONTHLY'},
+          ${rec.dailyWageRate ?? 0}, ${rec.hourlyWageRate ?? 0}, ${rec.totalDaysInMonth ?? 0},
+          ${rec.presentDays ?? 0}, ${rec.halfDays ?? 0}, ${rec.paidLeaveDays ?? 0}, ${rec.unpaidLeaveDays ?? 0},
+          ${rec.weeklyOffs ?? 0}, ${rec.holidays ?? 0}, ${payableDutyDays}, ${rec.absentDays ?? 0},
+          ${rec.overtimeHours ?? 0}, ${rec.totalDutyHours ?? 0}, 'FINALIZED',
           ${finalizedBy}, ${now}, ${lockHash}, ${rec.remarks || data.remarks || 'Finalized attendance locked for payroll'},
           ${now}, ${now}
         ) ON CONFLICT (id) DO UPDATE SET

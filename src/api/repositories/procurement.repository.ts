@@ -863,8 +863,8 @@ export class ProcurementRepository {
       gstUSD: gst,
       freightUSD: freight,
       netAmountUSD: net,
-      status: data.status || 'Draft',
-      approvalStatus: data.approvalStatus || 'Pending',
+      status: 'Draft',
+      approvalStatus: 'Pending Approval',
       items,
       termsAndConditions: data.termsAndConditions || '',
       issuedByName: data.issuedByName || '',
@@ -902,16 +902,20 @@ export class ProcurementRepository {
         createdAt: now,
       } as any);
 
-      const costRows = await tx.select().from(procurementCostControlsTable)
-        .where(eq(procurementCostControlsTable.projectId, newPo.projectId)).limit(1);
+      // A draft/pending-approval PO is not a financial commitment yet.
+      // Cost control is updated only once the PO reaches an approved/issued state.
+      if (['Approved', 'Issued'].includes(newPo.status) && newPo.approvalStatus === 'Approved') {
+        const costRows = await tx.select().from(procurementCostControlsTable)
+          .where(eq(procurementCostControlsTable.projectId, newPo.projectId)).limit(1);
 
-      if (costRows.length > 0) {
-        const c = costRows[0];
-        const newCommitted = (c.committedPOUSD || 0) + newPo.netAmountUSD;
-        const newRemaining = (c.totalBudgetUSD || 0) - ((c.totalSpentUSD || 0) + newCommitted);
-        await tx.update(procurementCostControlsTable)
-          .set({ committedPOUSD: newCommitted, remainingBudgetUSD: newRemaining, costVarianceUSD: newRemaining } as any)
-          .where(eq(procurementCostControlsTable.id, c.id));
+        if (costRows.length > 0) {
+          const c = costRows[0];
+          const newCommitted = (c.committedPOUSD || 0) + newPo.netAmountUSD;
+          const newRemaining = (c.totalBudgetUSD || 0) - ((c.totalSpentUSD || 0) + newCommitted);
+          await tx.update(procurementCostControlsTable)
+            .set({ committedPOUSD: newCommitted, remainingBudgetUSD: newRemaining, costVarianceUSD: newRemaining } as any)
+            .where(eq(procurementCostControlsTable.id, c.id));
+        }
       }
 
       return newPo;

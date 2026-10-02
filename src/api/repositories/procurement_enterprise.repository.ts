@@ -652,8 +652,12 @@ export class ProcurementEnterpriseRepository {
       id,
       rfqNumber,
       title: data.title,
-      projectId: data.projectId || 'PRJ-WATER-001',
-      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
+      projectId,
+      projectName,
+      wbsId: data.wbsId || null,
+      boqItemId: data.boqItemId || null,
+      costCodeId: data.costCodeId || null,
+      costCode: data.costCode || null,
       requisitionId: data.requisitionId || null,
       category: data.category || 'PIPES_FITTINGS',
       issueDate: data.issueDate || now.split('T')[0],
@@ -813,13 +817,19 @@ export class ProcurementEnterpriseRepository {
     }));
   }
 
-  public async createPurchaseOrder(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async createPurchaseOrder(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
     const now = new Date().toISOString();
     const id = uuidv4();
+    const companyId = String(data.companyId || '').trim();
+    const projectId = String(data.projectId || '').trim();
+    const projectName = String(data.projectName || '').trim();
+    if (!createdBy?.trim()) throw new Error('Authenticated procurement actor identity is required.');
+    if (!companyId || !projectId || !projectName) throw new Error('Company, project and project name are required for a purchase order.');
+
     const poNumber = data.poNumber || (await numberingService.generatePurchaseOrderNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
+      companyId,
+      projectId,
       date: now,
     }));
 
@@ -872,6 +882,10 @@ export class ProcurementEnterpriseRepository {
           itemNumber: idx + 1,
           itemCode: itm.itemCode,
           description: itm.description,
+          wbsId: itm.wbsId || data.wbsId || null,
+          boqItemId: itm.boqItemId || data.boqItemId || null,
+          costCodeId: itm.costCodeId || data.costCodeId || null,
+          costCode: itm.costCode || data.costCode || null,
           orderedQuantity: itm.orderedQuantity,
           receivedQuantity: 0,
           balanceQuantity: itm.orderedQuantity,
@@ -906,9 +920,10 @@ export class ProcurementEnterpriseRepository {
     }));
   }
 
-  public async createContract(data: any, createdBy: string = 'Contracts Admin'): Promise<any> {
+  public async createContract(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
     const now = new Date().toISOString();
+    if (!createdBy?.trim()) throw new Error('Authenticated procurement actor identity is required.');
     const id = uuidv4();
     const countRes = await db.select().from(phase69Contracts);
     const codeNum = String(countRes.length + 1).padStart(4, '0');

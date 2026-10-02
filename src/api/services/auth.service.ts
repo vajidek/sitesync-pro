@@ -9,16 +9,14 @@ import { UserRole } from '../../types';
 
 export class AuthService {
   async login(identifier: string, password: string, requestedRole?: UserRole, ipAddress?: string, userAgent?: string) {
-    let user = await userRepository.findByUsernameOrEmail(identifier);
-
-    // If user is not found by exact identifier, try finding standard seed user for requested role
-    if (!user && requestedRole) {
-      const role = await roleRepository.findByCode(requestedRole);
-      if (role) {
-        const users = await userRepository.findAll();
-        user = users.find((u) => u.roleId === role.id && u.accountStatus !== 'DELETED') || null;
-      }
+    const normalizedIdentifier = String(identifier || '').trim();
+    if (!normalizedIdentifier || !password) {
+      throw new Error('User ID/email and password are required.');
     }
+
+    // Authentication is always bound to the exact supplied identifier.
+    // Never select a seeded account merely because a role was requested.
+    const user = await userRepository.findByUsernameOrEmail(normalizedIdentifier);
 
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -133,6 +131,20 @@ export class AuthService {
     const role = await roleRepository.findById(user.roleId);
     if (!role) {
       throw new Error('User role configuration not found.');
+    }
+
+    if (requestedRole && role.code !== requestedRole) {
+      await auditRepository.logAction({
+        userId: user.id,
+        userEmail: user.email,
+        userRole: role.code,
+        action: 'AUTH_LOGIN_ROLE_MISMATCH',
+        module: 'Authentication',
+        details: `Rejected requested role ${requestedRole}; account is configured for ${role.code}.`,
+        ipAddress,
+        userAgent,
+      });
+      throw new Error('Requested role does not match the authenticated account role.');
     }
 
     const permissions = await roleRepository.getRolePermissionCodes(role.id);

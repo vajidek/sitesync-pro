@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { employeeExpenseController } from '../controllers/employee_expense.controller';
+import { authenticateJWT } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// All employee-expense operations are protected. Individual controller actions
+// enforce ownership, separation-of-duties and elevated-action checks.
+router.use(authenticateJWT);
 
 // 1. Categories
 router.get('/categories', (req, res) => employeeExpenseController.getCategories(req, res));

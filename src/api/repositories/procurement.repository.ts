@@ -3834,6 +3834,20 @@ export class ProcurementRepository {
       date: data.billDate || now,
     }));
 
+    const creatorId = String((data as any).createdById || '').trim();
+    const creatorName = String((data as any).createdByName || '').trim();
+    if (!creatorId || !creatorName) {
+      throw new Error('Authenticated creator identity is required for RA Bill creation.');
+    }
+
+    const duplicateBill = await db.select({ id: procurementRaBillsTable.id })
+      .from(procurementRaBillsTable)
+      .where(eq(procurementRaBillsTable.billNumber, billNumber))
+      .limit(1);
+    if (duplicateBill.length > 0) {
+      throw new Error(`RA Bill number ${billNumber} already exists.`);
+    }
+
     // Compute and validate items
     const rawItems = data.items || [];
     if (rawItems.length === 0) {
@@ -3968,24 +3982,59 @@ export class ProcurementRepository {
     ) / 100;
     const grossCumulative = Math.round((prevGross + grossCurrent) * 100) / 100;
 
-    const advRate = Math.max(0, Number(data.financials?.mobilizationAdvanceRecoveryRatePercent ?? 0));
-    const advRecovery = Math.round(Number(data.financials?.mobilizationAdvanceRecoveryUSD ?? (grossCurrent * (advRate / 100))) * 100) / 100;
+    // Deductions are server-authoritative. Use a uniquely matched stored subcontract policy;
+    // never trust client-entered deduction rates/amounts as accounting truth.
+    const subcontractCandidates = await db.select().from(commercialSubcontracts)
+      .where(and(
+        eq(commercialSubcontracts.projectId, projectId),
+        eq(commercialSubcontracts.subcontractorCode, String(data.contractorCode || '').trim())
+      ));
 
-    const retRate = Math.max(0, Number(data.financials?.retentionMoneyRatePercent ?? 0));
-    const retWithheld = Math.round(Number(data.financials?.retentionMoneyWithheldUSD ?? (grossCurrent * (retRate / 100))) * 100) / 100;
+    if (subcontractCandidates.length > 1) {
+      throw new Error('Multiple subcontract agreements match this project and contractor code. Select an explicit contract policy before billing.');
+    }
 
-    const matAdv = Math.max(0, Math.round(Number(data.financials?.materialAdvanceRecoveryUSD ?? 0) * 100) / 100);
-    const tdsRate = Math.max(0, Number(data.financials?.statutoryTdsPercent ?? 0));
-    const tdsUSD = Math.round(Number(data.financials?.statutoryTdsUSD ?? (grossCurrent * (tdsRate / 100))) * 100) / 100;
+    const contractPolicy = subcontractCandidates.length === 1 ? subcontractCandidates[0] : null;
+    const requestedFinancials: any = data.financials || {};
 
-    const gstTdsRate = Math.max(0, Number(data.financials?.statutoryGstTdsPercent ?? 0));
-    const gstTdsUSD = Math.round(Number(data.financials?.statutoryGstTdsUSD ?? (grossCurrent * (gstTdsRate / 100))) * 100) / 100;
+    if (!contractPolicy) {
+      const requestedRates = [
+        Number(requestedFinancials.mobilizationAdvanceRecoveryRatePercent || 0),
+        Number(requestedFinancials.retentionMoneyRatePercent || 0),
+        Number(requestedFinancials.statutoryTdsPercent || 0),
+        Number(requestedFinancials.statutoryGstTdsPercent || 0),
+        Number(requestedFinancials.laborWelfareCessPercent || 0),
+      ];
+      const requestedAmounts = [
+        Number(requestedFinancials.mobilizationAdvanceRecoveryUSD || 0),
+        Number(requestedFinancials.retentionMoneyWithheldUSD || 0),
+        Number(requestedFinancials.materialAdvanceRecoveryUSD || 0),
+        Number(requestedFinancials.statutoryTdsUSD || 0),
+        Number(requestedFinancials.statutoryGstTdsUSD || 0),
+        Number(requestedFinancials.laborWelfareCessUSD || 0),
+        Number(requestedFinancials.liquidatedDamagesOrPenaltyUSD || 0),
+        Number(requestedFinancials.otherWithholdingsUSD || 0),
+      ];
+      if (requestedRates.some((value) => value !== 0) || requestedAmounts.some((value) => value !== 0)) {
+        throw new Error('No unique stored deduction policy was found for this subcontract. Configure the contract policy before applying RA Bill deductions.');
+      }
+    }
 
-    const cessRate = Math.max(0, Number(data.financials?.laborWelfareCessPercent ?? 0));
-    const cessUSD = Math.round(Number(data.financials?.laborWelfareCessUSD ?? (grossCurrent * (cessRate / 100))) * 100) / 100;
+    const advRate = Math.max(0, Number(contractPolicy?.mobilizationAdvancePercent || 0));
+    const retRate = Math.max(0, Number(contractPolicy?.retentionPercent || 0));
+    const advRecovery = Math.round(grossCurrent * (advRate / 100) * 100) / 100;
+    const retWithheld = Math.round(grossCurrent * (retRate / 100) * 100) / 100;
 
-    const penaltyUSD = Math.max(0, Math.round(Number(data.financials?.liquidatedDamagesOrPenaltyUSD ?? 0) * 100) / 100);
-    const otherWithholdingsUSD = Math.max(0, Math.round(Number(data.financials?.otherWithholdingsUSD ?? 0) * 100) / 100);
+    // These deductions require their own configured policy/contractual basis and are not inferred here.
+    const matAdv = 0;
+    const tdsRate = 0;
+    const tdsUSD = 0;
+    const gstTdsRate = 0;
+    const gstTdsUSD = 0;
+    const cessRate = 0;
+    const cessUSD = 0;
+    const penaltyUSD = 0;
+    const otherWithholdingsUSD = 0;
 
     const totalDeductions = Math.round((advRecovery + retWithheld + matAdv + tdsUSD + gstTdsUSD + cessUSD + penaltyUSD + otherWithholdingsUSD) * 100) / 100;
     if (totalDeductions > grossCurrent) {
@@ -4003,7 +4052,7 @@ export class ProcurementRepository {
       action: 'BILL_CREATED',
       fromStatus: 'None' as const,
       toStatus: 'Draft',
-      performedBy: String((data as any).createdByName || '').trim() || data.contractorRepresentative || 'Authenticated Workflow Actor',
+      performedBy: creatorName,
       role: 'CONTRACTOR_REP',
       timestamp: now,
       remarks: data.remarks || 'Running Account bill recorded and awaiting submission for measurement verification.',
@@ -4052,7 +4101,7 @@ export class ProcurementRepository {
         netPayableCurrentUSD: netCurrent,
         netPayableCumulativeUSD: netCumulative,
       },
-      contractorRepresentative: data.contractorRepresentative || undefined,
+      contractorRepresentative: data.contractorRepresentative || creatorName,
       qsVerifier: data.qsVerifier,
       siteEngineer: data.siteEngineer,
       projectDirector: data.projectDirector,

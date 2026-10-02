@@ -126,8 +126,8 @@ export async function createFolder(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
+    createdBy,
+    updatedBy: createdBy,
     isDeleted: false,
   };
 
@@ -258,8 +258,8 @@ export async function createDocument(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
+    createdBy,
+    updatedBy: createdBy,
     isDeleted: false,
   };
 
@@ -658,8 +658,8 @@ export async function approveDocument(data: {
   const doc = await getDocumentById(data.documentId);
   if (!doc) throw new Error('Document not found.');
   if (doc.createdBy === approverName) throw new Error('Maker-checker violation: document creator cannot approve the same document.');
-  if (!['UNDER_REVIEW', 'RETURNED'].includes(String(doc.workflowStatus).toUpperCase())) {
-    throw new Error(`Document cannot be approved from workflow status ${doc.workflowStatus}.`);
+  if (String(doc.workflowStatus).toUpperCase() !== 'UNDER_REVIEW') {
+    throw new Error(`Document can be approved only after a completed review. Current workflow status: ${doc.workflowStatus}.`);
   }
 
   const latestReviews = await getDocumentReviews(data.documentId);
@@ -668,7 +668,10 @@ export async function approveDocument(data: {
     throw new Error('Maker-checker violation: reviewer cannot also be the approver.');
   }
 
-  const decision = String(data.decision || '').trim();
+  const decision = String(data.decision || '').trim().toUpperCase();
+  if (!['APPROVED', 'REJECTED', 'RETURNED'].includes(decision)) {
+    throw new Error('A valid document approval decision is required.');
+  }
   await db.insert(phase61DocumentApprovals).values({
     id,
     documentId: data.documentId,
@@ -769,13 +772,14 @@ export async function shareDocument(data: {
   const now = new Date().toISOString();
   const actor = String(data.createdBy || '').trim();
   if (!actor) throw new Error('Authenticated document sharing actor identity is required.');
+  if (!data.sharedWithEmail && !data.recipientName) throw new Error('A recipient email or recipient name is required for document sharing.');
   const token = crypto.randomBytes(16).toString('hex');
   const record = {
     id: crypto.randomUUID(),
     documentId: data.documentId,
     shareToken: token,
     sharedWithEmail: data.sharedWithEmail || null,
-    recipientName: data.recipientName || 'External Auditor',
+    recipientName: data.recipientName || null,
     permissionLevel: data.permissionLevel || 'READ_ONLY',
     expiryDate: data.expiryDate || null,
     passwordProtected: false,

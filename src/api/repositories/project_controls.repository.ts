@@ -1012,15 +1012,19 @@ export class ProjectControlsRepository {
   public async addProgressSnapshot(data: any) {
     await this.ensureProjectControlsTablesExist();
     const actor = this.requireWriteActor(data);
+    const pv = Number(data.plannedValue);
+    const ev = Number(data.earnedValue);
+    const ac = Number(data.actualCost);
+    if (![pv, ev, ac].every((value) => Number.isFinite(value) && value >= 0)) {
+      throw new Error('Planned value, earned value and actual cost are required valid non-negative amounts.');
+    }
+    if (!data.asOfDate) throw new Error('EVM snapshot as-of date is required.');
+
     const id = uuidv4();
     const now = new Date().toISOString();
 
-    const pv = data.plannedValue || 0;
-    const ev = data.earnedValue || 0;
-    const ac = data.actualCost || 0;
-
-    const spi = pv > 0 ? Number((ev / pv).toFixed(2)) : 1.0;
-    const cpi = ac > 0 ? Number((ev / ac).toFixed(2)) : 1.0;
+    const spi = pv > 0 ? Number((ev / pv).toFixed(2)) : 0;
+    const cpi = ac > 0 ? Number((ev / ac).toFixed(2)) : 0;
     const scheduleVariance = ev - pv;
     const costVariance = ev - ac;
 

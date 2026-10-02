@@ -4152,7 +4152,36 @@ export class ProcurementRepository {
       .where(eq(procurementRaBillsTable.id, id)).limit(1);
     if (!financeBill) return null;
 
+    const allowedTransitions: Record<string, RABillStatus[]> = {
+      Draft: ['Submitted', 'Rejected'],
+      Submitted: ['Under Technical Scrutiny', 'Rejected', 'Draft'],
+      'Under Technical Scrutiny': ['Certified by QS', 'Rejected', 'Draft'],
+      'Certified by QS': ['Approved by Incharge', 'Rejected'],
+      'Approved by Incharge': ['Approved by Project Director', 'Rejected'],
+      'Approved by Project Director': ['Disbursed / Paid', 'Rejected'],
+      'Disbursed / Paid': [],
+      Rejected: ['Draft', 'Submitted'],
+    };
+    if (!allowedTransitions[financeBill.status]?.includes(targetStatus)) {
+      throw new Error(`Invalid RA Bill status transition from '${financeBill.status}' to '${targetStatus}'.`);
+    }
+
     const financeNetPayable = Number((financeBill as any).financials?.netPayableCurrentUSD || 0);
+    const paymentReference = String(updates.paymentReferenceNumber || '').trim();
+
+    if (targetStatus === 'Disbursed / Paid') {
+      if (!paymentReference) throw new Error('Bank payment reference / UTR number is required for disbursement.');
+      const duplicatePayment = await db.select({ id: procurementRaBillsTable.id })
+        .from(procurementRaBillsTable)
+        .where(and(
+          eq(procurementRaBillsTable.paymentReferenceNumber, paymentReference),
+          sql`${procurementRaBillsTable.id} <> ${id}`
+        ))
+        .limit(1);
+      if (duplicatePayment.length) throw new Error(`Duplicate payment reference: UTR '${paymentReference}' is already registered.`);
+      if (financeNetPayable <= 0) throw new Error('A positive net payable amount is required before RA Bill disbursement.');
+    }
+
     if (targetStatus === 'Approved by Project Director' && financeNetPayable > 0) {
       await financeRepository.createAPInvoice({
         invoiceNumber: financeBill.billNumber,
@@ -4168,10 +4197,6 @@ export class ProcurementRepository {
     }
 
     if (targetStatus === 'Disbursed / Paid') {
-      const paymentAmount = financeNetPayable;
-      if (paymentAmount <= 0) throw new Error('A positive net payable amount is required before RA Bill disbursement.');
-
-      // A disbursement must be recorded in the GL before the bill can become paid.
       // The reference combines the immutable bill number and bank UTR, making retries idempotent.
       await financeRepository.createJournalEntry({
         voucherType: 'RA_BILL_PAYMENT',
@@ -4181,20 +4206,8 @@ export class ProcurementRepository {
         postedBy: actorName,
         createdBy: actorName,
       }, [
-        {
-          accountCode: '2010',
-          accountName: 'Accounts Payable Control - Trade Creditors',
-          debitAmount: paymentAmount,
-          creditAmount: 0,
-          lineDescription: 'Settlement of RA Bill ' + financeBill.billNumber,
-        },
-        {
-          accountCode: '1010',
-          accountName: 'Cash & Bank Operating',
-          debitAmount: 0,
-          creditAmount: paymentAmount,
-          lineDescription: 'Bank payment for RA Bill ' + financeBill.billNumber + ' / ' + paymentReference,
-        },
+        { accountCode: '2010', accountName: 'Accounts Payable Control - Trade Creditors', debitAmount: financeNetPayable, creditAmount: 0, lineDescription: 'Settlement of RA Bill ' + financeBill.billNumber },
+        { accountCode: '1010', accountName: 'Cash & Bank Operating', debitAmount: 0, creditAmount: financeNetPayable, lineDescription: 'Bank payment for RA Bill ' + financeBill.billNumber + ' / ' + paymentReference },
       ]);
     }
 

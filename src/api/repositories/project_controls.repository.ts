@@ -1361,7 +1361,8 @@ export class ProjectControlsRepository {
       };
     });
 
-    const totalBudget = items.reduce((sum: number, item: any) => sum + item.budget, 0);
+    const wbsBudgetTotal = items.reduce((sum: number, item: any) => sum + item.budget, 0);
+    const totalBudget = wbsBudgetTotal > 0 ? wbsBudgetTotal : Number(project.budget || 0);
     const totalActualWbs = items.reduce((sum: number, item: any) => sum + item.actualCost, 0);
     const totalEarnedValue = items.reduce((sum: number, item: any) => sum + item.earnedValue, 0);
     const totalPlannedValue = items.reduce((sum: number, item: any) => sum + item.plannedValue, 0);

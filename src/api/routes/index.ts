@@ -76,6 +76,7 @@ import adminServicesRoutes from './admin_services.routes';
 import itManagementRoutes from './it_management.routes';
 import commercialRoutes from './commercial.routes';
 import employeeExpenseRoutes from './employee_expense.routes';
+import costCodeRoutes from './cost_code.routes';
 import { idempotency } from '../middleware/idempotency.middleware';
 
 const router = Router();
@@ -296,6 +297,7 @@ router.use('/subcontracts', commercialRoutes);
 router.use('/rate-analyses', commercialRoutes);
 
 // Phase 83: Enterprise Employee Expense, Cash Request, Petty Cash & Reimbursement Engine
+router.use('/cost-codes', costCodeRoutes);
 router.use('/expenses', employeeExpenseRoutes);
 router.use('/employee-expenses', employeeExpenseRoutes);
 router.use('/cash-requests', employeeExpenseRoutes);

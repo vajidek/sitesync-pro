@@ -171,6 +171,10 @@ export interface FuelLog {
   mileageCalculated?: number; // Km/L or L/Hr
   projectId?: string;
   projectName?: string;
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   siteId?: string;
   siteName?: string;
   filledById?: string;

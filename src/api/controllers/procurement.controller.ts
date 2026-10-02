@@ -1275,6 +1275,7 @@ export class ProcurementController {
       const bill = await this.service.createRABill({
         ...req.body,
         companyId,
+        createdById: actorId,
         createdByName: actorName,
         status: 'Draft',
       });

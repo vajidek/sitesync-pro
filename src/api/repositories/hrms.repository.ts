@@ -1026,7 +1026,7 @@ export class HrmsRepository {
               closing_outstanding, deduction_type, transaction_reference, actor, timestamp, created_at
             ) VALUES (
               ${uuidv4()}, ${loan.id}, ${loan.loanCode}, ${emp.id}, ${emp.employeeCode || emp.id},
-              ${`prun-${resolvedPeriodId}`}, ${resolvedPeriodId}, ${payrollMonth}, ${payableDutyDays}, ${anyLoan.repaymentRate || 1000},
+              ${`prun-${resolvedPeriodId}`}, ${resolvedPeriodId}, ${payrollMonth}, ${payableDutyDays}, ${Number(anyLoan.repaymentRate || 0)},
               ${calculatedInstallment}, ${openingBal}, ${actualDeduction}, ${closingBal},
               ${anyLoan.repaymentMethod || 'PER_DUTY_DAY'}, ${`REC-${payrollMonth}-${loan.loanCode}`},
               ${options.makerUserName || 'SYSTEM_PAYROLL_ENGINE'}, ${now}, ${now}
@@ -1042,7 +1042,8 @@ export class HrmsRepository {
             updatedAt: now,
           }).where(eq(phase70Loans.id, loan.id));
         } catch (loanRecErr) {
-          console.warn('Loan recovery ledger insert notice:', loanRecErr);
+          console.error('Payroll blocked: loan recovery ledger update failed.', loanRecErr);
+          throw new Error(`Loan recovery could not be recorded for ${loan.loanCode || loan.id}; payroll execution was stopped to protect ledger integrity.`);
         }
       }
 
@@ -1863,7 +1864,11 @@ export class HrmsRepository {
     await this.ensureHrmsTablesExist();
     const loans = await db.select().from(phase70Loans).where(eq(phase70Loans.isDeleted, false));
     if (loans.length === 0) {
-      // Seed default initial loan for demo and verification
+      if (!isDemoSeedAllowed()) {
+        return [];
+      }
+
+      // Seed default initial loan for DEMO verification only.
       const now = new Date().toISOString();
       const initialLoans = [
         {

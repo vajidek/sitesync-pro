@@ -2037,38 +2037,82 @@ export class ProcurementEnterpriseRepository {
     const grns = await db.select().from(phase69GoodsReceipts).where(eq(phase69GoodsReceipts.isDeleted, false));
     const activeGrns = await db.select().from(procurementGrnsTable);
 
-    const totalSpendAed = vendors.reduce((acc, v) => acc + (v.totalSpendAmount || 0), 0) +
-      activePos.reduce((acc, p) => acc + Number(p.netAmountUSD || 0), 0);
-    const totalContractValueAed = contracts.reduce((acc, c) => acc + (c.revisedContractValue || 0), 0);
-    
-    // Count open POs across active + phase69
-    const activeOpenPosCount = activePos.filter(p => p.status === 'Issued' || p.status === 'Partially Received' || p.status === 'Draft').length;
-    const phase69OpenPosCount = pos.filter(p => p.status === 'ISSUED' || p.status === 'PARTIALLY_DELIVERED').length;
-    const openPosCount = Math.max(activeOpenPosCount, phase69OpenPosCount, activePos.length > 0 ? activeOpenPosCount : 0);
+    // Enterprise KPIs are calculated only from canonical procurement records.
+    // Mixed currencies are never combined into a single AED total.
+    const approvedAedPurchaseOrderValue = pos
+      .filter((po) => po.currency === 'AED' && !['CANCELLED', 'REJECTED'].includes(po.status))
+      .reduce((sum, po) => sum + Number(po.totalAmount || 0), 0);
 
-    const openPrsCount = prs.length + activePrs.length;
-    const activeRfqsCount = rfqs.filter(r => r.status === 'PUBLISHED' || r.status === 'EVALUATION').length;
-    const totalGrnsCount = Math.max(grns.length, activeGrns.length);
+    const contractValueAed = contracts
+      .filter((contract) => contract.currency === 'AED' && !contract.isDeleted)
+      .reduce((sum, contract) => sum + Number(contract.revisedContractValue || 0), 0);
 
+    const openPosCount = pos.filter((po) =>
+      ['PENDING_APPROVAL', 'ISSUED', 'PARTIALLY_DELIVERED', 'DELIVERED', 'INVOICED'].includes(po.status)
+    ).length;
+
+    const openPrsCount = prs.filter((pr) =>
+      !['PO_ISSUED', 'REJECTED', 'CANCELLED'].includes(pr.status)
+    ).length;
+
+    const activeRfqsCount = rfqs.filter((rfq) =>
+      ['PUBLISHED', 'EVALUATION', 'EVALUATION_STAGE'].includes(rfq.status)
+    ).length;
+
+    const totalGrnsCount = grns.length;
+
+    const matchedCount = matches.filter((m) => m.matchingStatus === 'AUTO_RECONCILED').length;
     const autoMatchedInvoicesPercent = matches.length > 0
-      ? (matches.filter(m => m.matchingStatus === 'AUTO_RECONCILED').length / matches.length) * 100
-      : 100;
+      ? Number(((matchedCount / matches.length) * 100).toFixed(1))
+      : null;
+
+    const activeVendorRatings = vendors
+      .filter((vendor) => vendor.status === 'ACTIVE' && Number.isFinite(Number(vendor.ratingScore)))
+      .map((vendor) => Number(vendor.ratingScore));
+    const averageVendorRating = activeVendorRatings.length > 0
+      ? Number((activeVendorRatings.reduce((sum, rating) => sum + rating, 0) / activeVendorRatings.length).toFixed(2))
+      : 0;
+
+    // Sourcing variance: estimated RFQ budget minus accepted/awarded quotation subtotal.
+    // This is a variance indicator, not a realized-savings claim.
+    const awardedQuotations = await db.select().from(phase69VendorQuotations)
+      .where(and(eq(phase69VendorQuotations.isAwarded, true), eq(phase69VendorQuotations.isDeleted, false)));
+    let sourcingVarianceAed = 0;
+    let sourcingBaseAed = 0;
+    for (const quote of awardedQuotations) {
+      if (quote.currency !== 'AED') continue;
+      const rfq = rfqs.find((item) => item.id === quote.rfqId);
+      const base = Number(rfq?.estimatedBudgetAed || 0);
+      const quoted = Number(quote.subtotalAmount || 0);
+      if (base > 0 && quoted > 0) {
+        sourcingBaseAed += base;
+        sourcingVarianceAed += Math.max(0, base - quoted);
+      }
+    }
+
+    const savingsPercent = sourcingBaseAed > 0
+      ? Number(((sourcingVarianceAed / sourcingBaseAed) * 100).toFixed(1))
+      : null;
 
     return {
       totalVendorsCount: vendors.length,
       activeVendorsCount: vendors.filter(v => v.status === 'ACTIVE').length,
-      totalSpendAed,
-      totalContractValueAed,
+      approvedPurchaseOrderValueAed,
+      totalSpendAed: null,
+      totalContractValueAed: contractValueAed,
       openPosCount,
       openPrsCount,
       activeRfqsCount,
       goodsReceiptsCount: totalGrnsCount,
-      autoMatchedInvoicesPercent: Number(autoMatchedInvoicesPercent.toFixed(1)),
-      averageVendorRating: 4.85,
-      costSavingsAed: 3450000,
-      savingsPercent: 8.4,
-      topVendorsBySpend: vendors.sort((a, b) => b.totalSpendAmount - a.totalSpendAmount).slice(0, 5),
-    };
+      autoMatchedInvoicesPercent,
+      averageVendorRating,
+      costSavingsAed: sourcingVarianceAed,
+      savingsPercent,
+      topVendorsBySpend: vendors
+        .filter((vendor) => Number(vendor.totalSpendAmount || 0) > 0)
+        .sort((a, b) => Number(b.totalSpendAmount || 0) - Number(a.totalSpendAmount || 0))
+        .slice(0, 5),
+;
   }
 }
 

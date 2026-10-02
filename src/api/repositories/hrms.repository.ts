@@ -897,6 +897,7 @@ export class HrmsRepository {
     const reason = String(data?.reason || '').trim();
     const actorId = String(data?.requestedByUserId || data?.userId || '').trim();
     const actorName = String(data?.requestedByUserName || data?.userName || '').trim();
+    if (!data?.companyId && !isDemoSeedAllowed()) throw new Error('Company context is required for leave request numbering outside DEMO mode.');
     if (!employeeId || !leaveTypeId || !startDate || !endDate || !reason || !actorId || !actorName) throw new Error('Employee, leave type, dates, reason and authenticated requester identity are required.');
     if (new Date(startDate) > new Date(endDate)) throw new Error('Leave end date cannot be before start date.');
 
@@ -2061,89 +2062,70 @@ export class HrmsRepository {
     return loans;
   }
 
-  public async createLoan(data: any): Promise<any> {
+  public async createLoan(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
 
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
     const employeeId = String(data?.employeeId || '').trim();
-    const employeeName = String(data?.employeeName || '').trim();
-    const employeeCode = String(data?.employeeCode || '').trim();
     const principal = Number(data?.principalAmountAed);
     const tenureMonths = Number(data?.tenureMonths);
     const interestRate = Number(data?.interestRate || 0);
     const repaymentMethod = String(data?.repaymentMethod || '').trim();
     const repaymentFrequency = String(data?.repaymentFrequency || repaymentMethod).trim();
     const repaymentRateInput = data?.repaymentRate;
+    if (!actorId || !actorName) throw new Error('Authenticated loan requester identity is required.');
+    if (!employeeId) throw new Error('Loan beneficiary employee is required.');
 
-    if (!employeeId || !employeeName || !employeeCode) throw new Error('Authenticated employee identity is required for a loan request.');
+    const [employee] = await db.select().from(phase70EmployeeMaster)
+      .where(and(eq(phase70EmployeeMaster.id, employeeId), eq(phase70EmployeeMaster.isDeleted, false)))
+      .limit(1);
+    if (!employee) throw new Error('Loan beneficiary must be an active employee in the employee master.');
+    if (!isDemoSeedAllowed() && !data?.companyId) throw new Error('Company context is required for employee loan requests outside DEMO mode.');
+
     if (!Number.isFinite(principal) || principal <= 0) throw new Error('Loan principal must be greater than zero.');
     if (!Number.isFinite(tenureMonths) || tenureMonths <= 0) throw new Error('Loan tenure must be greater than zero.');
     if (!Number.isFinite(interestRate) || interestRate < 0) throw new Error('Interest rate must be a valid non-negative number.');
     if (!repaymentMethod) throw new Error('Repayment method is required.');
 
-    const id = uuidv4();
-    const now = new Date().toISOString();
     const interest = (principal * interestRate) / 100;
     const totalRepayable = principal + interest;
     const emi = parseFloat((totalRepayable / tenureMonths).toFixed(2));
-    const repaymentRate = repaymentRateInput == null
-      ? emi
-      : Number(repaymentRateInput);
+    const repaymentRate = repaymentRateInput == null ? emi : Number(repaymentRateInput);
     if (!Number.isFinite(repaymentRate) || repaymentRate <= 0) throw new Error('Repayment rate must be greater than zero.');
 
     const policy = await workflowPolicyEngine.getWorkflowConfig('LOAN');
     const initialStatus = policy.approvalRequired ? 'PENDING' : 'ACTIVE';
+    const loanCode = String(data?.loanCode || '').trim() || await numberingService.generateLoanNumber({
+      companyId: data?.companyId || null,
+      branchId: data?.branchId || null,
+      date: data?.requestDate || new Date().toISOString(),
+      allocatedBy: actorName,
+    });
+    const [duplicate] = await db.select({ id: phase70Loans.id }).from(phase70Loans).where(eq(phase70Loans.loanCode, loanCode)).limit(1);
+    if (duplicate) throw new Error(`Loan number ${loanCode} already exists.`);
 
-    const loanCode = `LOAN-${new Date().getFullYear()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+    const id = uuidv4();
+    const now = new Date().toISOString();
     const [loan] = await db.insert(phase70Loans).values({
-      id,
-      loanCode,
-      employeeId,
-      employeeCode,
-      employeeName,
-      loanType: data.loanType,
-      principalAmountAed: principal,
-      requestedAmountAed: principal,
-      openingBalanceAed: totalRepayable,
-      interestRate,
-      totalRepayableAed: totalRepayable,
-      monthlyEmiAed: emi,
-      balanceOutstandingAed: totalRepayable,
-      totalRecoveredAed: 0,
-      repaymentMethod,
-      repaymentRate,
-      repaymentFrequency,
-      tenureMonths,
-      purpose: String(data.purpose || '').trim(),
-      disbursementDate: data.disbursementDate || null,
-      status: initialStatus,
-      createdAt: now,
-      updatedAt: now,
+      id, loanCode, employeeId: employee.id, employeeCode: employee.employeeCode, employeeName: `${employee.firstName} ${employee.lastName}`.trim(),
+      loanType: data.loanType, principalAmountAed: principal, requestedAmountAed: principal, openingBalanceAed: totalRepayable, interestRate,
+      totalRepayableAed: totalRepayable, monthlyEmiAed: emi, balanceOutstandingAed: totalRepayable, totalRecoveredAed: 0,
+      repaymentMethod, repaymentRate, repaymentFrequency, tenureMonths, purpose: String(data.purpose || '').trim(), disbursementDate: data.disbursementDate || null,
+      status: initialStatus, createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName,
     }).returning();
+    if (!loan) throw new Error('Loan request creation failed.');
 
     await db.insert(workflowHistory).values({
-      id: `hist-loan-${Date.now()}-${uuidv4().slice(0, 6)}`,
-      workflowCode: policy.workflowCode,
-      entityType: 'LOAN',
-      entityId: id,
-      fromState: 'DRAFT',
-      toState: initialStatus,
-      actionTaken: 'SUBMIT',
-      performedByUserId: employeeId,
-      performedByUserName: employeeName,
-      performedByUserRole: 'EMPLOYEE',
-      comments: `Loan request created under Workflow Policy Version ${policy.version}.`,
-      timestamp: now,
+      id: `hist-loan-${Date.now()}-${uuidv4().slice(0, 6)}`, workflowCode: policy.workflowCode, entityType: 'LOAN', entityId: id,
+      fromState: 'DRAFT', toState: initialStatus, actionTaken: 'SUBMIT', performedByUserId: actorId, performedByUserName: actorName,
+      performedByUserRole: String(actor?.role || 'EMPLOYEE'), comments: `Loan request created under Workflow Policy Version ${policy.version}.`, timestamp: now,
     });
 
     await this.recordAuditLog({
-      actionType: 'LOAN_REQUEST_CREATED',
-      entityType: 'LOAN',
-      entityId: id,
-      referenceNumber: loanCode,
-      performedBy: employeeName,
-      detailsJson: JSON.stringify({ principal, repaymentMethod, repaymentRate, repaymentFrequency, totalRepayable, status: initialStatus }),
+      actionType: 'LOAN_REQUEST_CREATED', entityType: 'LOAN', entityId: id, referenceNumber: loanCode, performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, employeeId: employee.id, principal, repaymentMethod, repaymentRate, repaymentFrequency, totalRepayable, status: initialStatus }),
     });
-
     return loan;
   }
   public async approveLoan(loanId: string, actor: { userId: string; userName: string; role?: string }, remarks?: string): Promise<any> {

@@ -423,6 +423,206 @@ export class HSERepository {
     return db.select().from(phase63WasteManagement);
   }
 
+  // ERP-TRACE: HSE operational modules below are real transactional writes.
+  // They are actor-bound, collision-safe and audit-logged; no synthetic result is auto-accepted.
+  private async logOperationalHseAction(tx: any, actionType: string, entityType: string, entityId: string, entityNumber: string, actor: string, details: string) {
+    await tx.insert(phase63HseLogs).values({
+      id: uuidv4(),
+      actionType,
+      module: 'HSE',
+      entityId,
+      performedBy: actor,
+      details,
+      ipAddress: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: actor,
+      updatedBy: actor,
+      deletedAt: null,
+      isDeleted: false,
+    });
+  }
+
+  private buildHseNumber(prefix: string): string {
+    return `${prefix}-${new Date().getFullYear()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+  }
+
+  public async createToolboxTalk(data: any) {
+    requireFields(data, ['topic','conductedBy','location','talkDate','attendeesCount','keyPoints','createdBy'], 'Toolbox Talk');
+    await this.ensureHSETablesExist();
+    const actor = String(data.createdBy).trim();
+    const count = Number(data.attendeesCount);
+    if (!Number.isInteger(count) || count < 0) throw new Error('Attendee count must be a valid non-negative integer.');
+    const id = uuidv4();
+    const tbtNumber = String(data.tbtNumber || this.buildHseNumber('TBT')).trim();
+    const now = new Date().toISOString();
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63ToolboxTalks.id }).from(phase63ToolboxTalks).where(and(eq(phase63ToolboxTalks.tbtNumber, tbtNumber), eq(phase63ToolboxTalks.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Toolbox Talk number ${tbtNumber} already exists.`);
+      const [record] = await tx.insert(phase63ToolboxTalks).values({
+        id, tbtNumber, topic: String(data.topic).trim(), conductedBy: String(data.conductedBy).trim(), location: String(data.location).trim(),
+        talkDate: String(data.talkDate).trim(), attendeesCount: count, keyPoints: String(data.keyPoints).trim(), attendeesList: data.attendeesList || null,
+        status: 'COMPLETED', createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Toolbox Talk creation failed.');
+      await this.logOperationalHseAction(tx, 'TOOLBOX_TALK_CREATED', 'TOOLBOX_TALK', id, tbtNumber, actor, `Recorded toolbox talk: ${record.topic}.`);
+      return record;
+    });
+  }
+
+  public async createSafetyInspection(data: any) {
+    requireFields(data, ['inspectionType','location','inspectorName','inspectionDate','totalItemsChecked','compliantItems','nonCompliantItems','createdBy'], 'Safety Inspection');
+    await this.ensureHSETablesExist();
+    const total = Number(data.totalItemsChecked);
+    const compliant = Number(data.compliantItems);
+    const nonCompliant = Number(data.nonCompliantItems);
+    if (!Number.isInteger(total) || total <= 0 || !Number.isInteger(compliant) || !Number.isInteger(nonCompliant) || compliant < 0 || nonCompliant < 0 || compliant + nonCompliant !== total) {
+      throw new Error('Inspection item counts must be valid and compliant + non-compliant must equal total checked.');
+    }
+    const actor = String(data.createdBy).trim();
+    const score = Number(((compliant / total) * 100).toFixed(2));
+    const status = String(data.status || (nonCompliant === 0 ? 'PASSED' : 'ACTION_REQUIRED')).trim().toUpperCase();
+    if (!['PASSED','PASSED_WITH_OBSERVATIONS','ACTION_REQUIRED','FAILED'].includes(status)) throw new Error('Invalid safety inspection outcome.');
+    if (status === 'PASSED' && nonCompliant > 0) throw new Error('An inspection with non-compliant items cannot be marked PASSED.');
+    const id = uuidv4();
+    const inspectionNumber = String(data.inspectionNumber || this.buildHseNumber('SINS')).trim();
+    const now = new Date().toISOString();
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63SafetyInspections.id }).from(phase63SafetyInspections).where(and(eq(phase63SafetyInspections.inspectionNumber, inspectionNumber), eq(phase63SafetyInspections.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Safety inspection number ${inspectionNumber} already exists.`);
+      const [record] = await tx.insert(phase63SafetyInspections).values({
+        id, inspectionNumber, inspectionType: String(data.inspectionType).trim().toUpperCase(), location: String(data.location).trim(), inspectorName: String(data.inspectorName).trim(),
+        inspectionDate: String(data.inspectionDate).trim(), totalItemsChecked: total, compliantItems: compliant, nonCompliantItems: nonCompliant, scorePercentage: score, findings: data.findings || null,
+        status, createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Safety inspection creation failed.');
+      await this.logOperationalHseAction(tx, 'SAFETY_INSPECTION_RECORDED', 'SAFETY_INSPECTION', id, inspectionNumber, actor, `Recorded ${record.inspectionType} inspection with ${record.nonCompliantItems} non-compliant items.`);
+      return record;
+    });
+  }
+
+  public async createTrainingRecord(data: any) {
+    requireFields(data, ['courseName','trainerName','trainingDate','validityMonths','participantsCount','createdBy'], 'Training Record');
+    await this.ensureHSETablesExist();
+    const validity = Number(data.validityMonths);
+    const participants = Number(data.participantsCount);
+    if (!Number.isInteger(validity) || validity <= 0 || !Number.isInteger(participants) || participants <= 0) throw new Error('Training validity and participant count must be positive integers.');
+    const actor = String(data.createdBy).trim();
+    const trainingDate = new Date(String(data.trainingDate));
+    if (Number.isNaN(trainingDate.getTime())) throw new Error('Training date is invalid.');
+    const expiry = new Date(trainingDate); expiry.setMonth(expiry.getMonth() + validity);
+    const id = uuidv4();
+    const trainingNumber = String(data.trainingNumber || this.buildHseNumber('TRN')).trim();
+    const now = new Date().toISOString();
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63TrainingRecords.id }).from(phase63TrainingRecords).where(and(eq(phase63TrainingRecords.trainingNumber, trainingNumber), eq(phase63TrainingRecords.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Training record number ${trainingNumber} already exists.`);
+      const [record] = await tx.insert(phase63TrainingRecords).values({
+        id, trainingNumber, courseName: String(data.courseName).trim(), trainerName: String(data.trainerName).trim(), trainingDate: String(data.trainingDate).trim(), validityMonths: validity,
+        expiryDate: expiry.toISOString().split('T')[0], participantsCount: participants, participantsList: data.participantsList || null, status: 'VALID',
+        createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Training record creation failed.');
+      await this.logOperationalHseAction(tx, 'TRAINING_RECORDED', 'HSE_TRAINING', id, trainingNumber, actor, `Recorded HSE training: ${record.courseName}.`);
+      return record;
+    });
+  }
+
+  public async createEmergencyDrill(data: any) {
+    requireFields(data, ['drillType','location','drillDate','evacuationTimeSeconds','participantsCount','observerName','performanceRating','createdBy'], 'Emergency Drill');
+    await this.ensureHSETablesExist();
+    const evacuation = Number(data.evacuationTimeSeconds);
+    const participants = Number(data.participantsCount);
+    if (!Number.isFinite(evacuation) || evacuation <= 0 || !Number.isInteger(participants) || participants <= 0) throw new Error('Drill evacuation time and participant count must be positive.');
+    const rating = String(data.performanceRating).trim().toUpperCase();
+    if (!['EXCELLENT','SATISFACTORY','NEEDS_IMPROVEMENT','UNACCEPTABLE'].includes(rating)) throw new Error('Invalid drill performance rating.');
+    const actor = String(data.createdBy).trim();
+    const id = uuidv4();
+    const drillNumber = String(data.drillNumber || this.buildHseNumber('DRL')).trim();
+    const now = new Date().toISOString();
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63EmergencyDrills.id }).from(phase63EmergencyDrills).where(and(eq(phase63EmergencyDrills.drillNumber, drillNumber), eq(phase63EmergencyDrills.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Emergency drill number ${drillNumber} already exists.`);
+      const [record] = await tx.insert(phase63EmergencyDrills).values({
+        id, drillNumber, drillType: String(data.drillType).trim().toUpperCase(), location: String(data.location).trim(), drillDate: String(data.drillDate).trim(),
+        evacuationTimeSeconds: Math.round(evacuation), participantsCount: participants, observerName: String(data.observerName).trim(), performanceRating: rating,
+        recommendations: data.recommendations || null, createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Emergency drill creation failed.');
+      await this.logOperationalHseAction(tx, 'EMERGENCY_DRILL_RECORDED', 'EMERGENCY_DRILL', id, drillNumber, actor, `Recorded ${record.drillType} drill with performance ${record.performanceRating}.`);
+      return record;
+    });
+  }
+
+  public async createFireEquipment(data: any) {
+    requireFields(data, ['equipmentTag','equipmentType','location','lastInspectionDate','nextInspectionDue','pressureStatus','physicalCondition','inspectorName','status','createdBy'], 'Fire Equipment');
+    await this.ensureHSETablesExist();
+    const actor = String(data.createdBy).trim();
+    const id = uuidv4();
+    const tag = String(data.equipmentTag).trim();
+    const now = new Date().toISOString();
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63FireEquipment.id }).from(phase63FireEquipment).where(and(eq(phase63FireEquipment.equipmentTag, tag), eq(phase63FireEquipment.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Fire equipment tag ${tag} already exists.`);
+      const [record] = await tx.insert(phase63FireEquipment).values({
+        id, equipmentTag: tag, equipmentType: String(data.equipmentType).trim().toUpperCase(), location: String(data.location).trim(), lastInspectionDate: String(data.lastInspectionDate).trim(),
+        nextInspectionDue: String(data.nextInspectionDue).trim(), pressureStatus: String(data.pressureStatus).trim().toUpperCase(), physicalCondition: String(data.physicalCondition).trim().toUpperCase(),
+        inspectorName: String(data.inspectorName).trim(), status: String(data.status).trim().toUpperCase(), createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Fire equipment creation failed.');
+      await this.logOperationalHseAction(tx, 'FIRE_EQUIPMENT_REGISTERED', 'FIRE_EQUIPMENT', id, tag, actor, `Registered ${record.equipmentType} at ${record.location}.`);
+      return record;
+    });
+  }
+
+  public async createEnvironmentLog(data: any) {
+    requireFields(data, ['location','parameter','measuredValue','unit','permissibleLimit','monitoringDate','monitoredBy','createdBy'], 'Environmental Monitoring');
+    await this.ensureHSETablesExist();
+    const measured = Number(data.measuredValue);
+    const limit = Number(data.permissibleLimit);
+    if (!Number.isFinite(measured) || !Number.isFinite(limit) || limit < 0) throw new Error('Environmental measured value and permissible limit must be valid numbers.');
+    const complianceStatus = measured > limit ? 'EXCEEDED' : 'COMPLIANT';
+    const actor = String(data.createdBy).trim();
+    const id = uuidv4();
+    const recordNumber = String(data.recordNumber || this.buildHseNumber('ENV')).trim();
+    const now = new Date().toISOString();
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63EnvironmentMonitoring.id }).from(phase63EnvironmentMonitoring).where(and(eq(phase63EnvironmentMonitoring.recordNumber, recordNumber), eq(phase63EnvironmentMonitoring.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Environmental record ${recordNumber} already exists.`);
+      const [record] = await tx.insert(phase63EnvironmentMonitoring).values({
+        id, recordNumber, location: String(data.location).trim(), parameter: String(data.parameter).trim().toUpperCase(), measuredValue: measured, unit: String(data.unit).trim(), permissibleLimit: limit,
+        complianceStatus, monitoringDate: String(data.monitoringDate).trim(), monitoredBy: String(data.monitoredBy).trim(), createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Environmental monitoring record creation failed.');
+      await this.logOperationalHseAction(tx, 'ENVIRONMENT_LOGGED', 'ENVIRONMENTAL_MONITORING', id, recordNumber, actor, `Recorded ${record.parameter}: ${record.measuredValue} ${record.unit} against limit ${record.permissibleLimit} ${record.unit}.`);
+      return record;
+    });
+  }
+
+  public async createWasteLog(data: any) {
+    requireFields(data, ['wasteCategory','wasteType','quantityKg','disposalMethod','approvedContractor','disposalDate','createdBy'], 'Waste Management');
+    await this.ensureHSETablesExist();
+    const quantity = Number(data.quantityKg);
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Waste quantity must be positive.');
+    const actor = String(data.createdBy).trim();
+    const id = uuidv4();
+    const manifestNumber = String(data.manifestNumber || this.buildHseNumber('WST')).trim();
+    const now = new Date().toISOString();
+    // Creation never claims completed disposal. It starts at the controlled stored-on-site stage.
+    const status = 'STORED_ON_SITE';
+    return db.transaction(async (tx) => {
+      const dup = await tx.select({ id: phase63WasteManagement.id }).from(phase63WasteManagement).where(and(eq(phase63WasteManagement.manifestNumber, manifestNumber), eq(phase63WasteManagement.isDeleted, false))).limit(1);
+      if (dup.length) throw new Error(`Waste manifest ${manifestNumber} already exists.`);
+      const [record] = await tx.insert(phase63WasteManagement).values({
+        id, manifestNumber, wasteCategory: String(data.wasteCategory).trim().toUpperCase(), wasteType: String(data.wasteType).trim(), quantityKg: quantity, disposalMethod: String(data.disposalMethod).trim().toUpperCase(),
+        approvedContractor: String(data.approvedContractor).trim(), disposalDate: String(data.disposalDate).trim(), certificateRef: data.certificateRef || null, status,
+        createdAt: now, updatedAt: now, createdBy: actor, updatedBy: String(data.updatedBy || actor).trim(), deletedAt: null, isDeleted: false,
+      }).returning();
+      if (!record) throw new Error('Waste record creation failed.');
+      await this.logOperationalHseAction(tx, 'WASTE_LOGGED', 'WASTE_MANAGEMENT', id, manifestNumber, actor, `Recorded ${record.wasteType} waste (${record.quantityKg} kg) with lifecycle ${record.status}.`);
+      return record;
+    });
+  }
   // Create Operations
     // ERP-TRACE: HSE-P1 — incident creation is actor-bound, project-validated, collision-safe and audit-atomic.
   public async createIncident(data: any) {

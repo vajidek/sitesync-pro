@@ -54,6 +54,14 @@ export class ProcurementEnterpriseService {
     return this.repository.updatePurchaseRequisitionStatus(id, status, actorName, remarks);
   }
 
+  public async updatePurchaseOrderStatus(id: string, status: 'ISSUED' | 'REJECTED' | 'PARTIALLY_DELIVERED' | 'DELIVERED' | 'INVOICED' | 'CLOSED' | 'CANCELLED', actorName: string, remarks?: string): Promise<any> {
+    return this.repository.updatePurchaseOrderStatus(id, status, actorName, remarks);
+  }
+
+  public async updateGoodsReceiptStatus(id: string, status: 'APPROVED' | 'CANCELLED', actorName: string, remarks?: string): Promise<any> {
+    return this.repository.updateGoodsReceiptStatus(id, status, actorName, remarks);
+  }
+
   public async createPurchaseRequisition(data: any, createdBy: string = ''): Promise<any> {
     return this.repository.createPurchaseRequisition(data, createdBy);
   }

@@ -39,7 +39,31 @@ async function startServer() {
       crossOriginEmbedderPolicy: false,
     })
   );
-  app.use(cors());
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // Non-browser/same-origin requests have no Origin header and remain allowed.
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+
+        if (ENV.ALLOWED_ORIGINS.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        // Development may intentionally accept browser origins for local tooling.
+        if (ENV.NODE_ENV !== 'production' && ENV.APP_ENVIRONMENT === 'DEMO' && ENV.ALLOWED_ORIGINS.length === 0) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error('CORS origin is not allowlisted for this environment.'));
+      },
+      credentials: false,
+    })
+  );
 
   // Body Parsing Middlewares
   app.use(express.json({ limit: '5mb' }));

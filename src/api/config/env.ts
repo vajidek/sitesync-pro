@@ -23,6 +23,10 @@ export const ENV = {
   NODE_ENV: nodeEnv,
   APP_ENVIRONMENT: appEnvironment,
   PORT: Number(process.env.PORT || 3000),
+  ALLOWED_ORIGINS: (process.env.APP_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   JWT_SECRET: resolveSecret('JWT_SECRET'),
   JWT_REFRESH_SECRET: resolveSecret('JWT_REFRESH_SECRET'),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '1h',

@@ -1695,7 +1695,7 @@ export class HrmsRepository {
 
     const existingFinalized = await db.execute(sql`
       SELECT COUNT(*)::int AS count FROM hr_attendance_finalizations
-      WHERE period_id = ${periodId} AND status = 'FINALIZED'
+      WHERE (period_id = ${periodId} OR month_year = ${monthYear}) AND status = 'FINALIZED'
     `);
     if (Number((existingFinalized.rows?.[0] as any)?.count || 0) > 0) {
       throw new Error(`Attendance period ${monthYear} is already finalized. Unlock it through the controlled revision workflow before re-finalizing.`);
@@ -1722,8 +1722,8 @@ export class HrmsRepository {
         return !subcontract && !['TERMINATED', 'RESIGNED', 'INACTIVE'].includes(status);
       });
 
-      const verifiedRows = await db.select().from(phase70Attendance);
-      const monthRows = verifiedRows.filter((row: any) => String(row.attendanceDate || '').startsWith(monthYear) && row.isVerified === true && String(row.status || '').toUpperCase() !== 'REJECTED');
+      const verifiedRows = await db.select().from(phase70Attendance).where(sql`${phase70Attendance.attendanceDate} LIKE ${monthYear + '-%'}`);
+      const monthRows = verifiedRows.filter((row: any) => row.isVerified === true && String(row.status || '').toUpperCase() !== 'REJECTED');
       const approvedLeaves = await db.select().from(phase70LeaveRequests).where(and(eq(phase70LeaveRequests.status, 'APPROVED'), eq(phase70LeaveRequests.isDeleted, false)));
 
       const year = Number(monthYear.slice(0, 4));

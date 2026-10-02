@@ -15,6 +15,7 @@ import {
 import { eq, and, isNull, desc, sql, sum } from 'drizzle-orm';
 import crypto from 'crypto';
 import { isDemoSeedAllowed } from '../config/env';
+import { CurrencyRepository } from './currency.repository';
 
 let tablesCreated = false;
 
@@ -196,6 +197,8 @@ export async function ensureFinanceTablesExist() {
 }
 
 export class FinanceRepository {
+  private currencyRepository = new CurrencyRepository();
+
   async findAccounts() {
     await ensureFinanceTablesExist();
     return await db.select().from(phase60ChartOfAccounts)
@@ -222,7 +225,7 @@ export class FinanceRepository {
       accountType: data.accountType,
       parentAccountId: data.parentAccountId || null,
       isHeaderAccount: data.isHeaderAccount || false,
-      currency: data.currency || 'USD',
+      currency: String(data.currency || '').trim().toUpperCase(),
       currentBalance: data.initialBalance || 0,
       status: 'ACTIVE',
       createdAt: now,
@@ -682,8 +685,9 @@ export class FinanceRepository {
     };
   }
 
-  async getProfitAndLoss(periodYear = '2026') {
+  async getProfitAndLoss(periodYear = String(new Date().getFullYear())) {
     await ensureFinanceTablesExist();
+    const reportingCurrency = (await this.currencyRepository.getBaseCurrency()).code;
     const accounts = await this.findAccounts();
 
     const revenueAccounts = accounts.filter(a => a.accountGroup === 'REVENUE');
@@ -702,7 +706,7 @@ export class FinanceRepository {
     return {
       fiscalYear: periodYear,
       asOfDate: new Date().toISOString().split('T')[0],
-      currency: 'USD',
+      currency: reportingCurrency,
       totalRevenue,
       totalExpenses: totalDirectExpenses + totalIndirectExpenses,
       revenue: {
@@ -727,6 +731,7 @@ export class FinanceRepository {
 
   async getBalanceSheet(asOfDate?: string) {
     await ensureFinanceTablesExist();
+    const reportingCurrency = (await this.currencyRepository.getBaseCurrency()).code;
     const accounts = await this.findAccounts();
 
     const currentAssets = accounts.filter(a => a.accountGroup === 'ASSETS' && a.accountType === 'CURRENT_ASSET');
@@ -755,7 +760,7 @@ export class FinanceRepository {
 
     return {
       asOfDate: asOfDate || new Date().toISOString().split('T')[0],
-      currency: 'USD',
+      currency: reportingCurrency,
       totalAssets,
       totalLiabilities,
       totalEquity,
@@ -770,33 +775,29 @@ export class FinanceRepository {
         totalLiabilities,
       },
       equity: {
-        accounts: equityAccounts.map(a => ({ code: a.accountCode, name: a.accountName, amount: a.currentBalance })),
-        baseEquity,
-        currentYearNetIncome,
-        totalEquity,
-      },
-      totalLiabilitiesAndEquity,
-      variance,
-      isBalanced,
-    };
-  }
-
-  async getCashFlowStatement() {
+        accounts: equityAccounts.map(a => ({ code: a.a  async getCashFlowStatement() {
     await ensureFinanceTablesExist();
+    const reportingCurrency = (await this.currencyRepository.getBaseCurrency()).code;
     const bankAccounts = await this.findBankAccounts();
     const cashTxns = await this.findCashTransactions();
-    const pl = await this.getProfitAndLoss();
+    const pl = await this.getProfitAndLoss(String(new Date().getFullYear()));
 
     const netOperatingProfit = pl.operatingProfit;
-    const cashInflows = cashTxns.filter(t => t.transactionType === 'RECEIPT').reduce((sum, t) => sum + (t.amount || 0), 0);
-    const cashOutflows = cashTxns.filter(t => t.transactionType === 'PAYMENT').reduce((sum, t) => sum + (t.amount || 0), 0);
+    const cashInflows = cashTxns.filter(t => t.transactionType === 'DEPOSIT').reduce((sum, t) => sum + (t.amount || 0), 0);
+    const cashOutflows = cashTxns.filter(t => ['WITHDRAWAL', 'PETTY_CASH'].includes(t.transactionType)).reduce((sum, t) => sum + (t.amount || 0), 0);
     const totalBankCash = bankAccounts.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
     const totalOperatingCashFlow = netOperatingProfit + cashInflows - cashOutflows;
     const endingCashBalance = totalBankCash;
 
+    // No investing/financing source ledger is currently recorded by this module.
+    // Do not invent capex or financing movements; return zero with explicit source status.
+    const totalInvestingCashFlow = 0;
+    const totalFinancingCashFlow = 0;
+
     return {
-      period: 'FY-2026 YTD',
+      period: `FY-${new Date().getFullYear()} YTD`,
       asOfDate: new Date().toISOString().split('T')[0],
+      currency: reportingCurrency,
       endingCashBalance,
       closingCashAndBank: totalBankCash,
       operatingActivities: {
@@ -812,23 +813,24 @@ export class FinanceRepository {
         netCashFromOperations: totalOperatingCashFlow,
       },
       investingActivities: {
-        totalInvestingCashFlow: -180000,
-        capitalExpenditureMachinery: -180000,
+        totalInvestingCashFlow,
+        sourceStatus: 'NO_RECORDED_SOURCE_TRANSACTIONS',
       },
       investingCashFlow: {
-        capitalExpenditureMachinery: -180000,
-        netCashFromInvesting: -180000,
+        netCashFromInvesting: totalInvestingCashFlow,
+        sourceStatus: 'NO_RECORDED_SOURCE_TRANSACTIONS',
       },
       financingActivities: {
-        totalFinancingCashFlow: 0,
-        capitalContributed: 0,
+        totalFinancingCashFlow,
+        sourceStatus: 'NO_RECORDED_SOURCE_TRANSACTIONS',
       },
       financingCashFlow: {
-        capitalContributed: 0,
-        netCashFromFinancing: 0,
+        netCashFromFinancing: totalFinancingCashFlow,
+        sourceStatus: 'NO_RECORDED_SOURCE_TRANSACTIONS',
       },
       netChangeInCash: cashInflows - cashOutflows,
     };
+  }
   }
 }
 

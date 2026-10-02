@@ -886,36 +886,47 @@ export class HrmsRepository {
 
   public async applyLeave(data: any): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const employeeId = String(data?.employeeId || '').trim();
+    const leaveTypeId = String(data?.leaveTypeId || '').trim();
+    const startDate = String(data?.startDate || '').trim();
+    const endDate = String(data?.endDate || '').trim();
+    const reason = String(data?.reason || '').trim();
+    const actorId = String(data?.requestedByUserId || data?.userId || '').trim();
+    const actorName = String(data?.requestedByUserName || data?.userName || '').trim();
+    if (!employeeId || !leaveTypeId || !startDate || !endDate || !reason || !actorId || !actorName) throw new Error('Employee, leave type, dates, reason and authenticated requester identity are required.');
+    if (new Date(startDate) > new Date(endDate)) throw new Error('Leave end date cannot be before start date.');
+
+    const [employee] = await db.select().from(phase70EmployeeMaster).where(and(eq(phase70EmployeeMaster.id, employeeId), eq(phase70EmployeeMaster.isDeleted, false))).limit(1);
+    if (!employee) throw new Error('Leave requester is not an active employee.');
+    const [leaveType] = await db.select().from(phase70LeaveTypes).where(and(eq(phase70LeaveTypes.id, leaveTypeId), eq(phase70LeaveTypes.isDeleted, false))).limit(1);
+    if (!leaveType) throw new Error('Selected leave type is not configured.');
+
+    const requestedDays = Number(data?.totalDays);
+    if (!Number.isFinite(requestedDays) || requestedDays <= 0) throw new Error('Leave duration must be greater than zero.');
+
+    const requestNumber = await numberingService.generateLeaveRequestNumber({
+      companyId: data?.companyId || null,
+      date: startDate,
+      allocatedBy: actorName,
+    });
+    const [duplicate] = await db.select({ id: phase70LeaveRequests.id }).from(phase70LeaveRequests).where(eq(phase70LeaveRequests.requestNumber, requestNumber)).limit(1);
+    if (duplicate) throw new Error(`Leave request number ${requestNumber} already exists.`);
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const requestNumber = `LV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-
     const [app] = await db.insert(phase70LeaveRequests).values({
-      id,
-      requestNumber,
-      ...data,
-      status: 'PENDING',
-      createdAt: now,
-      updatedAt: now,
+      id, requestNumber, employeeId: employee.id, leaveTypeId: leaveType.id, startDate, endDate, totalDays: requestedDays, reason,
+      contactDuringLeave: data?.contactDuringLeave || null, attachmentUrl: data?.attachmentUrl || null, status: 'PENDING',
+      approvedBy: null, approvalRemarks: null, reviewedAt: null, createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName, deletedAt: null, isDeleted: false,
     }).returning();
+    await this.recordAuditLog({
+      actionType: 'LEAVE_REQUEST_CREATED', entityType: 'LEAVE_REQUEST', entityId: id, referenceNumber: requestNumber, performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, employeeId: employee.id, leaveTypeId: leaveType.id, startDate, endDate, totalDays: requestedDays }),
+    });
     return app;
-  }
+  },
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approverName: string = 'HR Manager'): Promise<any> {
-    await this.ensureHrmsTablesExist();
-    const now = new Date().toISOString();
-    const [reviewed] = await db.update(phase70LeaveRequests)
-      .set({
-        status,
-        approvalRemarks: remarks,
-        approvedBy: approverName,
-        reviewedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(phase70LeaveRequests.id, id))
-      .returning();
-    return reviewed;
-  }
+
 
   // 7. Holidays
   public async getHolidays(year: number = 2026): Promise<any[]> {
@@ -929,18 +940,33 @@ export class HrmsRepository {
     return db.select().from(phase70SalaryStructures).where(eq(phase70SalaryStructures.isDeleted, false));
   }
 
-  public async createSalaryStructure(data: any): Promise<any> {
+  public async createSalaryStructure(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    const structureCode = String(data?.structureCode || '').trim();
+    const title = String(data?.title || '').trim();
+    const effectiveFrom = String(data?.effectiveFrom || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated payroll/HR actor identity is required.');
+    if (!structureCode || !title || !effectiveFrom) throw new Error('Salary structure code, title and effective-from date are required.');
+    const moneyFields = ['baseMonthlyAed','hraAed','conveyanceAed','medicalAed','specialAllowanceAed','siteAllowanceAed','otRatePerHour'];
+    for (const field of moneyFields) { const value = Number(data?.[field] ?? 0); if (!Number.isFinite(value) || value < 0) throw new Error(`${field} must be a valid non-negative number.`); }
+    const [duplicate] = await db.select({ id: phase70SalaryStructures.id }).from(phase70SalaryStructures).where(eq(phase70SalaryStructures.structureCode, structureCode)).limit(1);
+    if (duplicate) throw new Error(`Salary structure ${structureCode} already exists.`);
     const id = uuidv4();
     const now = new Date().toISOString();
     const [struct] = await db.insert(phase70SalaryStructures).values({
-      id,
-      ...data,
-      createdAt: now,
-      updatedAt: now,
+      id, structureCode, title, grade: String(data?.grade || '').trim() || 'UNASSIGNED', baseMonthlyAed: Number(data?.baseMonthlyAed || 0),
+      hraAed: Number(data?.hraAed || 0), conveyanceAed: Number(data?.conveyanceAed || 0), medicalAed: Number(data?.medicalAed || 0),
+      specialAllowanceAed: Number(data?.specialAllowanceAed || 0), siteAllowanceAed: Number(data?.siteAllowanceAed || 0), otRatePerHour: Number(data?.otRatePerHour || 0),
+      pfApplicable: Boolean(data?.pfApplicable), esiApplicable: Boolean(data?.esiApplicable), ptApplicable: Boolean(data?.ptApplicable),
+      status: String(data?.status || 'ACTIVE').trim().toUpperCase(), effectiveFrom, createdAt: now, updatedAt: now, createdBy: actorName, updatedBy: actorName, isDeleted: false, deletedAt: null,
     }).returning();
+    await this.recordAuditLog({ actionType: 'SALARY_STRUCTURE_CREATED', entityType: 'SALARY_STRUCTURE', entityId: id, referenceNumber: structureCode, performedBy: actorName, detailsJson: JSON.stringify({ actorId, title, effectiveFrom }) });
     return struct;
   }
+
+
 
   public async getPayrollPeriods(): Promise<any[]> {
     await this.ensureHrmsTablesExist();
@@ -1061,8 +1087,8 @@ export class HrmsRepository {
         await db.execute(sql`DELETE FROM hr_loan_recoveries WHERE period_id = ${periodId}`);
       }
       await db.delete(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, `prun-${periodId}`));
-    } catch (cleanErr) {
-      console.warn('Recalculation idempotency cleanup notice:', cleanErr);
+    } catch (cleanErr: any) {
+      throw new Error(`Payroll recalculation cleanup failed for period ${periodId}: ${cleanErr?.message || cleanErr}`);
     }
 
     // Refresh loan balances after any idempotency rollback
@@ -1157,8 +1183,8 @@ export class HrmsRepository {
             status: isFullyClosed ? 'CLOSED' : 'ACTIVE',
             updatedAt: now,
           }).where(eq(phase70Loans.id, loan.id));
-        } catch (loanRecErr) {
-          console.warn('Loan recovery ledger insert notice:', loanRecErr);
+        } catch (loanRecErr: any) {
+          throw new Error(`Loan recovery posting failed for ${anyLoan.loanCode || anyLoan.id}: ${loanRecErr?.message || loanRecErr}`);
         }
       }
 
@@ -2188,7 +2214,7 @@ export class HrmsRepository {
     }
   }
 
-  public async simulateLoanRecovery(employeeId: string, payableDutyDays: number, grossSalary: number = 75000): Promise<any> {
+  public async simulateLoanRecovery(employeeId: string, payableDutyDays: number, grossSalary: number): Promise<any> {
     await this.ensureHrmsTablesExist();
     const loans = await db.select().from(phase70Loans).where(and(
       eq(phase70Loans.employeeId, employeeId),
@@ -2201,12 +2227,22 @@ export class HrmsRepository {
       let calculatedInstallment = 0;
       const method = anyLoan.repaymentMethod || 'PER_DUTY_DAY';
       if (method === 'PER_DUTY_DAY' || method === 'PER_DAY' || method === 'PER_WORKING_DAY') {
-        const rate = anyLoan.repaymentRate || 1000;
+        const rate = Number(anyLoan.repaymentRate);
+        if (!Number.isFinite(rate) || rate < 0) throw new Error(`Loan repayment rate is not configured for ${anyLoan.loanCode || anyLoan.id}.`);
         calculatedInstallment = payableDutyDays * rate;
       } else if (method === 'PERCENTAGE_OF_SALARY') {
-        calculatedInstallment = (grossSalary * (anyLoan.repaymentRate || 10)) / 100;
+        const percentage = Number(anyLoan.repaymentRate);
+        if (!Number.isFinite(grossSalary) || grossSalary < 0 || !Number.isFinite(percentage) || percentage < 0) throw new Error(`Salary basis / repayment percentage is not configured for ${anyLoan.loanCode || anyLoan.id}.`);
+        calculatedInstallment = (grossSalary * percentage) / 100;
       } else {
-        calculatedInstallment = anyLoan.monthlyEmiAed || ((anyLoan.totalRepayableAed || anyLoan.principalAmountAed || 25000) / (anyLoan.tenureMonths || 12));
+        const monthlyEmi = Number(anyLoan.monthlyEmiAed);
+        if (Number.isFinite(monthlyEmi) && monthlyEmi > 0) calculatedInstallment = monthlyEmi;
+        else {
+          const totalRepayable = Number(anyLoan.totalRepayableAed);
+          const tenureMonths = Number(anyLoan.tenureMonths);
+          if (!Number.isFinite(totalRepayable) || totalRepayable <= 0 || !Number.isFinite(tenureMonths) || tenureMonths <= 0) throw new Error(`Loan installment configuration is incomplete for ${anyLoan.loanCode || anyLoan.id}.`);
+          calculatedInstallment = totalRepayable / tenureMonths;
+        }
       }
 
       const openingBalance = anyLoan.outstandingBalanceAed ?? anyLoan.balanceOutstandingAed ?? 0;
@@ -2218,7 +2254,7 @@ export class HrmsRepository {
         loanId: loan.id,
         loanCode: loan.loanCode,
         repaymentMethod: method,
-        repaymentRate: anyLoan.repaymentRate || 1000,
+        repaymentRate: Number(anyLoan.repaymentRate),
         payableDutyDays,
         openingBalance,
         calculatedInstallment,

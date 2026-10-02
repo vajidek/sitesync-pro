@@ -6,6 +6,7 @@ import {
   createDocumentSchema,
   updateDocumentSchema,
   createVersionSchema,
+  checkinDocumentSchema,
   checkoutDocumentSchema,
   reviewDocumentSchema,
   approvalDocumentSchema,

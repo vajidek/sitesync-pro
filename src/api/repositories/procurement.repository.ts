@@ -1595,7 +1595,209 @@ export class ProcurementRepository {
    * TRANSACTION WORKFLOW #4: Measurement Book -> BOQ Update
    * Executes inside an atomic database transaction.
    */
-  async createMeasurementEntry(data: Partial<MeasurementEntry>): Promise<MeasurementEntry> {,    await ensureProcurementSeeded();,,    const projectId = String(data.projectId || '').trim();,    const projectName = String(data.projectName || '').trim();,    const boqItemId = String(data.boqItemId || '').trim();,    const contractorName = String(data.contractorName || '').trim();,    const unit = String(data.unit || '').trim();,    const recordedByName = String(data.recordedByName || '').trim();,    if (!projectId || !projectName || !boqItemId || !contractorName || !unit || !recordedByName) {,      throw new Error('Project, BOQ item, contractor, unit and authenticated recorder identity are required for a measurement entry.');,    },,    const dimensions = [,      data.lengthMeters == null ? undefined : Number(data.lengthMeters),,      data.breadthMeters == null ? undefined : Number(data.breadthMeters),,      data.depthMeters == null ? undefined : Number(data.depthMeters),,      data.heightMeters == null ? undefined : Number(data.heightMeters),,    ];,    if (dimensions.some((value) => value != null && (!Number.isFinite(value) || value < 0))) {,      throw new Error('Measurement dimensions must be valid non-negative numbers.');,    },,    const suppliedQuantity = data.calculatedQuantity ?? data.quantity;,    const calculatedQuantity = suppliedQuantity != null,      ? Number(suppliedQuantity),      : (dimensions[0] != null && dimensions[2] != null ? dimensions[0] * dimensions[2] : undefined);,    if (calculatedQuantity == null || !Number.isFinite(calculatedQuantity) || calculatedQuantity <= 0) {,      throw new Error('A positive measured quantity or sufficient dimensions are required.');,    },,    const valuation = Number(data.valuationUSD);,    if (!Number.isFinite(valuation) || valuation < 0) {,      throw new Error('Measurement valuation must be explicitly supplied and valid.');,    },,    const [boqRow] = await db.select().from(procurementBoqItemsTable),      .where(eq(procurementBoqItemsTable.id, boqItemId)).limit(1);,    if (!boqRow) throw new Error('Linked BOQ item was not found.');,    if (boqRow.projectId !== projectId) throw new Error('Linked BOQ item does not belong to the selected project.');,,    const allMBs = await db.select({ id: procurementMeasurementEntriesTable.id }),      .from(procurementMeasurementEntriesTable);,    const newId = `mb_${Date.now()}`;,    const newMbNo = String(data.mbNumber || `MB-${new Date().getFullYear()}-${String(allMBs.length + 1).padStart(4, '0')}`).trim();,    const now = new Date().toISOString().split('T')[0];,,    // Measurement creation is a record-only action. BOQ quantities change only when the measurement,    // reaches an approved workflow state, preventing draft/verified entries from affecting cost/progress.,    const newMb: MeasurementEntry = {,      id: newId,,      mbNumber: newMbNo,,      entryDate: data.entryDate || now,,      measurementDate: data.measurementDate || now,,      projectId,,      projectName,,      boqItemId,,      boqItemCode: data.boqItemCode || boqRow.itemCode,,      boqDescription: data.boqDescription || boqRow.description || '',,      contractorName,,      chainageLocation: data.chainageLocation || data.locationChainage || '',,      locationChainage: data.locationChainage || data.chainageLocation || '',,      lengthMeters: dimensions[0],,      breadthMeters: dimensions[1],,      depthMeters: dimensions[2],,      heightMeters: dimensions[3],,      calculatedQuantity,,      quantity: calculatedQuantity,,      unit,,      valuationUSD: valuation,,      status: 'Draft',,      recordedByName,,      verifiedByName: undefined,,      approvedByName: undefined,,      remarks: data.remarks || '',,    };,,    return await db.transaction(async (tx) => {,      await tx.insert(procurementMeasurementEntriesTable).values({,        id: newMb.id,,        mbNumber: newMb.mbNumber,,        entryDate: newMb.entryDate,,        measurementDate: newMb.measurementDate,,        projectId: newMb.projectId,,        projectName: newMb.projectName,,        boqItemId: newMb.boqItemId,,        boqItemCode: newMb.boqItemCode,,        boqDescription: newMb.boqDescription,,        contractorName: newMb.contractorName,,        chainageLocation: newMb.chainageLocation,,        locationChainage: newMb.locationChainage,,        lengthMeters: newMb.lengthMeters,,        breadthMeters: newMb.breadthMeters,,        depthMeters: newMb.depthMeters,,        heightMeters: newMb.heightMeters,,        calculatedQuantity: newMb.calculatedQuantity,,        quantity: newMb.quantity,,        unit: newMb.unit,,        valuationUSD: newMb.valuationUSD,,        status: newMb.status,,        recordedByName: newMb.recordedByName,,        verifiedByName: null,,        approvedByName: null,,        remarks: newMb.remarks,,        createdAt: now,,      } as any);,      return newMb;,    });,  },,  async updateMeasurementStatus(id: string, updates: { status: string; verifiedByName?: string; approvedByName?: string }) {,    await ensureProcurementSeeded();,    const targetStatus = String(updates.status || '').trim();,    if (!targetStatus) throw new Error('Measurement workflow status is required.');,,    return await db.transaction(async (tx) => {,      const rows = await tx.select().from(procurementMeasurementEntriesTable),        .where(eq(procurementMeasurementEntriesTable.id, id)).limit(1);,      if (rows.length === 0) return null;,,      const existing = rows[0] as unknown as MeasurementEntry;,      const transitions: Record<string, string[]> = {,        Draft: ['Recorded', 'Rejected'],,        Recorded: ['Verified', 'Verified by Site Incharge', 'Rejected'],,        Verified: ['Approved', 'Approved by Project Manager', 'Rejected'],,        'Verified by Site Incharge': ['Approved', 'Approved by Project Manager', 'Rejected'],,        Approved: [],,        'Approved by Project Manager': [],,        Rejected: ['Draft'],,      };,      if (!transitions[existing.status]?.includes(targetStatus)) {,        throw new Error(`Invalid measurement status transition: ${existing.status} → ${targetStatus}`);,      },,      const vName = updates.verifiedByName?.trim() || '';,      const aName = updates.approvedByName?.trim() || '';,      if (['Verified', 'Verified by Site Incharge'].includes(targetStatus) && !vName) {,        throw new Error('Verifier identity is required before a measurement can be verified.');,      },      if (['Approved', 'Approved by Project Manager'].includes(targetStatus) && !aName) {,        throw new Error('Approver identity is required before a measurement can be approved.');,      },      if (['Verified', 'Verified by Site Incharge'].includes(targetStatus) && vName.toLowerCase() === String(existing.recordedByName || '').trim().toLowerCase()) {,        throw new Error('Maker-checker violation: measurement recorder cannot verify the same entry.');,      },      if (['Approved', 'Approved by Project Manager'].includes(targetStatus)) {,        if (aName.toLowerCase() === String(existing.recordedByName || '').trim().toLowerCase() || aName.toLowerCase() === String(existing.verifiedByName || '').trim().toLowerCase()) {,          throw new Error('Maker-checker violation: measurement recorder or verifier cannot approve the same entry.');,        },      },,      const nextVerified = ['Verified', 'Verified by Site Incharge'].includes(targetStatus) ? vName : existing.verifiedByName || null;,      const nextApproved = ['Approved', 'Approved by Project Manager'].includes(targetStatus) ? aName : existing.approvedByName || null;,      const [updated] = await tx.update(procurementMeasurementEntriesTable).set({,        status: targetStatus,,        verifiedByName: nextVerified,,        approvedByName: nextApproved,,      } as any).where(eq(procurementMeasurementEntriesTable.id, id)).returning();,,      if (!updated) return null;,,      // Only the first approved transition posts measured quantity to the BOQ.,      if (['Approved', 'Approved by Project Manager'].includes(targetStatus)) {,        const [boq] = await tx.select().from(procurementBoqItemsTable),          .where(eq(procurementBoqItemsTable.id, existing.boqItemId)).limit(1);,        if (!boq) throw new Error('Linked BOQ item no longer exists.');,,        const measuredQty = Number(existing.quantity || existing.calculatedQuantity || 0);,        if (!Number.isFinite(measuredQty) || measuredQty <= 0) throw new Error('Approved measurement quantity is invalid.');,,        const newExecutedQty = Number(boq.executedQuantity || 0) + measuredQty;,        const newRunningQty = Math.max(0, Number(boq.quantity || 0) - newExecutedQty);,        const newVariationQty = Math.max(0, newExecutedQty - Number(boq.quantity || 0));,        const newExecutedAmount = newExecutedQty * Number(boq.rateUSD || 0);,        const newProgress = Number(boq.quantity || 0) > 0,          ? Math.min(100, Number(((newExecutedQty / Number(boq.quantity)) * 100).toFixed(1))),          : 0;,,        await tx.update(procurementBoqItemsTable).set({,          executedQuantity: newExecutedQty,,          runningQuantity: newRunningQty,,          balanceQuantity: newRunningQty,,          variationQuantity: newVariationQty,,          executedAmountUSD: newExecutedAmount,,          progressPercent: newProgress,,        } as any).where(eq(procurementBoqItemsTable.id, boq.id));,      },,      const actor = aName || nextVerified || String(existing.recordedByName || 'SYSTEM_WORKFLOW');,      await tx.insert(procurementLogs).values({,        id: `plog-${Date.now()}-${Math.floor(Math.random() * 1000)}`,,        entityType: 'MEASUREMENT',,        entityId: id,,        entityNumber: existing.mbNumber,,        actionType: 'STATUS_CHANGE',,        performedBy: actor,,        details: `Measurement ${existing.mbNumber}: ${existing.status} → ${targetStatus}`,,        isActive: true,,        isDeleted: false,,        createdAt: new Date().toISOString(),,        updatedAt: new Date().toISOString(),,      } as any);,,      return updated as unknown as MeasurementEntry;,    });,  },  // --- TENDERS ---
+  async createMeasurementEntry(data: Partial<MeasurementEntry>): Promise<MeasurementEntry> {
+    await ensureProcurementSeeded();
+
+    const projectId = String(data.projectId || '').trim();
+    const projectName = String(data.projectName || '').trim();
+    const boqItemId = String(data.boqItemId || '').trim();
+    const contractorName = String(data.contractorName || '').trim();
+    const unit = String(data.unit || '').trim();
+    const recordedByName = String(data.recordedByName || '').trim();
+    if (!projectId || !projectName || !boqItemId || !contractorName || !unit || !recordedByName) {
+      throw new Error('Project, BOQ item, contractor, unit and authenticated recorder identity are required for a measurement entry.');
+    }
+
+    const dimensions = [
+      data.lengthMeters == null ? undefined : Number(data.lengthMeters),
+      data.breadthMeters == null ? undefined : Number(data.breadthMeters),
+      data.depthMeters == null ? undefined : Number(data.depthMeters),
+      data.heightMeters == null ? undefined : Number(data.heightMeters),
+    ];
+    if (dimensions.some((value) => value != null && (!Number.isFinite(value) || value < 0))) {
+      throw new Error('Measurement dimensions must be valid non-negative numbers.');
+    }
+
+    const suppliedQuantity = data.calculatedQuantity ?? data.quantity;
+    const calculatedQuantity = suppliedQuantity != null
+      ? Number(suppliedQuantity)
+      : (dimensions[0] != null && dimensions[2] != null ? dimensions[0] * dimensions[2] : undefined);
+    if (calculatedQuantity == null || !Number.isFinite(calculatedQuantity) || calculatedQuantity <= 0) {
+      throw new Error('A positive measured quantity or sufficient dimensions are required.');
+    }
+
+    const valuation = Number(data.valuationUSD);
+    if (!Number.isFinite(valuation) || valuation < 0) {
+      throw new Error('Measurement valuation must be explicitly supplied and valid.');
+    }
+
+    const [boqRow] = await db.select().from(procurementBoqItemsTable)
+      .where(eq(procurementBoqItemsTable.id, boqItemId)).limit(1);
+    if (!boqRow) throw new Error('Linked BOQ item was not found.');
+    if (boqRow.projectId !== projectId) throw new Error('Linked BOQ item does not belong to the selected project.');
+
+    const allMBs = await db.select({ id: procurementMeasurementEntriesTable.id })
+      .from(procurementMeasurementEntriesTable);
+    const newId = `mb_${Date.now()}`;
+    const newMbNo = String(data.mbNumber || `MB-${new Date().getFullYear()}-${String(allMBs.length + 1).padStart(4, '0')}`).trim();
+    const now = new Date().toISOString().split('T')[0];
+
+    const newMb: MeasurementEntry = {
+      id: newId,
+      mbNumber: newMbNo,
+      entryDate: data.entryDate || now,
+      measurementDate: data.measurementDate || now,
+      projectId,
+      projectName,
+      boqItemId,
+      boqItemCode: data.boqItemCode || boqRow.itemCode,
+      boqDescription: data.boqDescription || boqRow.description || '',
+      contractorName,
+      chainageLocation: data.chainageLocation || data.locationChainage || '',
+      locationChainage: data.locationChainage || data.chainageLocation || '',
+      lengthMeters: dimensions[0],
+      breadthMeters: dimensions[1],
+      depthMeters: dimensions[2],
+      heightMeters: dimensions[3],
+      calculatedQuantity,
+      quantity: calculatedQuantity,
+      unit,
+      valuationUSD: valuation,
+      status: 'Draft',
+      recordedByName,
+      verifiedByName: undefined,
+      approvedByName: undefined,
+      remarks: data.remarks || '',
+    };
+
+    return await db.transaction(async (tx) => {
+      await tx.insert(procurementMeasurementEntriesTable).values({
+        id: newMb.id,
+        mbNumber: newMb.mbNumber,
+        entryDate: newMb.entryDate,
+        measurementDate: newMb.measurementDate,
+        projectId: newMb.projectId,
+        projectName: newMb.projectName,
+        boqItemId: newMb.boqItemId,
+        boqItemCode: newMb.boqItemCode,
+        boqDescription: newMb.boqDescription,
+        contractorName: newMb.contractorName,
+        chainageLocation: newMb.chainageLocation,
+        locationChainage: newMb.locationChainage,
+        lengthMeters: newMb.lengthMeters,
+        breadthMeters: newMb.breadthMeters,
+        depthMeters: newMb.depthMeters,
+        heightMeters: newMb.heightMeters,
+        calculatedQuantity: newMb.calculatedQuantity,
+        quantity: newMb.quantity,
+        unit: newMb.unit,
+        valuationUSD: newMb.valuationUSD,
+        status: newMb.status,
+        recordedByName: newMb.recordedByName,
+        verifiedByName: null,
+        approvedByName: null,
+        remarks: newMb.remarks,
+        createdAt: now,
+      } as any);
+      return newMb;
+    });
+  }
+
+  async updateMeasurementStatus(id: string, updates: { status: string; verifiedByName?: string; approvedByName?: string }) {
+    await ensureProcurementSeeded();
+    const targetStatus = String(updates.status || '').trim();
+    if (!targetStatus) throw new Error('Measurement workflow status is required.');
+
+    return await db.transaction(async (tx) => {
+      const rows = await tx.select().from(procurementMeasurementEntriesTable)
+        .where(eq(procurementMeasurementEntriesTable.id, id)).limit(1);
+      if (rows.length === 0) return null;
+
+      const existing = rows[0] as unknown as MeasurementEntry;
+      const transitions: Record<string, string[]> = {
+        Draft: ['Recorded', 'Rejected'],
+        Recorded: ['Verified', 'Verified by Site Incharge', 'Rejected'],
+        Verified: ['Approved', 'Approved by Project Manager', 'Rejected'],
+        'Verified by Site Incharge': ['Approved', 'Approved by Project Manager', 'Rejected'],
+        Approved: [],
+        'Approved by Project Manager': [],
+        Rejected: ['Draft'],
+      };
+      if (!transitions[existing.status]?.includes(targetStatus)) {
+        throw new Error(`Invalid measurement status transition: ${existing.status} → ${targetStatus}`);
+      }
+
+      const vName = updates.verifiedByName?.trim() || '';
+      const aName = updates.approvedByName?.trim() || '';
+      if (['Verified', 'Verified by Site Incharge'].includes(targetStatus) && !vName) {
+        throw new Error('Verifier identity is required before a measurement can be verified.');
+      }
+      if (['Approved', 'Approved by Project Manager'].includes(targetStatus) && !aName) {
+        throw new Error('Approver identity is required before a measurement can be approved.');
+      }
+      if (['Verified', 'Verified by Site Incharge'].includes(targetStatus) && vName.toLowerCase() === String(existing.recordedByName || '').trim().toLowerCase()) {
+        throw new Error('Maker-checker violation: measurement recorder cannot verify the same entry.');
+      }
+      if (['Approved', 'Approved by Project Manager'].includes(targetStatus)) {
+        if (aName.toLowerCase() === String(existing.recordedByName || '').trim().toLowerCase() || aName.toLowerCase() === String(existing.verifiedByName || '').trim().toLowerCase()) {
+          throw new Error('Maker-checker violation: measurement recorder or verifier cannot approve the same entry.');
+        }
+      }
+
+      const nextVerified = ['Verified', 'Verified by Site Incharge'].includes(targetStatus) ? vName : existing.verifiedByName || null;
+      const nextApproved = ['Approved', 'Approved by Project Manager'].includes(targetStatus) ? aName : existing.approvedByName || null;
+      const [updated] = await tx.update(procurementMeasurementEntriesTable).set({
+        status: targetStatus,
+        verifiedByName: nextVerified,
+        approvedByName: nextApproved,
+      } as any).where(eq(procurementMeasurementEntriesTable.id, id)).returning();
+      if (!updated) return null;
+
+      if (['Approved', 'Approved by Project Manager'].includes(targetStatus)) {
+        const [boq] = await tx.select().from(procurementBoqItemsTable)
+          .where(eq(procurementBoqItemsTable.id, existing.boqItemId)).limit(1);
+        if (!boq) throw new Error('Linked BOQ item no longer exists.');
+
+        const measuredQty = Number(existing.quantity || existing.calculatedQuantity || 0);
+        if (!Number.isFinite(measuredQty) || measuredQty <= 0) throw new Error('Approved measurement quantity is invalid.');
+
+        const newExecutedQty = Number(boq.executedQuantity || 0) + measuredQty;
+        const newRunningQty = Math.max(0, Number(boq.quantity || 0) - newExecutedQty);
+        const newVariationQty = Math.max(0, newExecutedQty - Number(boq.quantity || 0));
+        const newExecutedAmount = newExecutedQty * Number(boq.rateUSD || 0);
+        const newProgress = Number(boq.quantity || 0) > 0
+          ? Math.min(100, Number(((newExecutedQty / Number(boq.quantity)) * 100).toFixed(1)))
+          : 0;
+
+        await tx.update(procurementBoqItemsTable).set({
+          executedQuantity: newExecutedQty,
+          runningQuantity: newRunningQty,
+          balanceQuantity: newRunningQty,
+          variationQuantity: newVariationQty,
+          executedAmountUSD: newExecutedAmount,
+          progressPercent: newProgress,
+        } as any).where(eq(procurementBoqItemsTable.id, boq.id));
+      }
+
+      const actor = aName || vName || String(existing.recordedByName || 'SYSTEM_WORKFLOW');
+      await tx.insert(procurementLogs).values({
+        id: `plog-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        entityType: 'MEASUREMENT',
+        entityId: id,
+        entityNumber: existing.mbNumber,
+        actionType: 'STATUS_CHANGE',
+        performedBy: actor,
+        details: `Measurement ${existing.mbNumber}: ${existing.status} → ${targetStatus}`,
+        isActive: true,
+        isDeleted: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } as any);
+
+      return updated as unknown as MeasurementEntry;
+    });
+  }
+  // --- TENDERS ---
   async getTenders(filters: { tenderStatus?: string; search?: string }): Promise<TenderRecord[]> {
     await ensureProcurementSeeded();
     let rows = (await db.select().from(procurementTendersTable).orderBy(desc(procurementTendersTable.createdAt))) as unknown as TenderRecord[];

@@ -1318,34 +1318,90 @@ class FleetRepository {
   async createMaintenanceRecord(data: Partial<MaintenanceRecord>): Promise<MaintenanceRecord> {
     await ensureFleetSeeded();
 
+    const assetId = String(data.assetId || '').trim();
+    const assetType = String(data.assetType || '').trim().toUpperCase();
+    const performedBy = String(data.performedBy || '').trim();
+    const serviceDate = String(data.serviceDate || '').trim();
+
+    if (!assetId || !['VEHICLE', 'EQUIPMENT'].includes(assetType) || !performedBy || !serviceDate) {
+      throw new Error('Asset, asset type, service date and performer identity are required.');
+    }
+    if (data.costAmount != null) {
+      const cost = Number(data.costAmount);
+      if (!Number.isFinite(cost) || cost < 0) throw new Error('Maintenance cost must be a valid non-negative amount.');
+    }
+    if (!String(data.description || '').trim()) throw new Error('Maintenance description is required.');
+
+    const projectId = String(data.projectId || '').trim();
+    const wbsId = String((data as any).wbsId || '').trim();
+    const boqItemId = String((data as any).boqItemId || '').trim();
+    const costCodeId = String((data as any).costCodeId || '').trim();
+    const costCode = String((data as any).costCode || '').trim();
+
+    if (projectId) {
+      const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+      if (!project) throw new Error('Project not found or inactive.');
+    } else if (wbsId || boqItemId || costCodeId) {
+      throw new Error('Project context is required when a WBS, BOQ item or cost code is supplied.');
+    }
+    if (wbsId) {
+      const [wbs] = await db.select().from(projectWbs).where(and(eq(projectWbs.id, wbsId), eq(projectWbs.projectId, projectId))).limit(1);
+      if (!wbs) throw new Error('WBS reference does not belong to the selected project.');
+    }
+    if (boqItemId) {
+      const [boq] = await db.select().from(boqItems).where(and(eq(boqItems.id, boqItemId), eq(boqItems.projectId, projectId))).limit(1);
+      if (!boq) throw new Error('BOQ item reference does not belong to the selected project.');
+      if (wbsId && boq.wbsId !== wbsId) throw new Error('Selected BOQ item does not belong to the selected WBS.');
+    }
+    if (costCodeId) {
+      const [codeRow] = await db.select().from(costCodes).where(and(eq(costCodes.id, costCodeId), eq(costCodes.isActive, true))).limit(1);
+      if (!codeRow) throw new Error('Cost code reference was not found or is inactive.');
+      if (codeRow.projectId && codeRow.projectId !== projectId) throw new Error('Cost code does not belong to the selected project.');
+      if (wbsId && codeRow.wbsId && codeRow.wbsId !== wbsId) throw new Error('Cost code does not belong to the selected WBS.');
+    }
+
+    if (assetType === 'VEHICLE') {
+      const [asset] = await db.select().from(fleetVehiclesTable).where(eq(fleetVehiclesTable.id, assetId)).limit(1);
+      if (!asset || asset.status === 'DECOMMISSIONED') throw new Error('Vehicle asset not found or unavailable.');
+    } else {
+      const [asset] = await db.select().from(fleetEquipmentTable).where(eq(fleetEquipmentTable.id, assetId)).limit(1);
+      if (!asset || asset.status === 'DECOMMISSIONED') throw new Error('Equipment asset not found or unavailable.');
+    }
+
     const record: MaintenanceRecord = {
       id: data.id || `maint-${Math.random().toString(36).substring(2, 8)}`,
       maintenanceCode: data.maintenanceCode || `MNT-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-      assetType: data.assetType || 'VEHICLE',
-      assetId: data.assetId || 'veh-101',
-      assetName: data.assetName || 'Asset',
-      assetCode: data.assetCode || 'REG-001',
+      assetType,
+      assetId,
+      assetName: String(data.assetName || ''),
+      assetCode: String(data.assetCode || ''),
+      projectId: projectId || undefined,
+      projectName: data.projectName,
+
+      wbsId: wbsId || undefined,
+      boqItemId: boqItemId || undefined,
+      costCodeId: costCodeId || undefined,
+      costCode: costCode || undefined,
       maintenanceType: data.maintenanceType || 'PREVENTIVE',
       category: data.category || 'GENERAL_SERVICE',
-      serviceDate: data.serviceDate || new Date().toISOString().split('T')[0],
+      serviceDate,
       completionDate: data.completionDate,
-      odometerKm: data.odometerKm ? Number(data.odometerKm) : undefined,
-      runningHours: data.runningHours ? Number(data.runningHours) : undefined,
-      costAmount: Number(data.costAmount) || 0,
-      vendorName: data.vendorName || 'Authorized Service Station',
-      invoiceNumber: data.invoiceNumber || '',
-      description: data.description || 'Routine service maintenance.',
-      performedBy: data.performedBy || 'Technician',
+      odometerKm: data.odometerKm == null ? undefined : Number(data.odometerKm),
+      runningHours: data.runningHours == null ? undefined : Number(data.runningHours),
+      costAmount: data.costAmount == null ? 0 : Number(data.costAmount),
+      vendorName: String(data.vendorName || ''),
+      invoiceNumber: data.invoiceNumber ? String(data.invoiceNumber) : undefined,
+      description: String(data.description || '').trim(),
+      performedBy,
       status: data.status || 'SCHEDULED',
       nextServiceDueDate: data.nextServiceDueDate,
-      nextServiceDueKm: data.nextServiceDueKm ? Number(data.nextServiceDueKm) : undefined,
-      nextServiceDueHours: data.nextServiceDueHours ? Number(data.nextServiceDueHours) : undefined,
+      nextServiceDueKm: data.nextServiceDueKm == null ? undefined : Number(data.nextServiceDueKm),
+      nextServiceDueHours: data.nextServiceDueHours == null ? undefined : Number(data.nextServiceDueHours),
       createdAt: new Date().toISOString(),
     };
 
     await db.insert(fleetMaintenanceTable).values(record as any).onConflictDoNothing();
 
-    // Update asset status if breakdown or maintenance
     if (record.assetType === 'VEHICLE') {
       if (record.status === 'IN_PROGRESS' || record.status === 'SCHEDULED') {
         const newStatus = record.maintenanceType === 'BREAKDOWN' ? 'BREAKDOWN' : 'MAINTENANCE';
@@ -1364,7 +1420,6 @@ class FleetRepository {
 
     return record;
   }
-
   // ====================================================
   // FUEL METHODS
   // ====================================================
@@ -1504,26 +1559,89 @@ class FleetRepository {
   async createTripLog(data: Partial<TripLog>): Promise<TripLog> {
     await ensureFleetSeeded();
 
+    const vehicleId = String(data.vehicleId || '').trim();
+    const driverId = String(data.driverId || '').trim();
+    const origin = String(data.origin || '').trim();
+    const destination = String(data.destination || '').trim();
+    const startTime = String(data.startTime || '').trim();
+    const startOdometerKm = Number(data.startOdometerKm);
+
+    if (!vehicleId || !driverId || !origin || !destination || !startTime) {
+      throw new Error('Vehicle, driver, origin, destination and start time are required.');
+    }
+    if (!Number.isFinite(startOdometerKm) || startOdometerKm < 0) {
+      throw new Error('A valid starting odometer reading is required.');
+    }
+
+    const [vehicle] = await db.select().from(fleetVehiclesTable).where(eq(fleetVehiclesTable.id, vehicleId)).limit(1);
+    if (!vehicle || vehicle.status === 'DECOMMISSIONED') throw new Error('Vehicle not found or unavailable.');
+
+    const [driver] = await db.select().from(fleetDriversTable).where(eq(fleetDriversTable.id, driverId)).limit(1);
+    if (!driver || driver.status !== 'ACTIVE') throw new Error('Driver not found or inactive.');
+
+    const endOdo = data.endOdometerKm == null ? undefined : Number(data.endOdometerKm);
+    if (endOdo != null && (!Number.isFinite(endOdo) || endOdo < startOdometerKm)) {
+      throw new Error('Ending odometer cannot be below the starting odometer.');
+    }
+
+    const projectId = String(data.projectId || '').trim();
+    const wbsId = String((data as any).wbsId || '').trim();
+    const boqItemId = String((data as any).boqItemId || '').trim();
+    const costCodeId = String((data as any).costCodeId || '').trim();
+    const costCode = String((data as any).costCode || '').trim();
+
+    let projectName = data.projectName;
+    if (projectId) {
+      const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+      if (!project) throw new Error('Project not found or inactive.');
+      projectName = project.projectName;
+    } else if (wbsId || boqItemId || costCodeId) {
+      throw new Error('Project context is required when a WBS, BOQ item or cost code is supplied.');
+    }
+
+    if (wbsId) {
+      const [wbs] = await db.select().from(projectWbs).where(and(eq(projectWbs.id, wbsId), eq(projectWbs.projectId, projectId))).limit(1);
+      if (!wbs) throw new Error('WBS reference does not belong to the selected project.');
+    }
+    if (boqItemId) {
+      const [boq] = await db.select().from(boqItems).where(and(eq(boqItems.id, boqItemId), eq(boqItems.projectId, projectId))).limit(1);
+      if (!boq) throw new Error('BOQ item reference does not belong to the selected project.');
+      if (wbsId && boq.wbsId !== wbsId) throw new Error('Selected BOQ item does not belong to the selected WBS.');
+    }
+    if (costCodeId) {
+      const [codeRow] = await db.select().from(costCodes).where(and(eq(costCodes.id, costCodeId), eq(costCodes.isActive, true))).limit(1);
+      if (!codeRow) throw new Error('Cost code reference was not found or is inactive.');
+      if (codeRow.projectId && codeRow.projectId !== projectId) throw new Error('Cost code does not belong to the selected project.');
+      if (wbsId && codeRow.wbsId && codeRow.wbsId !== wbsId) throw new Error('Cost code does not belong to the selected WBS.');
+    }
+
+    const distanceKm = data.distanceKm == null ? (endOdo == null ? undefined : endOdo - startOdometerKm) : Number(data.distanceKm);
+    if (distanceKm != null && (!Number.isFinite(distanceKm) || distanceKm < 0)) throw new Error('Distance must be a valid non-negative number.');
+
     const trip: TripLog = {
       id: data.id || `trip-${Math.random().toString(36).substring(2, 8)}`,
       tripCode: data.tripCode || `TRP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      vehicleId: data.vehicleId || 'veh-101',
-      vehicleNumber: data.vehicleNumber || 'KA-01-EQ-9842',
-      driverId: data.driverId || 'drv-201',
-      driverName: data.driverName || 'Ramesh Kumar',
-      origin: data.origin || 'Main Yard',
-      destination: data.destination || 'Project Site #1',
-      projectId: data.projectId,
-      projectName: data.projectName,
+      vehicleId,
+      vehicleNumber: data.vehicleNumber || vehicle.vehicleNumber,
+      driverId,
+      driverName: data.driverName || driver.driverName,
+      origin,
+      destination,
+      projectId: projectId || undefined,
+      projectName,
+      wbsId: wbsId || undefined,
+      boqItemId: boqItemId || undefined,
+      costCodeId: costCodeId || undefined,
+      costCode: costCode || undefined,
       siteId: data.siteId,
       siteName: data.siteName,
-      purpose: data.purpose || 'MATERIAL_TRANSPORT',
-      startTime: data.startTime || new Date().toISOString(),
+      purpose: data.purpose || 'OTHER',
+      startTime,
       endTime: data.endTime,
-      startOdometerKm: Number(data.startOdometerKm) || 45000,
-      endOdometerKm: data.endOdometerKm ? Number(data.endOdometerKm) : undefined,
-      distanceKm: data.distanceKm ? Number(data.distanceKm) : undefined,
-      fuelUsedLiters: data.fuelUsedLiters ? Number(data.fuelUsedLiters) : undefined,
+      startOdometerKm,
+      endOdometerKm: endOdo,
+      distanceKm,
+      fuelUsedLiters: data.fuelUsedLiters == null ? undefined : Number(data.fuelUsedLiters),
       gatePassRef: data.gatePassRef,
       notes: data.notes || '',
       status: data.status || 'ONGOING',
@@ -1533,7 +1651,6 @@ class FleetRepository {
     await db.insert(fleetTripLogsTable).values(trip as any).onConflictDoNothing();
     return trip;
   }
-
   // ====================================================
   // NOTIFICATION & ALERT METHODS
   // ====================================================

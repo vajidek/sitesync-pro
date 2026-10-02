@@ -137,6 +137,12 @@ export interface MaintenanceRecord {
   assetId: string;
   assetName: string;
   assetCode: string; // vehicle number or equipment code
+  projectId?: string;
+  projectName?: string;
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   maintenanceType: MaintenanceType;
   category: MaintenanceCategory;
   serviceDate: string;
@@ -195,6 +201,10 @@ export interface TripLog {
   destination: string;
   projectId?: string;
   projectName?: string;
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   siteId?: string;
   siteName?: string;
   purpose: 'MATERIAL_TRANSPORT' | 'EQUIPMENT_MOVE' | 'SITE_TRANSIT' | 'EXECUTIVE_TRAVEL' | 'MAINTENANCE_RUN' | 'OTHER';

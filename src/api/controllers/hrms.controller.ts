@@ -229,10 +229,12 @@ export class HrmsController {
     try {
       const actor = getAuthenticatedActor(req, res);
       if (!actor) return;
+      const role = String((req as any).user?.role || '').trim().toUpperCase();
       const leave = await this.service.applyLeave({
         ...req.body,
         requestedByUserId: actor.userId,
         requestedByUserName: actor.userName,
+        requestedByUserRole: role,
       });
       res.status(201).json({ success: true, data: leave });
     } catch (error: any) {

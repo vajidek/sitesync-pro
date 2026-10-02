@@ -1123,11 +1123,25 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Variation Description *</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="Describe the changed scope, reason and affected work."
+                  value={variationForm.description}
+                  onChange={(e) => setVariationForm({ ...variationForm, description: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Additional Amount (AED)</label>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Claimed Amount ({selectedContract.currency || 'currency'}) *</label>
                   <input
                     type="number"
+                    min="0"
+                    step="0.01"
                     required
                     value={variationForm.amount}
                     onChange={(e) => setVariationForm({ ...variationForm, amount: Number(e.target.value) })}
@@ -1136,14 +1150,52 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Time Extension (Days)</label>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Claimed Time Extension (Days)</label>
                   <input
                     type="number"
+                    min="0"
                     value={variationForm.timeExtensionDays}
                     onChange={(e) => setVariationForm({ ...variationForm, timeExtensionDays: Number(e.target.value) })}
                     className="w-full px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
                   />
                 </div>
+
+                <input
+                  value={variationForm.wbsId}
+                  onChange={(e) => setVariationForm({ ...variationForm, wbsId: e.target.value })}
+                  placeholder="WBS ID (optional)"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.boqItemId}
+                  onChange={(e) => setVariationForm({ ...variationForm, boqItemId: e.target.value })}
+                  placeholder="BOQ Item ID (optional)"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.costCodeId}
+                  onChange={(e) => setVariationForm({ ...variationForm, costCodeId: e.target.value })}
+                  placeholder="Cost Code ID (optional)"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.changeEventReference}
+                  onChange={(e) => setVariationForm({ ...variationForm, changeEventReference: e.target.value })}
+                  placeholder="Change event reference"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.clientReference}
+                  onChange={(e) => setVariationForm({ ...variationForm, clientReference: e.target.value })}
+                  placeholder="Client reference / instruction no."
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
+                <input
+                  value={variationForm.justification}
+                  onChange={(e) => setVariationForm({ ...variationForm, justification: e.target.value })}
+                  placeholder="Justification"
+                  className="px-3 py-2 border rounded-lg dark:bg-slate-900 dark:border-slate-700"
+                />
               </div>
 
               <div className="flex justify-end gap-3 border-t pt-4 border-slate-100 dark:border-slate-700">

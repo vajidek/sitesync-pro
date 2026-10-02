@@ -1,4 +1,5 @@
 import { db } from '../../db/index';
+import { isDemoSeedAllowed } from '../config/env';
 import { sql } from 'drizzle-orm';
 import {
   phase63Incidents,
@@ -26,6 +27,11 @@ export class HSERepository {
   private static isTablesEnsured = false;
 
   public async ensureHSETablesExist(): Promise<void> {
+    if (HSERepository.isTablesEnsured) return;
+    if (!isDemoSeedAllowed()) {
+      HSERepository.isTablesEnsured = true;
+      return;
+    }
     if (HSERepository.isTablesEnsured) return;
     try {
       await this.seedInitialHSEData();

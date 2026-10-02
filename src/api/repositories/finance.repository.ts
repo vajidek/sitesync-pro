@@ -377,41 +377,47 @@ export class FinanceRepository {
       .orderBy(desc(phase60APInvoices.createdAt));
   }
 
-  async createAPInvoice(data: any) {
+  async createAPInvoice(data: any, externalTx?: any) {
     await ensureFinanceTablesExist();
-    const invoiceNumber = data.invoiceNumber || `AP-INV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const execute = async (tx: any) => {
+      const invoiceNumber = data.invoiceNumber || `AP-INV-${new Date().getFullYear()}-${crypto.randomInt(1000, 9999)}`;
+      if (!invoiceNumber) throw new Error('AP invoice number is required.');
 
-    if (data.invoiceNumber) {
-      const existing = await db.select().from(phase60APInvoices)
-        .where(and(eq(phase60APInvoices.invoiceNumber, data.invoiceNumber), isNull(phase60APInvoices.deletedAt)));
-      if (existing.length > 0) {
-        return existing[0];
-      }
-    }
+      const existing = await tx.select().from(phase60APInvoices)
+        .where(and(eq(phase60APInvoices.invoiceNumber, invoiceNumber), isNull(phase60APInvoices.deletedAt)))
+        .limit(1);
+      if (existing.length > 0) return existing[0];
 
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString().split('T')[0];
+      const actor = String(data.createdBy || data.updatedBy || 'SYSTEM_WORKFLOW').trim();
+      if (!actor) throw new Error('AP invoice actor identity is required.');
+      const totalAmount = Number(data.totalAmount);
+      const taxAmount = Number(data.taxAmount || 0);
+      if (!Number.isFinite(totalAmount) || totalAmount <= 0) throw new Error('AP invoice total amount must be greater than zero.');
+      if (!Number.isFinite(taxAmount) || taxAmount < 0) throw new Error('AP invoice tax amount must be non-negative.');
 
-    const newAP = {
-      id,
-      invoiceNumber,
-      vendorId: data.vendorId || null,
-      vendorName: data.vendorName,
-      invoiceDate: data.invoiceDate || now,
-      dueDate: data.dueDate || now,
-      totalAmount: data.totalAmount,
-      taxAmount: data.taxAmount || 0,
-      paidAmount: 0,
-      outstandingAmount: data.totalAmount,
-      status: 'UNPAID',
-      createdAt: now,
-      updatedAt: now,
-      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
-      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString().split('T')[0];
+      const newAP = {
+        id,
+        invoiceNumber,
+        vendorId: data.vendorId || null,
+        vendorName: data.vendorName,
+        invoiceDate: data.invoiceDate || now,
+        dueDate: data.dueDate || now,
+        totalAmount,
+        taxAmount,
+        paidAmount: 0,
+        outstandingAmount: totalAmount,
+        status: 'UNPAID',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actor,
+        updatedBy: actor,
+      };
+      await tx.insert(phase60APInvoices).values(newAP);
+      return newAP;
     };
-
-    await db.insert(phase60APInvoices).values(newAP);
-    return newAP;
+    return externalTx ? execute(externalTx) : db.transaction(execute);
   }
 
   async findARInvoices() {
@@ -421,43 +427,49 @@ export class FinanceRepository {
       .orderBy(desc(phase60ARInvoices.createdAt));
   }
 
-  async createARInvoice(data: any) {
+  async createARInvoice(data: any, externalTx?: any) {
     await ensureFinanceTablesExist();
-    const invoiceNumber = data.invoiceNumber || `AR-INV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const execute = async (tx: any) => {
+      const invoiceNumber = data.invoiceNumber || `AR-INV-${new Date().getFullYear()}-${crypto.randomInt(1000, 9999)}`;
+      if (!invoiceNumber) throw new Error('AR invoice number is required.');
 
-    if (data.invoiceNumber) {
-      const existing = await db.select().from(phase60ARInvoices)
-        .where(and(eq(phase60ARInvoices.invoiceNumber, data.invoiceNumber), isNull(phase60ARInvoices.deletedAt)));
-      if (existing.length > 0) {
-        return existing[0];
-      }
-    }
+      const existing = await tx.select().from(phase60ARInvoices)
+        .where(and(eq(phase60ARInvoices.invoiceNumber, invoiceNumber), isNull(phase60ARInvoices.deletedAt)))
+        .limit(1);
+      if (existing.length > 0) return existing[0];
 
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString().split('T')[0];
+      const actor = String(data.createdBy || data.updatedBy || 'SYSTEM_WORKFLOW').trim();
+      if (!actor) throw new Error('AR invoice actor identity is required.');
+      const totalAmount = Number(data.totalAmount);
+      const taxAmount = Number(data.taxAmount || 0);
+      if (!Number.isFinite(totalAmount) || totalAmount <= 0) throw new Error('AR invoice total amount must be greater than zero.');
+      if (!Number.isFinite(taxAmount) || taxAmount < 0) throw new Error('AR invoice tax amount must be non-negative.');
 
-    const newAR = {
-      id,
-      invoiceNumber,
-      customerId: data.customerId || null,
-      customerName: data.customerName,
-      projectId: data.projectId || null,
-      projectName: data.projectName || null,
-      invoiceDate: data.invoiceDate || now,
-      dueDate: data.dueDate || now,
-      totalAmount: data.totalAmount,
-      taxAmount: data.taxAmount || 0,
-      receivedAmount: 0,
-      outstandingAmount: data.totalAmount,
-      status: 'UNPAID',
-      createdAt: now,
-      updatedAt: now,
-      createdBy: data.createdBy || 'SYSTEM_WORKFLOW',
-      updatedBy: data.updatedBy || data.createdBy || 'SYSTEM_WORKFLOW',
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString().split('T')[0];
+      const newAR = {
+        id,
+        invoiceNumber,
+        customerId: data.customerId || null,
+        customerName: data.customerName,
+        projectId: data.projectId || null,
+        projectName: data.projectName || null,
+        invoiceDate: data.invoiceDate || now,
+        dueDate: data.dueDate || now,
+        totalAmount,
+        taxAmount,
+        receivedAmount: 0,
+        outstandingAmount: totalAmount,
+        status: 'UNPAID',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: actor,
+        updatedBy: actor,
+      };
+      await tx.insert(phase60ARInvoices).values(newAR);
+      return newAR;
     };
-
-    await db.insert(phase60ARInvoices).values(newAR);
-    return newAR;
+    return externalTx ? execute(externalTx) : db.transaction(execute);
   }
 
   async findBankAccounts() {

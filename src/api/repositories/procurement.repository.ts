@@ -6,6 +6,7 @@ import {
   PurchaseOrder,
   POStatus,
   GoodsReceiptNote,
+  GRNItem,
   SubcontractWorkOrder,
   WOVariationOrder,
   BOQItem,
@@ -1715,7 +1716,7 @@ export class ProcurementRepository {
     const storedRate = Number(boqRow.rateUSD || 0);
     if (!Number.isFinite(storedRate) || storedRate < 0) throw new Error('Linked BOQ rate is invalid.');
     const valuation = Math.round(calculatedQuantity * storedRate * 100) / 100;
-    const boqUnit = String(boqRow.unit || boqRow.uom || '').trim();
+    const boqUnit = String(boqRow.unit || boqRow.unit || '').trim();
     if (boqUnit && boqUnit.toLowerCase() !== unit.toLowerCase()) {
       throw new Error(`Measurement unit '${unit}' does not match BOQ unit '${boqUnit}'.`);
     }
@@ -4051,7 +4052,7 @@ export class ProcurementRepository {
       id: `audit_${Date.now()}_1`,
       action: 'BILL_CREATED',
       fromStatus: 'None' as const,
-      toStatus: 'Draft',
+      toStatus: 'Draft' as RABillStatus,
       performedBy: creatorName,
       role: 'CONTRACTOR_REP',
       timestamp: now,

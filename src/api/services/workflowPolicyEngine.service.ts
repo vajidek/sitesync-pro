@@ -351,8 +351,14 @@ export class WorkflowPolicyEngineService {
   public async updateWorkflowPolicy(
     workflowCodeOrId: string,
     policyUpdates: Partial<WorkflowGovernancePolicy>,
-    updatedBy: string = 'System Administrator'
+    updatedBy: string,
+    updatedByUserId?: string
   ): Promise<WorkflowGovernancePolicy> {
+    const actorName = String(updatedBy || '').trim();
+    const actorId = String(updatedByUserId || '').trim();
+    if (!actorName || !actorId) {
+      throw new Error('Authenticated workflow policy administrator identity is required.');
+    }
     const now = new Date().toISOString();
     const workflowCode = this.resolveWorkflowCode(workflowCodeOrId);
 
@@ -397,7 +403,7 @@ export class WorkflowPolicyEngineService {
       slaHours: policyUpdates.slaHours !== undefined ? policyUpdates.slaHours : existing.slaHours,
       stages: updatedStages,
       updatedAt: now,
-      updatedBy,
+      updatedBy: actorName,
     };
 
     const policyJsonString = JSON.stringify(mergedPolicy);
@@ -423,7 +429,7 @@ export class WorkflowPolicyEngineService {
               require_higher_authority = ${mergedPolicy.requireHigherAuthority},
               hierarchy_scope = ${mergedPolicy.hierarchyScope},
               updated_at = ${now},
-              updated_by = ${updatedBy}
+              updated_by = ${actorName}
           WHERE code = ${workflowCode}
         `);
       } else {
@@ -439,7 +445,7 @@ export class WorkflowPolicyEngineService {
           createdAt: now,
           updatedAt: now,
           createdBy: updatedBy,
-          updatedBy,
+          updatedBy: actorName,
         });
 
         await db.execute(sql`
@@ -465,8 +471,8 @@ export class WorkflowPolicyEngineService {
         fromState: `VERSION_${existing.version}`,
         toState: `VERSION_${newVersion}`,
         actionTaken: 'UPDATE_POLICY',
-        performedByUserId: 'usr-admin',
-        performedByUserName: updatedBy,
+        performedByUserId: actorId,
+        performedByUserName: actorName,
         performedByUserRole: 'ADMIN',
         department: 'Governance',
         comments: `Admin updated approval policy for ${workflowCode}: Verification=${mergedPolicy.verificationRequired}, Approval=${mergedPolicy.approvalRequired}, Stages=${mergedPolicy.stages.length}, MakerChecker=${mergedPolicy.preventMakerApproval}`,
@@ -493,9 +499,13 @@ export class WorkflowPolicyEngineService {
     const { user, entityType, action, instance, context } = params;
     const policy = await this.getWorkflowConfig(entityType);
 
-    const userRoleCode = (user?.role || user?.roleCode || user?.roleId || 'EMPLOYEE').toUpperCase();
-    const userId = user?.id || user?.userId || 'usr-anonymous';
-    const userName = user?.name || user?.email || 'User';
+    const userRoleCode = String(user?.role || user?.roleCode || user?.roleId || '').trim().toUpperCase();
+    const userId = String(user?.id || user?.userId || '').trim();
+    const userName = String(user?.name || user?.email || '').trim();
+
+    if (!userId || !userName || !userRoleCode) {
+      throw new Error('Authenticated workflow actor identity (id, name and role) is required.');
+    }
 
     // 1. If Workflow is disabled OR both Verification and Approval are OFF (Test A)
     if (!policy.isActive || (!policy.verificationRequired && !policy.approvalRequired)) {

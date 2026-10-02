@@ -750,14 +750,40 @@ export class HrmsRepository {
     return app;
   }
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approverName: string = 'HR Manager'): Promise<any> {
+  public async reviewLeave(id: string, status: string, remarks?: string, approverName: string): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const actor = String(approverName || '').trim();
+    if (!actor) throw new Error('Authenticated leave reviewer identity is required.');
+
+    const allowedTransitions: Record<string, string[]> = {
+      PENDING: ['APPROVED', 'REJECTED', 'CANCELLED'],
+      CLARIFICATION_REQUESTED: ['APPROVED', 'REJECTED', 'CANCELLED'],
+      APPROVED: [],
+      REJECTED: ['PENDING'],
+      CANCELLED: [],
+    };
+
+    const [existing] = await db.select().from(phase70LeaveRequests)
+      .where(eq(phase70LeaveRequests.id, id))
+      .limit(1);
+    if (!existing) throw new Error('Leave application not found.');
+    if (!allowedTransitions[existing.status]?.includes(status)) {
+      throw new Error(`Invalid leave status transition: ${existing.status} → ${status}`);
+    }
+
+    if (existing.employeeId === (existing.appliedById || existing.employeeId) && status !== 'CANCELLED') {
+      const requestedActorId = String((existing as any).reviewerId || '').trim();
+      if (requestedActorId && requestedActorId === actor) {
+        throw new Error('Maker-checker violation: leave requester cannot review their own leave.');
+      }
+    }
+
     const now = new Date().toISOString();
     const [reviewed] = await db.update(phase70LeaveRequests)
       .set({
         status,
-        approvalRemarks: remarks,
-        approvedBy: approverName,
+        approvalRemarks: remarks || null,
+        approvedBy: actor,
         reviewedAt: now,
         updatedAt: now,
       })
@@ -765,7 +791,6 @@ export class HrmsRepository {
       .returning();
     return reviewed;
   }
-
   // 7. Holidays
   public async getHolidays(year: number = 2026): Promise<any[]> {
     await this.ensureHrmsTablesExist();
@@ -1936,16 +1961,36 @@ export class HrmsRepository {
 
   public async createLoan(data: any): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const employeeId = String(data.employeeId || '').trim();
+    const actorId = String(data.userId || data.createdById || '').trim();
+    const actorName = String(data.employeeName || data.createdBy || '').trim();
+    const principal = Number(data.principalAmountAed);
+    const interestRate = Number(data.interestRate ?? 0);
+    const tenureMonths = Number(data.tenureMonths);
+    const repaymentMethod = String(data.repaymentMethod || '').trim().toUpperCase();
+    const repaymentRate = Number(data.repaymentRate);
+
+    if (!employeeId || !actorId || !actorName) throw new Error('Authenticated employee/requester identity is required for a loan request.');
+    if (!Number.isFinite(principal) || principal <= 0) throw new Error('Loan principal amount must be greater than zero.');
+    if (!Number.isFinite(interestRate) || interestRate < 0) throw new Error('Interest rate must be a valid non-negative number.');
+    if (!Number.isInteger(tenureMonths) || tenureMonths <= 0) throw new Error('Loan tenure must be a positive whole number of months.');
+    if (!repaymentMethod) throw new Error('Loan repayment basis/frequency is required.');
+    if (!Number.isFinite(repaymentRate) || repaymentRate <= 0) throw new Error('Loan repayment amount/rate must be explicitly configured.');
+
+    const employee = await this.getEmployeeById(employeeId);
+    if (!employee) throw new Error('Employee not found.');
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const loanCode = `LOAN-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const interest = (data.principalAmountAed * (data.interestRate || 0)) / 100;
-    const totalRepayable = data.principalAmountAed + interest;
-    const emi = parseFloat((totalRepayable / (data.tenureMonths || 12)).toFixed(2));
-    const repaymentMethod = data.repaymentMethod || 'PER_DUTY_DAY';
-    const repaymentRate = data.repaymentRate || (repaymentMethod === 'PER_DUTY_DAY' ? 1000 : emi);
+    const loanCode = `LOAN-${now.slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const interest = (principal * interestRate) / 100;
+    const totalRepayable = principal + interest;
+    const emi = repaymentMethod === 'MONTHLY' || repaymentMethod === 'FIXED_INSTALLMENT'
+      ? Number((totalRepayable / tenureMonths).toFixed(2))
+      : Number(data.monthlyEmiAed || 0);
 
-    // Dynamic Governance Policy: Check whether Approval is required
+    if (emi < 0) throw new Error('Calculated EMI cannot be negative.');
+
     const policy = await workflowPolicyEngine.getWorkflowConfig('LOAN');
     const initialStatus = policy.approvalRequired ? 'PENDING' : 'ACTIVE';
 
@@ -1953,22 +1998,29 @@ export class HrmsRepository {
       id,
       loanCode,
       ...data,
-      requestedAmountAed: data.principalAmountAed,
+      employeeId,
+      principalAmountAed: principal,
+      interestRate,
+      tenureMonths,
+      requestedAmountAed: principal,
       openingBalanceAed: totalRepayable,
       repaymentMethod,
       repaymentRate,
       repaymentFrequency: repaymentMethod,
       monthlyEmiAed: emi,
       totalRepayableAed: totalRepayable,
-      balanceOutstandingAed: totalRepayable,
+      outstandingBalanceAed: totalRepayable,
       totalRecoveredAed: 0,
       status: initialStatus,
-      disbursementDate: data.disbursementDate || now.split('T')[0],
+      approvedBy: null,
+      approvedAt: null,
+      disbursementDate: data.disbursementDate || null,
+      createdBy: actorName,
+      updatedBy: actorName,
       createdAt: now,
       updatedAt: now,
-    }).returning();
+    } as any).returning();
 
-    // Log Workflow History
     await db.insert(workflowHistory).values({
       id: `hist-loan-${Date.now()}`,
       workflowCode: policy.workflowCode,
@@ -1977,25 +2029,24 @@ export class HrmsRepository {
       fromState: 'DRAFT',
       toState: initialStatus,
       actionTaken: 'SUBMIT',
-      performedByUserId: data.userId || 'usr-applicant',
-      performedByUserName: data.employeeName || 'Loan Applicant',
+      performedByUserId: actorId,
+      performedByUserName: actorName,
       performedByUserRole: 'EMPLOYEE',
-      comments: `Loan request created for ₹${data.principalAmountAed.toLocaleString()} under Workflow Version ${policy.version}. Repayment: ₹${repaymentRate}/duty day.`,
+      comments: `Loan request created under Workflow Version ${policy.version}.`,
       timestamp: now,
     });
 
     await this.recordAuditLog({
-      actionType: 'LOAN_ISSUED',
+      actionType: 'LOAN_REQUEST_CREATED',
       entityType: 'LOAN',
       entityId: id,
       referenceNumber: loanCode,
-      performedBy: data.approvedBy || data.employeeName || 'HR Finance Officer',
-      detailsJson: JSON.stringify({ principal: data.principalAmountAed, repaymentMethod, repaymentRate, totalRepayable, status: initialStatus }),
+      performedBy: actorName,
+      detailsJson: JSON.stringify({ principal, interestRate, tenureMonths, repaymentMethod, repaymentRate, totalRepayable, status: initialStatus }),
     });
 
     return loan;
   }
-
   public async approveLoan(loanId: string, actor: { userId: string; userName: string; role?: string }, remarks?: string): Promise<any> {
     await this.ensureHrmsTablesExist();
     const now = new Date().toISOString();

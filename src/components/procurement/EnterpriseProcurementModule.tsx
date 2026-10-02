@@ -163,15 +163,15 @@ export const EnterpriseProcurementModule: React.FC = () => {
         companyName: '',
         registrationNumber: '',
         taxIdentificationNumber: '',
-        categoryCode: 'PIPES_FITTINGS',
-        vendorType: 'MANUFACTURER',
+        categoryCode: isDemo ? 'PIPES_FITTINGS' : '',
+        vendorType: isDemo ? 'MANUFACTURER' : '',
         contactPerson: '',
         email: '',
         phone: '',
         addressStreet: '',
-        city: 'Dubai',
-        creditTermsDays: 60,
-        currency: 'AED',
+        city: isDemo ? 'Dubai' : '',
+        creditTermsDays: isDemo ? 60 : 0,
+        currency: isDemo ? 'AED' : '',
       });
       loadData();
     } catch (err) {
@@ -1368,7 +1368,7 @@ export const EnterpriseProcurementModule: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Estimated Budget (AED)</label>
+                <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Estimated Budget</label>
                 <input
                   required
                   type="number"

@@ -2,19 +2,33 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { UserProfile, UserRole, UserPermissions } from '../types';
 import { ROLE_CONFIG } from '../data/mockData';
 
-const DEFAULT_PERMISSIONS: UserPermissions = {
-  canViewFinancials: true,
-  canApprovePO: true,
-  canApprovePR: true,
-  canEditProjectBudget: true,
-  canManageUsers: true,
-  canExportReports: true,
-  canCreateWorkOrders: true,
-  canManageInventory: true,
-  canManageFleet: true,
-  canSignOffQAQC: true,
-  canManageHSE: true,
+const EMPTY_PERMISSIONS: UserPermissions = {
+  canViewFinancials: false,
+  canApprovePO: false,
+  canApprovePR: false,
+  canEditProjectBudget: false,
+  canManageUsers: false,
+  canExportReports: false,
+  canCreateWorkOrders: false,
+  canManageInventory: false,
+  canManageFleet: false,
+  canSignOffQAQC: false,
+  canManageHSE: false,
 };
+
+function resolveUiPermissions(apiPermissions: unknown): UserPermissions {
+  if (!apiPermissions || typeof apiPermissions !== 'object' || Array.isArray(apiPermissions)) {
+    return { ...EMPTY_PERMISSIONS };
+  }
+  return {
+    ...EMPTY_PERMISSIONS,
+    ...(apiPermissions as Partial<UserPermissions>),
+  };
+}
+
+function isDemoClientMode(): boolean {
+  return import.meta.env.DEV || String(import.meta.env.VITE_APP_ENVIRONMENT || '').toUpperCase() === 'DEMO';
+}
 
 const getRoleDefaultUserProfile = (role: UserRole): UserProfile => ({
   id: `usr-${role.toLowerCase()}`,
@@ -26,7 +40,7 @@ const getRoleDefaultUserProfile = (role: UserRole): UserProfile => ({
   phone: '+971 50 123 4567',
   assignedProjectId: 'prj_01',
   assignedProjectName: 'Peruvannamuzhi WTP Project',
-  permissions: DEFAULT_PERMISSIONS,
+  permissions: EMPTY_PERMISSIONS,
 });
 
 interface AuthTokens {
@@ -91,30 +105,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return access && refresh ? { accessToken: access, refreshToken: refresh } : access ? { accessToken: access, refreshToken: '' } : null;
   });
 
-  const [activeRole, setActiveRole] = useState<UserRole | null>(() => {
-    const access = getActiveStoredToken();
-    const saved = localStorage.getItem(STORAGE_KEY_ROLE) || localStorage.getItem('sitesync_role');
-    if (access && saved) {
-      return saved as UserRole;
-    }
-    return access ? 'ADMIN' : null;
-  });
-
-  const [user, setUser] = useState<UserProfile | null>(() => {
-    const access = getActiveStoredToken();
-    const saved = localStorage.getItem(STORAGE_KEY_ROLE) || localStorage.getItem('sitesync_role');
-    if (access) {
-      return getRoleDefaultUserProfile((saved as UserRole) || 'ADMIN');
-    }
-    return null;
-  });
-
+  const [activeRole, setActiveRole] = useState<UserRole | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [dbPermissions, setDbPermissions] = useState<string[]>([]);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const access = getActiveStoredToken();
-    return Boolean(access);
-  });
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(() => Boolean(getActiveStoredToken()));
   const [error, setError] = useState<string | null>(null);
 
   const [idleTimeoutMinutes, setIdleTimeoutMinutesState] = useState<number>(() => {
@@ -208,32 +203,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [isAuthenticated, idleTimeoutMinutes]);
 
-  // Attempt backend profile check on load if token exists
+  // Revalidate every persisted session against the server before exposing identity or role state.
   useEffect(() => {
     const fetchCurrentUser = async () => {
-      if (!tokens?.accessToken) {
+      const accessToken = tokens?.accessToken;
+      if (!accessToken) {
         setIsAuthenticated(false);
         setUser(null);
         setActiveRole(null);
-        return;
-      }
-      if (tokens.accessToken.startsWith('OFFLINE_DEMO_TOKEN')) {
+        setDbPermissions([]);
         setIsLoading(false);
-        setIsAuthenticated(true);
         return;
       }
+
       setIsLoading(true);
       try {
         const res = await fetch('/api/auth/me', {
-          headers: {
-            Authorization: `Bearer ${tokens.accessToken}`,
-          },
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
         const json = await safeJsonResponse(res);
-        if (json.success && json.data) {
+
+        if (res.ok && json.success && json.data) {
           const apiUser = json.data;
           setActiveRole(apiUser.role);
-          setDbPermissions(apiUser.permissions || []);
+          setDbPermissions(Array.isArray(apiUser.permissions) ? apiUser.permissions : []);
           setUser({
             id: apiUser.id,
             username: apiUser.username,
@@ -246,35 +239,40 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             passwordLastChangedAt: apiUser.passwordLastChangedAt,
             lastLoginAt: apiUser.lastLoginAt,
             lastLogoutAt: apiUser.lastLogoutAt,
-            avatarUrl: apiUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
-            department: apiUser.department || 'Operations',
-            phone: apiUser.phone || '+971 50 123 4567',
+            avatarUrl: apiUser.avatarUrl || undefined,
+            department: apiUser.department || '',
+            phone: apiUser.phone || undefined,
             assignedProjectId: apiUser.assignedProjectId,
             assignedProjectName: apiUser.assignedProjectName,
-            permissions: DEFAULT_PERMISSIONS,
+            permissions: resolveUiPermissions(apiUser.uiPermissions ?? apiUser.permissions),
+            authorizedWorkspaces: apiUser.authorizedWorkspaces,
           });
           setIsAuthenticated(true);
-        } else if (tokens.refreshToken) {
-          // Token expired, try refreshing
+          return;
+        }
+
+        if (tokens.refreshToken) {
           const refreshRes = await fetch('/api/auth/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refreshToken: tokens.refreshToken }),
           });
           const refreshJson = await safeJsonResponse(refreshRes);
-          if (refreshJson.success && refreshJson.data) {
+          if (refreshRes.ok && refreshJson.success && refreshJson.data?.accessToken) {
             setTokens({
               accessToken: refreshJson.data.accessToken,
-              refreshToken: refreshJson.data.refreshToken,
+              refreshToken: refreshJson.data.refreshToken || tokens.refreshToken,
             });
-          } else {
-            clearAuthState();
+            return;
           }
-        } else {
-          clearAuthState();
         }
+
+        clearAuthState();
       } catch (err) {
-        console.warn('Backend API connection fallback to offline mode:', err);
+        // A network failure is not an authentication success. Keep the shell locked
+        // rather than creating a local/offline identity with elevated permissions.
+        console.warn('Session validation failed; keeping user signed out until the server is reachable.', err);
+        clearAuthState();
       } finally {
         setIsLoading(false);
       }
@@ -282,12 +280,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     fetchCurrentUser();
   }, [tokens?.accessToken]);
-
   const switchRole = async (role: UserRole) => {
+    if (!isDemoClientMode()) {
+      setError('Role switching is available only in DEMO/development. Production roles are server-assigned.');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     try {
-      // Call real login endpoint with role & standard password
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -298,45 +299,38 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }),
       });
       const json = await safeJsonResponse(res);
-      if (json.success && json.data) {
-        setTokens({
-          accessToken: json.data.accessToken,
-          refreshToken: json.data.refreshToken,
-        });
-        setActiveRole(role);
-        setDbPermissions(json.data.user.permissions || []);
-        setUser({
-          id: json.data.user.id,
-          name: json.data.user.name,
-          email: json.data.user.email,
-          role: json.data.user.role,
-          avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
-          department: json.data.user.department,
-          phone: json.data.user.phone,
-          assignedProjectId: json.data.user.assignedProjectId,
-          assignedProjectName: json.data.user.assignedProjectName,
-          permissions: DEFAULT_PERMISSIONS,
-        });
-        setIsAuthenticated(true);
-      } else {
-        // Fallback to offline role profile with offline demo token
-        const offlineToken = `OFFLINE_DEMO_TOKEN_${role}`;
-        setTokens({ accessToken: offlineToken, refreshToken: offlineToken });
-        setActiveRole(role);
-        setUser(getRoleDefaultUserProfile(role));
-        setIsAuthenticated(true);
+      if (!res.ok || !json.success || !json.data?.accessToken || !json.data?.user) {
+        throw new Error(json.error || 'DEMO role switch was rejected by the authentication service.');
       }
-    } catch {
-      const offlineToken = `OFFLINE_DEMO_TOKEN_${role}`;
-      setTokens({ accessToken: offlineToken, refreshToken: offlineToken });
-      setActiveRole(role);
-      setUser(getRoleDefaultUserProfile(role));
+
+      setTokens({
+        accessToken: json.data.accessToken,
+        refreshToken: json.data.refreshToken || '',
+      });
+      setActiveRole(json.data.user.role);
+      setDbPermissions(Array.isArray(json.data.user.permissions) ? json.data.user.permissions : []);
+      setUser({
+        id: json.data.user.id,
+        name: json.data.user.name,
+        email: json.data.user.email,
+        role: json.data.user.role,
+        username: json.data.user.username,
+        employeeId: json.data.user.employeeId,
+        department: json.data.user.department || '',
+        phone: json.data.user.phone || undefined,
+        assignedProjectId: json.data.user.assignedProjectId,
+        assignedProjectName: json.data.user.assignedProjectName,
+        permissions: resolveUiPermissions(json.data.user.uiPermissions ?? json.data.user.permissions),
+        authorizedWorkspaces: json.data.user.authorizedWorkspaces,
+      });
       setIsAuthenticated(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to switch DEMO role.');
+      clearAuthState();
     } finally {
       setIsLoading(false);
     }
   };
-
   const login = async (userIdOrEmail: string, role?: UserRole, password = 'Password123!'): Promise<{ success: boolean; error?: string; user?: UserProfile }> => {
     return loginWithUserId(userIdOrEmail, password, true);
   };
@@ -376,7 +370,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           phone: uData.phone || '+971 50 123 4567',
           assignedProjectId: uData.assignedProjectId,
           assignedProjectName: uData.assignedProjectName,
-          permissions: DEFAULT_PERMISSIONS,
+          permissions: resolveUiPermissions(uData.uiPermissions ?? uData.permissions),
           authorizedWorkspaces: uData.authorizedWorkspaces,
         };
 

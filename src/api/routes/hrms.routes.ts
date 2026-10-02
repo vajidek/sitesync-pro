@@ -33,6 +33,7 @@ router.post('/employees/:id/restore', requireRoles('ADMIN', 'MANAGER'), (req, re
 router.get('/attendance', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.getAttendance);
 router.get('/attendance/raw-punches', requireRoles('ADMIN', 'MANAGER'), controller.getRawBiometricPunches);
 router.post('/attendance', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.recordAttendance);
+router.post('/attendance/:id/verify', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.verifyAttendance);
 router.post('/attendance/punch', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res) => hrController.punchAttendance(req, res));
 router.post('/attendance/sync-essl', requireRoles('ADMIN', 'MANAGER'), controller.syncEssl);
 router.post('/attendance/essl-sync', requireRoles('ADMIN', 'MANAGER'), controller.syncEssl);

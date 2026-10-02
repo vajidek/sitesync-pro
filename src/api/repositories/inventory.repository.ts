@@ -1232,6 +1232,7 @@ export class InventoryRepository {
     };
   }
 
+  // ERP-TRACE: STORE-P1 — central stock ledger preserves Project/WBS/BOQ/Cost Code allocation context.
   async createStockTransaction(data: Partial<DbStockTransaction>, txOrDb: any = db): Promise<DbStockTransaction> {
     await ensureInventorySeeded();
     const client = txOrDb || db;
@@ -1286,6 +1287,42 @@ export class InventoryRepository {
       siteName = siteName || site.siteName;
     }
 
+    const wbsId = data.wbsId ? String(data.wbsId).trim() : undefined;
+    const boqItemId = data.boqItemId ? String(data.boqItemId).trim() : undefined;
+    const costCodeId = data.costCodeId ? String(data.costCodeId).trim() : undefined;
+    const costCode = data.costCode?.trim() || undefined;
+
+    if (transactionType === 'GOODS_ISSUE' && projectId && !isDemoSeedAllowed() && !wbsId && !boqItemId && !costCodeId) {
+      throw new Error('Project material issue requires WBS, BOQ item or cost code allocation outside DEMO mode.');
+    }
+
+    if (wbsId) {
+      if (!projectId) throw new Error('WBS allocation requires a project context.');
+      const [wbs] = await client.select().from(projectWbs)
+        .where(and(eq(projectWbs.id, wbsId), eq(projectWbs.projectId, projectId)))
+        .limit(1);
+      if (!wbs) throw new Error('Linked WBS could not be found for the selected project.');
+    }
+
+    if (boqItemId) {
+      if (!projectId) throw new Error('BOQ allocation requires a project context.');
+      const [boq] = await client.select().from(boqItems)
+        .where(and(eq(boqItems.id, boqItemId), eq(boqItems.projectId, projectId)))
+        .limit(1);
+      if (!boq) throw new Error('Linked BOQ item could not be found for the selected project.');
+      if (wbsId && boq.wbsId !== wbsId) throw new Error('Linked BOQ item does not belong to the selected WBS.');
+    }
+
+    if (costCodeId) {
+      if (!projectId) throw new Error('Cost code allocation requires a project context.');
+      const [costCodeRow] = await client.select().from(costCodes)
+        .where(and(eq(costCodes.id, costCodeId), eq(costCodes.isActive, true)))
+        .limit(1);
+      if (!costCodeRow) throw new Error('Linked cost code could not be found or is inactive.');
+      if (costCodeRow.projectId && costCodeRow.projectId !== projectId) throw new Error('Linked cost code does not belong to the selected project.');
+      if (wbsId && costCodeRow.wbsId && costCodeRow.wbsId !== wbsId) throw new Error('Linked cost code does not belong to the selected WBS.');
+    }
+
     const unitPrice = data.unitPrice == null ? Number(mat.unitPrice) : Number(data.unitPrice);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('Unit price must be a valid non-negative amount.');
     const totalValue = qty * unitPrice;
@@ -1310,6 +1347,10 @@ export class InventoryRepository {
       totalValue,
       projectId,
       projectName,
+      wbsId,
+      boqItemId,
+      costCodeId,
+      costCode,
       siteId,
       siteName,
       workCategory: data.workCategory?.trim(),
@@ -2112,6 +2153,12 @@ export class InventoryRepository {
               projectName: project.projectName,
               referenceDoc: issueNum,
               notes: `Material Issue Note: ${issueNum} to ${data.issuedTo}`,
+              projectId,
+              projectName: project.projectName,
+              wbsId: (item as any).wbsId || wbsId || undefined,
+              boqItemId: (item as any).boqItemId || boqItemId || undefined,
+              costCodeId: (item as any).costCodeId || costCodeId || undefined,
+              costCode: (item as any).costCode || costCode || undefined,
               issuedByName: issuedBy,
               approvedByName: data.approvedBy?.trim() || undefined,
               receivedByName: data.recipientName?.trim() || issuedTo,

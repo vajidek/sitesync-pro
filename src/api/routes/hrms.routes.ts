@@ -52,8 +52,8 @@ router.get('/attendance', controller.getAttendance);
 router.get('/attendance/raw-punches', controller.getRawBiometricPunches);
 router.post('/attendance', controller.recordAttendance);
 router.post('/attendance/punch', (req, res) => hrController.punchAttendance(req, res));
-router.post('/attendance/sync-essl', controller.syncEssl);
-router.post('/attendance/essl-sync', controller.syncEssl);
+router.post('/attendance/sync-essl', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.syncEssl);
+router.post('/attendance/essl-sync', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.syncEssl);
 router.get('/attendance/finalizations', controller.getAttendanceFinalizations);
 router.post('/attendance/finalize', requireRoles('ADMIN', 'MANAGER'), controller.finalizeAttendance);
 router.post('/attendance/unlock', requireRoles('ADMIN', 'MANAGER'), controller.unlockAttendanceFinalization);
@@ -66,7 +66,7 @@ router.post('/shifts', controller.createShift);
 router.get('/leave-types', controller.getLeaveTypes);
 router.get('/leaves', controller.getLeaves);
 router.post('/leaves', controller.applyLeave);
-router.patch('/leaves/:id/review', controller.reviewLeave);
+router.patch('/leaves/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewLeave);
 router.put('/leaves/:id/approve', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), (req, res) =>
   hrController.approveLeave(req, res)
 );
@@ -93,7 +93,7 @@ router.put('/employees/:employeeId/statutory-profile', requireRoles('ADMIN', 'MA
 // Payroll & Maker-Checker Governance (P2.11)
 router.get('/payroll', controller.getPayslips);
 router.get('/salary-structures', controller.getSalaryStructures);
-router.post('/salary-structures', controller.createSalaryStructure);
+router.post('/salary-structures', requireRoles('ADMIN', 'MANAGER'), controller.createSalaryStructure);
 router.get('/payroll-periods', controller.getPayrollPeriods);
 router.get('/payslips', controller.getPayslips);
 router.post('/payslips/:id/hold', requireRoles('ADMIN', 'MANAGER'), controller.holdPayslip);
@@ -157,21 +157,21 @@ payrollRouter.get('/', controller.getPayslips);
 payrollRouter.get('/payslips', controller.getPayslips);
 payrollRouter.get('/periods', controller.getPayrollPeriods);
 payrollRouter.get('/structures', controller.getSalaryStructures);
-payrollRouter.post('/', controller.executePayrollRun);
-payrollRouter.post('/run', controller.executePayrollRun);
+payrollRouter.post('/', requireRoles('ADMIN', 'MANAGER'), controller.executePayrollRun);
+payrollRouter.post('/run', requireRoles('ADMIN', 'MANAGER'), controller.executePayrollRun);
 
 export const attendanceRouter = Router();
 attendanceRouter.use(authenticateJWT);
 attendanceRouter.get('/', controller.getAttendance);
 attendanceRouter.post('/', controller.recordAttendance);
-attendanceRouter.post('/sync-essl', controller.syncEssl);
+attendanceRouter.post('/sync-essl', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.syncEssl);
 
 export const leaveRouter = Router();
 leaveRouter.use(authenticateJWT);
 leaveRouter.get('/', controller.getLeaves);
 leaveRouter.get('/types', controller.getLeaveTypes);
 leaveRouter.post('/', controller.applyLeave);
-leaveRouter.patch('/:id/review', controller.reviewLeave);
+leaveRouter.patch('/:id/review', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewLeave);
 
 export const recruitmentRouter = Router();
 recruitmentRouter.use(authenticateJWT);

@@ -59,6 +59,7 @@ router.get('/grn', controller.getGoodsReceipts);
 router.get('/goods-receipts', controller.getGoodsReceipts);
 router.post('/grn', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), controller.createGoodsReceipt);
 router.post('/goods-receipts', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), controller.createGoodsReceipt);
+router.put('/goods-receipts/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'STORE_KEEPER'), controller.updateGoodsReceiptStatus);
 
 // 3-Way Matching
 router.get('/three-way-matching', controller.getThreeWayMatches);

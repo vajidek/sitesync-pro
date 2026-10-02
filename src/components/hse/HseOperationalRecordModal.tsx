@@ -1,3 +1,4 @@
+// ERP-CHECKPOINT: HSE operational record modal — reusable write UI. Do not duplicate forms per tab.
 import React, { useMemo, useState } from 'react';
 
 export type HseOperationalRecordType =

@@ -18,6 +18,7 @@ import {
   projectActivities,
   projectSettings,
   fundingAgencies,
+  businessUnits,
   consultants,
   clients,
   currencies,
@@ -939,12 +940,50 @@ export class ProjectRepository {
 
   async createProject(data: Partial<DbProject>): Promise<DbProject> {
     await ensureProjectSeeded();
-    const now = new Date().toISOString();
-    const newId = `PRJ-${Date.now().toString().slice(-4)}`;
-    const projectCode = data.projectCode || `PRJ-2026-${Math.floor(100 + Math.random() * 900)}`;
-    const projectName = data.projectName || 'New Construction Project';
-    const location = data.location || 'Site Location';
 
+    const now = new Date().toISOString();
+    const projectName = String(data.projectName || '').trim();
+    const location = String(data.location || '').trim();
+    const currency = String(data.currency || '').trim().toUpperCase();
+    const projectCode = String(data.projectCode || '').trim();
+    const startDate = String(data.startDate || '').trim();
+    const targetCompletionDate = String(data.targetCompletionDate || '').trim();
+    const budget = Number(data.budget);
+
+    if (!projectName || !location || !currency || !projectCode || !startDate || !targetCompletionDate) {
+      throw new Error('Project code, name, location, currency, start date and target completion date are required.');
+    }
+    if (!Number.isFinite(budget) || budget < 0) {
+      throw new Error('Project budget must be a valid non-negative number.');
+    }
+
+    let companyId = String(data.companyId || '').trim();
+    if (!companyId) {
+      const companyRows = await db
+        .select({ companyId: businessUnits.companyId })
+        .from(businessUnits)
+        .where(eq(businessUnits.isActive, true))
+        .limit(20);
+
+      const uniqueCompanyIds = [...new Set(companyRows.map((row) => row.companyId).filter(Boolean))];
+      if (uniqueCompanyIds.length === 1) {
+        companyId = uniqueCompanyIds[0];
+      } else {
+        throw new Error('Company context is required to create a project when the organization has multiple or no active company mappings.');
+      }
+    }
+
+    const duplicateCode = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.projectCode, projectCode))
+      .limit(1);
+
+    if (duplicateCode.length > 0) {
+      throw new Error(`Project code ${projectCode} already exists.`);
+    }
+
+    const newId = `PRJ-${Date.now()}`;
     const newProjectRecord = {
       id: newId,
       projectCode,
@@ -964,7 +1003,7 @@ export class ProjectRepository {
       workOrderNumber: data.workOrderNumber ?? null,
       tenderNumber: data.tenderNumber ?? null,
       agreementNumber: data.agreementNumber ?? null,
-      companyId: data.companyId || 'cmp-101',
+      companyId,
       businessUnitId: data.businessUnitId ?? null,
       regionId: data.regionId ?? null,
       branchId: data.branchId ?? null,
@@ -979,16 +1018,16 @@ export class ProjectRepository {
       village: data.village ?? null,
       latitude: data.latitude ?? null,
       longitude: data.longitude ?? null,
-      startDate: data.startDate || new Date().toISOString().slice(0, 10),
+      startDate,
       scheduledCompletionDate: data.scheduledCompletionDate ?? null,
-      targetCompletionDate: data.targetCompletionDate || new Date().toISOString().slice(0, 10),
+      targetCompletionDate,
       actualCompletionDate: data.actualCompletionDate ?? null,
-      contractValue: data.contractValue !== undefined ? String(data.contractValue) : null,
-      revisedContractValue: data.revisedContractValue !== undefined ? String(data.revisedContractValue) : null,
-      budget: data.budget !== undefined ? String(data.budget) : '1000000',
-      actualSpent: data.actualSpent !== undefined ? String(data.actualSpent) : '0',
+      contractValue: data.contractValue !== undefined ? Number(data.contractValue) : 0,
+      revisedContractValue: data.revisedContractValue !== undefined ? Number(data.revisedContractValue) : 0,
+      budget,
+      actualSpent: data.actualSpent !== undefined ? Number(data.actualSpent) : 0,
       progressPercentage: data.progressPercentage !== undefined ? Number(data.progressPercentage) : 0,
-      currency: data.currency || 'INR',
+      currency,
       status: data.status || 'PLANNING',
       priority: data.priority || 'MEDIUM',
       projectManagerId: data.projectManagerId ?? null,
@@ -1001,31 +1040,35 @@ export class ProjectRepository {
       updatedAt: now,
     };
 
-    await db.insert(projects).values(newProjectRecord as any);
+    return await db.transaction(async (tx) => {
+      await tx.insert(projects).values(newProjectRecord as any);
 
-    // Create default site for new project
-    const defaultSiteRecord = {
-      id: genId('sit'),
-      siteCode: `${projectCode}-S1`,
-      siteName: `${projectName} Main Site`,
-      projectId: newId,
-      address: location,
-      latitude: data.latitude ?? null,
-      longitude: data.longitude ?? null,
-      googleMapUrl: data.latitude && data.longitude ? `https://maps.google.com/?q=${data.latitude},${data.longitude}` : null,
-      inchargeId: data.projectInchargeId ?? null,
-      status: 'ACTIVE',
-      progressPercentage: 0,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    };
+      // A project does not silently create a fake operational site.
+      // The caller may explicitly request the initial site through createInitialSite.
+      if ((data as any).createInitialSite === true) {
+        const defaultSiteRecord = {
+          id: genId('sit'),
+          siteCode: `${projectCode}-S1`,
+          siteName: data.shortName ? `${data.shortName} Site` : `${projectName} Site`,
+          projectId: newId,
+          address: location,
+          latitude: data.latitude ?? null,
+          longitude: data.longitude ?? null,
+          googleMapUrl: data.latitude != null && data.longitude != null ? `https://maps.google.com/?q=${data.latitude},${data.longitude}` : null,
+          inchargeId: data.projectInchargeId ?? null,
+          status: 'ACTIVE',
+          progressPercentage: 0,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        };
 
-    await db.insert(sites).values(defaultSiteRecord);
+        await tx.insert(sites).values(defaultSiteRecord);
+      }
 
-    return mapProjectRow(newProjectRecord);
+      return mapProjectRow(newProjectRecord);
+    });
   }
-
   async updateProject(id: string, updates: Partial<DbProject>): Promise<DbProject | null> {
     await ensureProjectSeeded();
     const existing = await this.findProjectById(id);

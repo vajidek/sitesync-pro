@@ -222,10 +222,16 @@ export class InventoryController {
   async createStockTransaction(req: Request, res: Response, next: NextFunction) {
     try {
       const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        res.status(401).json({ success: false, error: 'Authenticated inventory actor identity is required.' });
+        return;
+      }
       const txnData = {
         ...req.body,
-        issuedById: req.body.issuedById || user?.id,
-        issuedByName: req.body.issuedByName || user?.name || 'Store Keeper',
+        issuedById: user?.id,
+        issuedByName: user?.name || user?.email || '',
       };
 
       const transaction = await inventoryService.createStockTransaction(txnData);
@@ -277,7 +283,7 @@ export class InventoryController {
       const user = (req as any).user;
       const grn = await inventoryService.createGoodsReceipt({
         ...req.body,
-        receivedBy: req.body.receivedBy || user?.name || 'Store Officer',
+        receivedBy: user?.name || user?.email || '',
       });
 
       await auditRepository.logAction({
@@ -329,7 +335,7 @@ export class InventoryController {
       const user = (req as any).user;
       const issue = await inventoryService.createMaterialIssue({
         ...req.body,
-        issuedBy: req.body.issuedBy || user?.name || 'Store Keeper',
+        issuedBy: user?.name || user?.email || '',
       });
 
       await auditRepository.logAction({
@@ -365,7 +371,7 @@ export class InventoryController {
       const user = (req as any).user;
       const transfer = await inventoryService.createMaterialTransfer({
         ...req.body,
-        dispatchedBy: req.body.dispatchedBy || user?.name || 'Store Keeper',
+        dispatchedBy: user?.name || user?.email || '',
       });
 
       await auditRepository.logAction({
@@ -401,7 +407,7 @@ export class InventoryController {
       const user = (req as any).user;
       const ret = await inventoryService.createMaterialReturn({
         ...req.body,
-        receivedBy: req.body.receivedBy || user?.name || 'Store Officer',
+        receivedBy: user?.name || user?.email || '',
       });
 
       await auditRepository.logAction({
@@ -437,7 +443,7 @@ export class InventoryController {
       const user = (req as any).user;
       const adj = await inventoryService.createInventoryAdjustment({
         ...req.body,
-        adjustedBy: req.body.adjustedBy || user?.name || 'Inventory Auditor',
+        adjustedBy: user?.name || user?.email || '',
       });
 
       await auditRepository.logAction({
@@ -452,6 +458,22 @@ export class InventoryController {
       res.status(201).json({ success: true, data: adj });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message || 'Failed to record inventory adjustment' });
+    }
+  }
+
+  async approveInventoryAdjustment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) return res.status(401).json({ success: false, error: 'Authenticated approver identity is required.' });
+      const decision = String(req.body?.decision || '').trim().toUpperCase();
+      if (decision !== 'APPROVED' && decision !== 'REJECTED') return res.status(400).json({ success: false, error: 'Decision must be APPROVED or REJECTED.' });
+      const adjustment = await inventoryService.approveInventoryAdjustment(req.params.id, actor, decision as 'APPROVED' | 'REJECTED', req.body?.remarks);
+      if (!adjustment) return res.status(404).json({ success: false, error: 'Inventory adjustment not found.' });
+      await auditRepository.logAction({ userId: user?.id, userEmail: user?.email, userRole: user?.role, action: 'INVENTORY_ADJUSTMENT_' + decision, module: 'INVENTORY', details: 'Inventory Adjustment ' + adjustment.adjustmentNumber + ' ' + decision });
+      return res.json({ success: true, data: adjustment });
+    } catch (err: any) {
+      return res.status(400).json({ success: false, error: err.message || 'Failed to process inventory adjustment approval' });
     }
   }
 
@@ -495,7 +517,7 @@ export class InventoryController {
       const reqData = {
         ...req.body,
         requestedById: user?.id,
-        requestedByName: user?.name || 'Site Engineer',
+        requestedByName: user?.name || user?.email || ''
       };
 
       const pr = await inventoryService.createPurchaseRequest(reqData);

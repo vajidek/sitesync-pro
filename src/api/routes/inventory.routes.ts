@@ -63,6 +63,7 @@ router.post('/material-returns', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'S
 // --- Inventory Adjustments ---
 router.get('/adjustments', inventoryController.getInventoryAdjustments.bind(inventoryController));
 router.post('/adjustments', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), inventoryController.createInventoryAdjustment.bind(inventoryController));
+router.patch('/adjustments/:id/decision', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), inventoryController.approveInventoryAdjustment.bind(inventoryController));
 
 // --- Inventory Logs ---
 router.get('/logs', inventoryController.getInventoryLogs.bind(inventoryController));

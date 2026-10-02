@@ -31,7 +31,7 @@ import {
   procurementGrnsTable,
   procurementLogs,
 } from '../../db/schema';
-import { eq, and, ilike, or } from 'drizzle-orm';
+import { eq, and, ilike, or, gte, sql } from 'drizzle-orm';
 import { PaginationParams } from '../utils/pagination';
 import { numberingService } from '../services/numbering.service';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';
@@ -438,6 +438,10 @@ let isInventorySeeded = false;
 
 async function ensureInventorySeeded() {
   if (isInventorySeeded) return;
+  if (!isDemoSeedAllowed()) {
+    isInventorySeeded = true;
+    return;
+  }
   try {
     const existingCategories = await db.select().from(materialCategories).limit(1);
     if (existingCategories.length === 0) {
@@ -1060,36 +1064,33 @@ export class InventoryRepository {
   async createWarehouse(data: Partial<DbWarehouse>): Promise<DbWarehouse> {
     await ensureInventorySeeded();
     const now = new Date().toISOString();
-    let managerName = data.managerName || 'Store Keeper';
+    const name = String(data.name || '').trim();
+    const code = String(data.code || '').trim();
+    const type = String(data.type || '').trim();
+    const location = String(data.location || '').trim();
+    if (!name || !code || !type || !location) throw new Error('Warehouse code, name, type and location are required.');
+
+    let managerName = data.managerName?.trim() || undefined;
     if (data.managerId) {
-      const userRows = await db.select().from(users).where(eq(users.id, data.managerId));
-      if (userRows[0]) {
-        managerName = userRows[0].name;
-      } else {
-        const empRows = await db.select().from(employees).where(eq(employees.id, data.managerId));
+      const userRows = await db.select().from(users).where(eq(users.id, data.managerId)).limit(1);
+      if (userRows[0]) managerName = userRows[0].name;
+      if (!managerName) {
+        const empRows = await db.select().from(employees).where(eq(employees.id, data.managerId)).limit(1);
         if (empRows[0]) managerName = empRows[0].name;
       }
+      if (!managerName) throw new Error('Selected warehouse manager was not found.');
     }
 
-    const newWh: DbWarehouse = {
-      id: genId('wh'),
-      code: data.code || `WH-${Math.floor(100 + Math.random() * 900)}`,
-      name: data.name || 'New Warehouse Yard',
-      type: data.type || 'PROJECT',
-      location: data.location || 'Site Yard Compound',
-      siteId: data.siteId,
-      managerId: data.managerId,
-      managerName,
-      capacity: data.capacity || 10000,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const duplicate = await db.select({ id: warehouses.id }).from(warehouses).where(eq(warehouses.code, code)).limit(1);
+    if (duplicate.length) throw new Error('Warehouse code already exists: ' + code);
 
+    const newWh: DbWarehouse = {
+      id: genId('wh'), code, name, type, location, siteId: data.siteId, managerId: data.managerId, managerName, capacity: data.capacity,
+      isActive: true, createdAt: now, updatedAt: now,
+    };
     await db.insert(warehouses).values(newWh);
     return newWh;
   }
-
   async updateWarehouse(id: string, data: Partial<DbWarehouse>): Promise<DbWarehouse | null> {
     await ensureInventorySeeded();
     const existing = await this.getWarehouseById(id);
@@ -1224,49 +1225,68 @@ export class InventoryRepository {
     await ensureInventorySeeded();
     const client = txOrDb || db;
     const now = new Date().toISOString();
-    const mat = await this.getMaterialById(data.materialId || '');
-    const wh = await this.getWarehouseById(data.warehouseId || '');
-    const targetWh = data.targetWarehouseId ? await this.getWarehouseById(data.targetWarehouseId) : null;
+    const materialId = String(data.materialId || '').trim();
+    const warehouseId = String(data.warehouseId || '').trim();
+    const transactionType = String(data.transactionType || '').trim().toUpperCase();
+    const qty = Number(data.quantity);
 
-    if (!mat || !wh) {
-      throw new Error('Invalid Material or Warehouse specified for stock transaction');
+    const allowedTypes = ['GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER', 'RETURN', 'OPENING_STOCK', 'DAMAGE', 'SCRAP'];
+    if (!materialId || !warehouseId || !allowedTypes.includes(transactionType)) {
+      throw new Error('Material, warehouse and a valid stock transaction type are required.');
+    }
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error('Stock transaction quantity must be greater than zero.');
+
+    if (['GOODS_ISSUE', 'DAMAGE', 'SCRAP'].includes(transactionType) && !String(data.issuedByName || '').trim()) {
+      throw new Error('Issuer identity is required for stock-out transactions.');
+    }
+    if (['GOODS_RECEIPT', 'RETURN'].includes(transactionType) && !String(data.receivedByName || '').trim()) {
+      throw new Error('Receiver identity is required for stock-in transactions.');
+    }
+    if (transactionType === 'TRANSFER') {
+      if (!String(data.issuedByName || '').trim() || !String(data.receivedByName || '').trim()) throw new Error('Dispatch and receiving identities are required for stock transfers.');
+      if (!data.targetWarehouseId || data.targetWarehouseId === warehouseId) throw new Error('Transfer requires a distinct target warehouse.');
     }
 
-    let prjName = data.projectName;
-    if (data.projectId && !prjName) {
-      const prjRows = await client.select().from(projects).where(eq(projects.id, data.projectId));
-      if (prjRows[0]) prjName = prjRows[0].projectName;
+    const [mat] = await client.select().from(materials).where(eq(materials.id, materialId)).limit(1);
+    const [wh] = await client.select().from(warehouses).where(eq(warehouses.id, warehouseId)).limit(1);
+    if (!mat || !mat.isActive) throw new Error('Material not found or inactive.');
+    if (!wh || !wh.isActive) throw new Error('Warehouse not found or inactive.');
+
+    let targetWh: any = null;
+    if (transactionType === 'TRANSFER') {
+      const [target] = await client.select().from(warehouses).where(eq(warehouses.id, data.targetWarehouseId!)).limit(1);
+      if (!target || !target.isActive) throw new Error('Target warehouse not found or inactive.');
+      targetWh = target;
     }
 
-    let siteName = data.siteName;
-    if (data.siteId && !siteName) {
-      const siteRows = await client.select().from(sites).where(eq(sites.id, data.siteId));
-      if (siteRows[0]) siteName = siteRows[0].siteName;
+    const projectId = data.projectId ? String(data.projectId).trim() : undefined;
+    let projectName = data.projectName?.trim() || undefined;
+    if (projectId) {
+      const [project] = await client.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+      if (!project) throw new Error('Linked project not found or inactive.');
+      projectName = projectName || project.projectName;
     }
 
-    const type = data.transactionType || 'GOODS_ISSUE';
-    const qty = Number(data.quantity) || 0;
-    const unitPrice = data.unitPrice ?? mat.unitPrice;
+    const siteId = data.siteId ? String(data.siteId).trim() : undefined;
+    let siteName = data.siteName?.trim() || undefined;
+    if (siteId) {
+      const [site] = await client.select().from(sites).where(and(eq(sites.id, siteId), eq(sites.isActive, true))).limit(1);
+      if (!site || (projectId && site.projectId !== projectId)) throw new Error('Linked site not found, inactive, or outside the selected project.');
+      siteName = siteName || site.siteName;
+    }
+
+    const unitPrice = data.unitPrice == null ? Number(mat.unitPrice) : Number(data.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('Unit price must be a valid non-negative amount.');
     const totalValue = qty * unitPrice;
-
-    const prefixMap: Record<string, string> = {
-      GOODS_RECEIPT: 'GRN',
-      GOODS_ISSUE: 'GI',
-      TRANSFER: 'TRF',
-      RETURN: 'RET',
-      ADJUSTMENT: 'ADJ',
-      OPENING_STOCK: 'OPN',
-      PHYSICAL_VERIFICATION: 'STV',
-      DAMAGE: 'DMG',
-      SCRAP: 'SCP',
-    };
-    const codePrefix = prefixMap[type] || 'STX';
-    const txnCode = `${codePrefix}-2026-${Math.floor(100 + Math.random() * 900)}`;
+    const year = now.slice(0, 4);
+    const codePrefix: Record<string, string> = { GOODS_RECEIPT: 'GRN', GOODS_ISSUE: 'GI', TRANSFER: 'TRF', RETURN: 'RET', ADJUSTMENT: 'ADJ', OPENING_STOCK: 'OPN', PHYSICAL_VERIFICATION: 'STV', DAMAGE: 'DMG', SCRAP: 'SCP' };
+    const txnCode = `${codePrefix[transactionType] || 'STX'}-${year}-${Date.now().toString().slice(-8)}`;
+    const referenceDoc = String(data.referenceDoc || txnCode).trim();
 
     const transaction: DbStockTransaction = {
       id: genId('stx'),
       transactionCode: txnCode,
-      transactionType: type,
+      transactionType,
       materialId: mat.id,
       materialName: mat.name,
       materialCode: mat.itemCode,
@@ -1277,97 +1297,64 @@ export class InventoryRepository {
       quantity: qty,
       unitPrice,
       totalValue,
-      projectId: data.projectId,
-      projectName: prjName,
-      siteId: data.siteId,
+      projectId,
+      projectName,
+      siteId,
       siteName,
-      workCategory: data.workCategory || 'General Field Works',
+      workCategory: data.workCategory?.trim(),
       issuedById: data.issuedById,
-      issuedByName: data.issuedByName || 'Store Keeper',
+      issuedByName: data.issuedByName?.trim(),
       receivedById: data.receivedById,
-      receivedByName: data.receivedByName || 'Site Supervisor',
+      receivedByName: data.receivedByName?.trim(),
       supervisorId: data.supervisorId,
-      supervisorName: data.supervisorName || 'Site Engineer',
-      referenceDoc: data.referenceDoc || 'Internal Requisition',
+      supervisorName: data.supervisorName?.trim(),
+      referenceDoc,
       notes: data.notes || '',
       status: 'COMPLETED',
       approvedById: data.approvedById,
-      approvedByName: data.approvedByName || 'Project Manager',
+      approvedByName: data.approvedByName?.trim(),
       transactionDate: data.transactionDate || now.slice(0, 10),
       createdAt: now,
     };
 
     await client.insert(stockTransactions).values(transaction);
 
-    // REAL-TIME ATOMIC STOCK BALANCE UPDATE
-    const existingStocks = await client
-      .select()
-      .from(stocks)
-      .where(and(eq(stocks.warehouseId, wh.id), eq(stocks.materialId, mat.id)));
+    const [stockEntry] = await client.select().from(stocks).where(and(eq(stocks.warehouseId, wh.id), eq(stocks.materialId, mat.id))).limit(1);
 
-    let stockEntry = existingStocks[0];
-    if (!stockEntry) {
-      stockEntry = {
-        id: genId('stk'),
-        warehouseId: wh.id,
-        materialId: mat.id,
-        quantity: 0,
-        reservedQuantity: 0,
-        batchNumber: null,
-        rackLocation: 'General Bin',
+    if (['GOODS_ISSUE', 'DAMAGE', 'SCRAP', 'TRANSFER'].includes(transactionType)) {
+      if (!stockEntry) throw new Error('No stock balance exists for the selected material and warehouse.');
+      const [decremented] = await client.update(stocks).set({
+        quantity: sql`${stocks.quantity} - ${qty}`,
         updatedAt: now,
-      };
-      await client.insert(stocks).values(stockEntry);
-    }
+      }).where(and(eq(stocks.id, stockEntry.id), gte(stocks.quantity, qty))).returning();
+      if (!decremented) throw new Error(`Insufficient available stock for ${mat.itemCode}. Requested ${qty}, available ${stockEntry.quantity}.`);
 
-    let newStockQty = stockEntry.quantity;
-    let newMatStockQty = mat.currentStock;
-
-    if (type === 'GOODS_RECEIPT' || type === 'RETURN' || type === 'OPENING_STOCK') {
-      newStockQty += qty;
-      newMatStockQty += qty;
-    } else if (type === 'GOODS_ISSUE' || type === 'DAMAGE' || type === 'SCRAP') {
-      newStockQty = Math.max(0, newStockQty - qty);
-      newMatStockQty = Math.max(0, newMatStockQty - qty);
-    } else if (type === 'TRANSFER' && targetWh) {
-      newStockQty = Math.max(0, newStockQty - qty);
-
-      const targetStocks = await client
-        .select()
-        .from(stocks)
-        .where(and(eq(stocks.warehouseId, targetWh.id), eq(stocks.materialId, mat.id)));
-
-      let targetStockEntry = targetStocks[0];
-      if (!targetStockEntry) {
-        targetStockEntry = {
-          id: genId('stk'),
-          warehouseId: targetWh.id,
-          materialId: mat.id,
-          quantity: 0,
-          reservedQuantity: 0,
-          batchNumber: null,
-          rackLocation: 'Transfer Bin',
+      if (transactionType !== 'TRANSFER') {
+        const [materialUpdated] = await client.update(materials).set({
+          currentStock: sql`${materials.currentStock} - ${qty}`,
           updatedAt: now,
-        };
-        await client.insert(stocks).values(targetStockEntry);
+        }).where(and(eq(materials.id, mat.id), gte(materials.currentStock, qty))).returning();
+        if (!materialUpdated) throw new Error(`Material aggregate stock is insufficient for ${mat.itemCode}.`);
       }
-
-      await client
-        .update(stocks)
-        .set({ quantity: targetStockEntry.quantity + qty, updatedAt: now })
-        .where(eq(stocks.id, targetStockEntry.id));
-    } else if (type === 'ADJUSTMENT') {
-      const diff = qty - newStockQty;
-      newStockQty = qty;
-      newMatStockQty += diff;
+    } else if (transactionType === 'TRANSFER') {
+      const [targetEntry] = await client.select().from(stocks).where(and(eq(stocks.warehouseId, targetWh.id), eq(stocks.materialId, mat.id))).limit(1);
+      if (targetEntry) {
+        await client.update(stocks).set({ quantity: sql`${stocks.quantity} + ${qty}`, updatedAt: now }).where(eq(stocks.id, targetEntry.id));
+      } else {
+        await client.insert(stocks).values({ id: genId('stk'), warehouseId: targetWh.id, materialId: mat.id, quantity: qty, reservedQuantity: 0, batchNumber: null, rackLocation: null, updatedAt: now });
+      }
+    } else {
+      if (stockEntry) {
+        await client.update(stocks).set({ quantity: sql`${stocks.quantity} + ${qty}`, updatedAt: now }).where(eq(stocks.id, stockEntry.id));
+      } else if (['GOODS_RECEIPT', 'RETURN', 'OPENING_STOCK'].includes(transactionType)) {
+        await client.insert(stocks).values({ id: genId('stk'), warehouseId: wh.id, materialId: mat.id, quantity: qty, reservedQuantity: 0, batchNumber: null, rackLocation: null, updatedAt: now });
+      }
+      const [materialUpdated] = await client.update(materials).set({ currentStock: sql`${materials.currentStock} + ${qty}`, updatedAt: now }).where(eq(materials.id, mat.id)).returning();
+      if (!materialUpdated) throw new Error('Material stock balance could not be updated.');
     }
-
-    await client.update(stocks).set({ quantity: newStockQty, updatedAt: now }).where(eq(stocks.id, stockEntry.id));
-    await client.update(materials).set({ currentStock: newMatStockQty, updatedAt: now }).where(eq(materials.id, mat.id));
 
     return transaction;
   }
-
   // ==========================================
   // PURCHASE REQUISITIONS & REQUESTS
   // ==========================================
@@ -1420,75 +1407,54 @@ export class InventoryRepository {
   async createPurchaseRequest(data: Partial<DbPurchaseRequest>): Promise<DbPurchaseRequest> {
     await ensureInventorySeeded();
     const now = new Date().toISOString();
-    let prjName = data.projectName;
-    if (data.projectId && !prjName) {
-      const prjRows = await db.select().from(projects).where(eq(projects.id, data.projectId));
-      if (prjRows[0]) prjName = prjRows[0].projectName;
-    }
+    const projectId = String(data.projectId || '').trim();
+    const requestedById = String(data.requestedById || '').trim();
+    const requestedByName = String(data.requestedByName || '').trim();
+    const materialId = String(data.materialId || '').trim();
+    const quantity = Number(data.quantity);
+    if (!projectId || !requestedById || !requestedByName || !materialId) throw new Error('Project, requester identity and material are required for a purchase request.');
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Purchase request quantity must be greater than zero.');
+
+    const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+    if (!project) throw new Error('Project not found or inactive.');
+    const companyId = String(project.companyId || '').trim();
+    if (!companyId && !data.requisitionCode) throw new Error('Project company context is required for requisition numbering.');
 
     let siteName = data.siteName;
-    if (data.siteId && !siteName) {
-      const siteRows = await db.select().from(sites).where(eq(sites.id, data.siteId));
-      if (siteRows[0]) siteName = siteRows[0].siteName;
+    if (data.siteId) {
+      const [site] = await db.select().from(sites).where(and(eq(sites.id, data.siteId), eq(sites.isActive, true))).limit(1);
+      if (!site || site.projectId !== projectId) throw new Error('Site not found, inactive, or outside the selected project.');
+      siteName = site.siteName;
     }
 
-    let matName = data.materialName;
-    if (data.materialId && !matName) {
-      const mat = await this.getMaterialById(data.materialId);
-      if (mat) matName = mat.name;
-    }
+    const [mat] = await db.select().from(materials).where(and(eq(materials.id, materialId), eq(materials.isActive, true))).limit(1);
+    if (!mat) throw new Error('Material not found or inactive.');
+    const reqCode = data.requisitionCode || await numberingService.generatePurchaseRequisitionNumber({ companyId, projectId, date: data.requiredDate || now });
+    const duplicate = await db.select({ id: purchaseRequests.id }).from(purchaseRequests).where(eq(purchaseRequests.requisitionCode, reqCode)).limit(1);
+    if (duplicate.length) throw new Error('Purchase request number already exists: ' + reqCode);
 
-    const reqCode = data.requisitionCode || (await numberingService.generatePurchaseRequisitionNumber({
-      companyId: 'cmp-101',
-      projectId: data.projectId || null,
-      date: data.requiredDate || now,
-    }));
     const newReq: DbPurchaseRequest = {
-      id: genId('pr'),
-      requisitionCode: reqCode,
-      projectId: data.projectId!,
-      projectName: prjName || 'Construction Project',
-      siteId: data.siteId,
-      siteName,
-      materialId: data.materialId!,
-      materialName: matName || 'Material Item',
-      quantity: Number(data.quantity) || 1,
-      unit: data.unit || 'PCS',
-      priority: data.priority || 'MEDIUM',
-      requiredDate: data.requiredDate || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
-      requestedById: data.requestedById || 'usr-inc-003',
-      requestedByName: data.requestedByName || 'Site Engineer',
-      status: 'SUBMITTED',
-      remarks: data.remarks || '',
-      createdAt: now,
-      updatedAt: now,
+      id: genId('pr'), requisitionCode: reqCode, projectId, projectName: project.projectName, siteId: data.siteId, siteName, materialId, materialName: mat.name,
+      quantity, unit: data.unit || 'PCS', priority: data.priority || 'MEDIUM', requiredDate: data.requiredDate || now.slice(0,10), requestedById, requestedByName, status: 'SUBMITTED', remarks: data.remarks || '', createdAt: now, updatedAt: now,
     };
-
     await db.insert(purchaseRequests).values(newReq);
     return newReq;
   }
-
   async updatePurchaseRequestStatus(id: string, status: DbPurchaseRequest['status'], approverName?: string): Promise<DbPurchaseRequest | null> {
     await ensureInventorySeeded();
-    const prRows = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, id));
-    const pr = prRows[0];
+    const actor = String(approverName || '').trim();
+    if (!actor) throw new Error('Authenticated purchase-request actor identity is required.');
+    const [pr] = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, id)).limit(1);
     if (!pr) return null;
-
-    const updateData: any = {
-      status,
-      updatedAt: new Date().toISOString(),
-    };
-    if (status === 'VERIFIED') {
-      updateData.verifiedByName = approverName || 'Store Keeper';
-    } else if (status === 'APPROVED') {
-      updateData.approvedByName = approverName || 'Project Manager';
-    }
-
-    await db.update(purchaseRequests).set(updateData).where(eq(purchaseRequests.id, id));
-    const updated = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, id));
-    return (updated[0] as DbPurchaseRequest) || null;
+    const transitions: Record<string, string[]> = { SUBMITTED: ['VERIFIED', 'REJECTED', 'CANCELLED'], VERIFIED: ['APPROVED', 'REJECTED'], APPROVED: ['CLOSED', 'CANCELLED'], REJECTED: ['SUBMITTED'], CANCELLED: [], CLOSED: [] };
+    if (!transitions[pr.status]?.includes(status)) throw new Error(`Invalid purchase request status transition: ${pr.status} → ${status}`);
+    if (['VERIFIED','APPROVED'].includes(status) && String(pr.requestedByName || '').trim().toLowerCase() === actor.toLowerCase()) throw new Error('Maker-checker violation: requester cannot approve the same purchase request.');
+    const updateData: any = { status, updatedAt: new Date().toISOString() };
+    if (status === 'VERIFIED') updateData.verifiedByName = actor;
+    if (status === 'APPROVED') updateData.approvedByName = actor;
+    const [updated] = await db.update(purchaseRequests).set(updateData).where(eq(purchaseRequests.id, id)).returning();
+    return (updated as DbPurchaseRequest) || null;
   }
-
   // ==========================================
   // PURCHASE ORDERS (CONSOLIDATED READ & SAFE WRITE BRIDGE)
   // ==========================================
@@ -1760,6 +1726,7 @@ export class InventoryRepository {
     poNumber?: string;
     vendorId?: string;
     vendorName?: string;
+    companyId?: string;
     warehouseId: string;
     warehouseName?: string;
     deliveryNoteNo?: string;
@@ -1787,12 +1754,26 @@ export class InventoryRepository {
     const now = new Date().toISOString();
     const grnId = genId('grn');
 
+    const receivedBy = String(data.receivedBy || '').trim();
+    const inspectedBy = String(data.inspectedBy || '').trim();
+    if (!receivedBy || !inspectedBy) throw new Error('Receiver and inspector identities are required for GRN creation.');
     const wh = await this.getWarehouseById(data.warehouseId);
-    const whName = data.warehouseName || wh?.name || 'Central Store';
+    if (!wh || !wh.isActive) throw new Error('Warehouse not found or inactive.');
+    const whName = wh.name;
 
     return await db.transaction(async (tx) => {
+      let companyId = String(data.companyId || '').trim();
+      if (!companyId && data.poNumber) {
+        const poRows = await tx.select().from(procurementPurchaseOrdersTable).where(eq(procurementPurchaseOrdersTable.poNumber, data.poNumber)).limit(1);
+        const poProjectId = poRows[0]?.projectId;
+        if (poProjectId) {
+          const [project] = await tx.select().from(projects).where(eq(projects.id, poProjectId)).limit(1);
+          companyId = String(project?.companyId || '').trim();
+        }
+      }
+      if (!data.grnNumber && !companyId) throw new Error('Company context is required when generating a GRN number.');
       const grnNum = data.grnNumber || (await numberingService.generateGoodsReceiptNumber({
-        companyId: 'cmp-101',
+        companyId,
         projectId: null,
         date: data.receivedDate || now,
       }, tx));
@@ -1872,7 +1853,7 @@ export class InventoryRepository {
               totalValue: acceptedQty * unitPrice,
               referenceDoc: grnNum,
               notes: `GRN Received: ${grnNum}`,
-              receivedByName: data.receivedBy || 'Store Keeper',
+              receivedByName: receivedBy,
             },
             tx
           );
@@ -1889,9 +1870,9 @@ export class InventoryRepository {
         warehouseName: whName,
         deliveryNoteNo: data.deliveryNoteNo || '',
         receivedDate: data.receivedDate || now.slice(0, 10),
-        receivedBy: data.receivedBy || 'Store Keeper',
-        inspectedBy: data.inspectedBy || 'QC Inspector',
-        qcStatus: data.qcStatus || 'PASSED',
+        receivedBy,
+        inspectedBy,
+        qcStatus: data.qcStatus || 'PENDING_INSPECTION',
         totalValue: totalVal,
         status: 'COMPLETED',
         notes: data.notes || '',
@@ -1952,8 +1933,8 @@ export class InventoryRepository {
 
       await this.logInventoryAction({
         actionType: 'GRN',
-        performedBy: data.receivedBy || 'Store Keeper',
-        details: `Created GRN ${grnNum} with ${itemsToInsert.length} items totaling AED ${totalVal}`,
+        performedBy: receivedBy,
+        details: `Created GRN ${grnNum} with ${itemsToInsert.length} items totaling ${totalVal} in transaction currency`,
         warehouseId: data.warehouseId,
       });
 
@@ -2023,13 +2004,26 @@ export class InventoryRepository {
     const now = new Date().toISOString();
     const issueId = genId('miv');
 
+    const projectId = String(data.projectId || '').trim();
+    const issuedBy = String(data.issuedBy || '').trim();
+    const issuedTo = String(data.issuedTo || data.recipientName || '').trim();
+    if (!projectId || !issuedBy || !issuedTo || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Project, issuer, recipient and at least one material issue item are required.');
+    }
+
     const wh = await this.getWarehouseById(data.warehouseId);
-    const whName = data.warehouseName || wh?.name || 'Central Yard';
+    if (!wh || !wh.isActive) throw new Error('Warehouse not found or inactive.');
+    const whName = wh.name;
+
+    const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+    if (!project) throw new Error('Project not found or inactive.');
+    const companyId = String(project.companyId || '').trim();
+    if (!companyId) throw new Error('Project company context is required for inventory numbering.');
 
     const createdResult = await db.transaction(async (tx) => {
       const issueNum = data.issueNumber || (await numberingService.generateMaterialIssueNumber({
-        companyId: 'cmp-101',
-        projectId: data.projectId || 'PRJ-101',
+        companyId,
+        projectId,
         date: data.issueDate || now,
       }, tx));
 
@@ -2071,11 +2065,13 @@ export class InventoryRepository {
               quantity: issuedQty,
               unitPrice,
               totalValue: itemTotal,
-              projectId: data.projectId,
-              projectName: data.projectName,
+              projectId,
+              projectName: project.projectName,
               referenceDoc: issueNum,
               notes: `Material Issue Note: ${issueNum} to ${data.issuedTo}`,
-              issuedByName: data.issuedBy || 'Store Keeper',
+              issuedByName: issuedBy,
+              approvedByName: data.approvedBy?.trim() || undefined,
+              receivedByName: data.recipientName?.trim() || issuedTo,
             },
             tx
           );
@@ -2085,15 +2081,15 @@ export class InventoryRepository {
       const issueRecord: DbMaterialIssue = {
         id: issueId,
         issueNumber: issueNum,
-        projectId: data.projectId || '',
-        projectName: data.projectName || '',
+        projectId,
+        projectName: project.projectName,
         wbsCode: data.wbsCode || '',
         boqRef: data.boqRef || '',
         department: data.department || 'Site Construction',
         warehouseId: data.warehouseId,
         warehouseName: whName,
-        issuedTo: data.issuedTo || data.recipientName || 'Site Staff',
-        issuedBy: data.issuedBy || 'Store Keeper',
+        issuedTo,
+        issuedBy,
         issueDate: data.issueDate || now.slice(0, 10),
         status: 'ISSUED',
         notes: data.notes || '',
@@ -2157,7 +2153,7 @@ export class InventoryRepository {
             entityId: cost.id,
             entityNumber: cost.projectId || data.projectId,
             actionType: 'MATERIAL_ISSUE_COST_POSTING',
-            performedBy: data.issuedBy || 'Store Keeper',
+            performedBy: issuedBy,
             details: `Posted actual material issue cost of USD ${totalIssueCost.toFixed(2)} (${issueNum}) to Project Cost Control. Total Material Cost: USD ${newMaterialCost.toFixed(2)}.`,
             createdAt: now,
             updatedAt: now,
@@ -2167,14 +2163,14 @@ export class InventoryRepository {
 
       await this.logInventoryAction({
         actionType: 'ISSUE',
-        performedBy: data.issuedBy || 'Store Keeper',
+        performedBy: issuedBy,
         details: `Issued material voucher ${issueNum} for ${data.issuedTo} (Project: ${data.projectName || 'N/A'}) totaling USD ${totalIssueCost.toFixed(2)}`,
         warehouseId: data.warehouseId,
       });
 
       await enterpriseAuditRepository.logEvent(
         {
-          userName: data.issuedBy || 'Store Keeper',
+          userName: issuedBy,
           actionType: 'CREATE',
           entityType: 'MATERIAL_ISSUE',
           entityId: issueId,
@@ -2258,6 +2254,7 @@ export class InventoryRepository {
 
   async createMaterialTransfer(data: {
     transferNumber?: string;
+    companyId?: string;
     sourceWarehouseId: string;
     targetWarehouseId: string;
     requestedBy?: string;
@@ -2266,98 +2263,58 @@ export class InventoryRepository {
     receivedBy?: string;
     transferDate?: string;
     notes?: string;
-    items: Array<{
-      materialId: string;
-      materialCode?: string;
-      materialName?: string;
-      transferQty: number;
-      batchNumber?: string;
-      remarks?: string;
-    }>;
+    items: Array<{ materialId: string; materialCode?: string; materialName?: string; transferQty: number; batchNumber?: string; remarks?: string }>;
   }): Promise<DbMaterialTransfer> {
     await ensureInventorySeeded();
     const now = new Date().toISOString();
     const transferId = genId('mtr');
-    const transferNum = data.transferNumber || (await numberingService.generateMaterialTransferNumber({
-      companyId: 'cmp-101',
-      date: data.transferDate || now,
-    }));
+    const requestedBy = String(data.requestedBy || '').trim();
+    const approvedBy = String(data.approvedBy || '').trim();
+    const dispatchedBy = String(data.dispatchedBy || '').trim();
+    const receivedBy = String(data.receivedBy || '').trim();
+    if (!requestedBy || !approvedBy || !dispatchedBy || !receivedBy) throw new Error('Requester, approver, dispatcher and receiver identities are required for stock transfer.');
+    if (dispatchedBy.toLowerCase() === approvedBy.toLowerCase()) throw new Error('Maker-checker violation: dispatcher cannot approve the same stock transfer.');
+    if (!data.sourceWarehouseId || !data.targetWarehouseId || data.sourceWarehouseId === data.targetWarehouseId || !Array.isArray(data.items) || data.items.length === 0) throw new Error('Distinct source/target warehouses and transfer items are required.');
 
     const srcWh = await this.getWarehouseById(data.sourceWarehouseId);
     const tgtWh = await this.getWarehouseById(data.targetWarehouseId);
+    if (!srcWh || !srcWh.isActive || !tgtWh || !tgtWh.isActive) throw new Error('Source and target warehouses must both exist and be active.');
 
-    const itemsToInsert: DbMaterialTransferItem[] = [];
+    let companyId = String(data.companyId || '').trim();
+    if (!companyId) throw new Error('Company context is required for transfer numbering.');
+    const transferNum = data.transferNumber || await numberingService.generateMaterialTransferNumber({ companyId, date: data.transferDate || now });
 
-    for (const item of data.items) {
-      const mat = await this.getMaterialById(item.materialId);
-      const transferQty = Number(item.transferQty || 0);
+    return await db.transaction(async (tx) => {
+      const itemsToInsert: DbMaterialTransferItem[] = [];
+      for (const item of data.items) {
+        const materialId = String(item.materialId || '').trim();
+        const transferQty = Number(item.transferQty);
+        if (!materialId || !Number.isFinite(transferQty) || transferQty <= 0) throw new Error('Every transfer line requires a material and positive quantity.');
+        const [mat] = await tx.select().from(materials).where(and(eq(materials.id, materialId), eq(materials.isActive, true))).limit(1);
+        if (!mat) throw new Error('Transfer material not found or inactive.');
 
-      itemsToInsert.push({
-        id: genId('mtri'),
-        transferId,
-        materialId: item.materialId,
-        materialCode: item.materialCode || mat?.itemCode || 'MAT-ITEM',
-        materialName: item.materialName || mat?.name || 'Material',
-        transferQty,
-        batchNumber: item.batchNumber || '',
-        remarks: item.remarks || '',
-        createdAt: now,
-      });
-
-      // Transfer deduct from source and add to target
-      if (mat && transferQty > 0) {
-        await this.createStockTransaction({
-          materialId: mat.id,
-          materialCode: mat.itemCode,
-          materialName: mat.name,
-          warehouseId: data.sourceWarehouseId,
-          warehouseName: srcWh?.name || 'Source Store',
-          targetWarehouseId: data.targetWarehouseId,
-          targetWarehouseName: tgtWh?.name || 'Target Store',
-          transactionType: 'TRANSFER',
-          quantity: transferQty,
-          unitPrice: mat.unitPrice,
-          totalValue: transferQty * mat.unitPrice,
-          referenceDoc: transferNum,
-          notes: `Inter-warehouse transfer ${transferNum} from ${srcWh?.name} to ${tgtWh?.name}`,
+        itemsToInsert.push({
+          id: genId('mtri'), transferId, materialId: mat.id, materialCode: mat.itemCode, materialName: mat.name, transferQty, batchNumber: item.batchNumber || '', remarks: item.remarks || '', createdAt: now,
         });
+
+        await this.createStockTransaction({
+          materialId: mat.id, materialCode: mat.itemCode, materialName: mat.name, warehouseId: data.sourceWarehouseId, warehouseName: srcWh.name,
+          targetWarehouseId: data.targetWarehouseId, targetWarehouseName: tgtWh.name, transactionType: 'TRANSFER', quantity: transferQty, unitPrice: mat.unitPrice,
+          totalValue: transferQty * mat.unitPrice, referenceDoc: transferNum, notes: `Inter-warehouse transfer ${transferNum} from ${srcWh.name} to ${tgtWh.name}`,
+          issuedByName: dispatchedBy, receivedByName: receivedBy, approvedByName: approvedBy,
+        }, tx);
       }
-    }
 
-    const transferRecord: DbMaterialTransfer = {
-      id: transferId,
-      transferNumber: transferNum,
-      sourceWarehouseId: data.sourceWarehouseId,
-      sourceWarehouseName: srcWh?.name || 'Source Warehouse',
-      targetWarehouseId: data.targetWarehouseId,
-      targetWarehouseName: tgtWh?.name || 'Target Warehouse',
-      requestedBy: data.requestedBy || 'Logistics Coordinator',
-      approvedBy: data.approvedBy || 'Store Manager',
-      dispatchedBy: data.dispatchedBy || 'Store Keeper',
-      receivedBy: data.receivedBy || 'Receiving Officer',
-      transferDate: data.transferDate || now.slice(0, 10),
-      status: 'COMPLETED',
-      notes: data.notes || '',
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await db.insert(materialTransfers).values(transferRecord);
-    for (const item of itemsToInsert) {
-      await db.insert(materialTransferItems).values(item);
-    }
-
-    await this.logInventoryAction({
-      actionType: 'TRANSFER',
-      performedBy: data.dispatchedBy || 'Store Keeper',
-      details: `Transferred ${itemsToInsert.length} material items from ${srcWh?.name} to ${tgtWh?.name} (${transferNum})`,
-      warehouseId: data.sourceWarehouseId,
+      const transferRecord: DbMaterialTransfer = {
+        id: transferId, transferNumber: transferNum, sourceWarehouseId: data.sourceWarehouseId, sourceWarehouseName: srcWh.name, targetWarehouseId: data.targetWarehouseId, targetWarehouseName: tgtWh.name,
+        requestedBy, approvedBy, dispatchedBy, receivedBy, transferDate: data.transferDate || now.slice(0,10), status: 'COMPLETED', notes: data.notes || '', isActive: true, createdAt: now, updatedAt: now,
+      };
+      await tx.insert(materialTransfers).values(transferRecord);
+      for (const item of itemsToInsert) await tx.insert(materialTransferItems).values(item);
+      await this.logInventoryAction({ actionType: 'TRANSFER', performedBy: dispatchedBy, details: `Transferred ${itemsToInsert.length} material items from ${srcWh.name} to ${tgtWh.name} (${transferNum})`, warehouseId: data.sourceWarehouseId });
+      return { ...transferRecord, items: itemsToInsert };
     });
-
-    return { ...transferRecord, items: itemsToInsert };
   }
-
   // ==========================================
   // PHASE 55: MATERIAL RETURNS
   // ==========================================
@@ -2400,13 +2357,25 @@ export class InventoryRepository {
     const now = new Date().toISOString();
     const returnId = genId('mrt');
 
+    const returnedBy = String(data.returnedBy || '').trim();
+    const receivedBy = String(data.receivedBy || '').trim();
+    if (!returnedBy || !receivedBy || !Array.isArray(data.items) || data.items.length === 0) throw new Error('Returner, receiver and at least one return item are required.');
+    if (data.returnType !== 'INVENTORY_ONLY' && !String(data.projectId || '').trim()) throw new Error('Project is required for a site-to-store material return.');
     const wh = await this.getWarehouseById(data.warehouseId);
-    const whName = wh?.name || 'Central Store';
+    if (!wh || !wh.isActive) throw new Error('Warehouse not found or inactive.');
+    const whName = wh.name;
+    let companyId = String((data as any).companyId || '').trim();
+    if (data.projectId) {
+      const [project] = await db.select().from(projects).where(and(eq(projects.id, data.projectId), eq(projects.isActive, true))).limit(1);
+      if (!project) throw new Error('Project not found or inactive.');
+      companyId = companyId || String(project.companyId || '').trim();
+    }
+    if (!companyId && !data.returnNumber) throw new Error('Company context is required when generating the material return number.');
 
     return await db.transaction(async (tx) => {
       const returnNum = data.returnNumber || (await numberingService.generateMaterialReturnNumber({
-        companyId: 'cmp-101',
-        projectId: data.projectId || 'PRJ-101',
+        companyId,
+        projectId: data.projectId || null,
         date: data.returnDate || now,
       }, tx));
 
@@ -2451,7 +2420,8 @@ export class InventoryRepository {
               projectName: data.projectName,
               referenceDoc: returnNum,
               notes: `Material Return ${returnNum}: ${data.reason || 'Excess material return'}`,
-              receivedByName: data.receivedBy || 'Store Officer',
+              receivedByName: receivedBy,
+              issuedByName: returnedBy,
             },
             tx
           );
@@ -2466,8 +2436,8 @@ export class InventoryRepository {
         projectName: data.projectName || '',
         warehouseId: data.warehouseId,
         warehouseName: whName,
-        returnedBy: data.returnedBy,
-        receivedBy: data.receivedBy || 'Store Officer',
+        returnedBy,
+        receivedBy,
         returnDate: data.returnDate || now.slice(0, 10),
         status: 'RECEIVED',
         reason: data.reason || 'Project completion surplus',
@@ -2530,7 +2500,7 @@ export class InventoryRepository {
             entityId: cost.id,
             entityNumber: cost.projectId || data.projectId,
             actionType: 'MATERIAL_RETURN_COST_REVERSAL',
-            performedBy: data.returnedBy,
+            performedBy: receivedBy,
             details: `Reversed material cost of USD ${totalReturnCost.toFixed(2)} (${returnNum}) in Project Cost Control. New Material Cost: USD ${newMaterialCost.toFixed(2)}.`,
             createdAt: now,
             updatedAt: now,
@@ -2540,14 +2510,14 @@ export class InventoryRepository {
 
       await this.logInventoryAction({
         actionType: 'RETURN',
-        performedBy: data.returnedBy,
+        performedBy: receivedBy,
         details: `Processed material return ${returnNum} into ${whName} (${itemsToInsert.length} items totaling USD ${totalReturnCost.toFixed(2)})`,
         warehouseId: data.warehouseId,
       });
 
       await enterpriseAuditRepository.logEvent(
         {
-          userName: data.returnedBy || 'Store Officer',
+          userName: receivedBy,
           actionType: 'CREATE',
           entityType: 'MATERIAL_RETURN',
           entityId: returnId,
@@ -2585,61 +2555,58 @@ export class InventoryRepository {
   async createInventoryAdjustment(data: Partial<DbInventoryAdjustment>): Promise<DbInventoryAdjustment> {
     await ensureInventorySeeded();
     const now = new Date().toISOString();
-    const mat = await this.getMaterialById(data.materialId || '');
-    const wh = await this.getWarehouseById(data.warehouseId || '');
+    const materialId = String(data.materialId || '').trim();
+    const warehouseId = String(data.warehouseId || '').trim();
+    const adjustedBy = String(data.adjustedBy || '').trim();
+    const adjustmentType = String(data.adjustmentType || '').trim().toUpperCase();
+    const reason = String(data.reason || '').trim();
+    const qty = Number(data.quantity);
+    if (!materialId || !warehouseId || !adjustedBy || !reason) throw new Error('Material, warehouse, adjustment reason and maker identity are required.');
+    if (!['SURPLUS', 'SHORTAGE', 'DAMAGE', 'EXPIRY', 'SCRAP'].includes(adjustmentType)) throw new Error('Unsupported inventory adjustment type.');
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error('Adjustment quantity must be greater than zero.');
 
-    const adjNum = data.adjustmentNumber || `ADJ-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const qty = Number(data.quantity || 0);
+    const [mat] = await db.select().from(materials).where(and(eq(materials.id, materialId), eq(materials.isActive, true))).limit(1);
+    const [wh] = await db.select().from(warehouses).where(and(eq(warehouses.id, warehouseId), eq(warehouses.isActive, true))).limit(1);
+    if (!mat || !wh) throw new Error('Material or warehouse not found or inactive.');
+    const unitPrice = Number(data.unitPrice ?? mat.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error('Adjustment unit price must be valid.');
 
-    const adj: DbInventoryAdjustment = {
-      id: genId('adj'),
-      adjustmentNumber: adjNum,
-      warehouseId: data.warehouseId!,
-      warehouseName: wh?.name || 'Central Warehouse',
-      materialId: data.materialId!,
-      materialName: mat?.name || 'Material Item',
-      materialCode: mat?.itemCode || 'MAT-ITEM',
-      adjustmentType: data.adjustmentType || 'SURPLUS',
-      quantity: qty,
-      unitPrice: Number(data.unitPrice ?? mat?.unitPrice ?? 0),
-      reason: data.reason || 'Stock audit adjustment',
-      adjustedBy: data.adjustedBy || 'Inventory Auditor',
-      approvedBy: data.approvedBy || 'Store Manager',
-      status: 'APPROVED',
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
+    const adjNum = String(data.adjustmentNumber || `ADJ-${now.slice(0,4)}-${Date.now().toString().slice(-8)}`).trim();
+    const adjustment: DbInventoryAdjustment = {
+      id: genId('adj'), adjustmentNumber: adjNum, warehouseId, warehouseName: wh.name, materialId, materialName: mat.name, materialCode: mat.itemCode,
+      adjustmentType, quantity: qty, unitPrice, reason, adjustedBy, approvedBy: undefined, status: 'PENDING', isActive: true, createdAt: now, updatedAt: now,
     };
-
-    await db.insert(inventoryAdjustments).values(adj);
-
-    if (mat) {
-      await this.createStockTransaction({
-        materialId: mat.id,
-        materialCode: mat.itemCode,
-        materialName: mat.name,
-        warehouseId: data.warehouseId!,
-        warehouseName: wh?.name || 'Central Store',
-        transactionType: 'ADJUSTMENT',
-        quantity: qty,
-        unitPrice: mat.unitPrice,
-        totalValue: qty * mat.unitPrice,
-        referenceDoc: adjNum,
-        notes: `Inventory Adjustment (${adj.adjustmentType}): ${adj.reason}`,
-      });
-    }
-
-    await this.logInventoryAction({
-      actionType: 'ADJUSTMENT',
-      performedBy: data.adjustedBy || 'Inventory Auditor',
-      details: `Created inventory adjustment ${adjNum} for ${mat?.name} (${adj.adjustmentType}: ${qty})`,
-      materialId: data.materialId,
-      warehouseId: data.warehouseId,
-    });
-
-    return adj;
+    await db.insert(inventoryAdjustments).values(adjustment);
+    await this.logInventoryAction({ actionType: 'ADJUSTMENT_REQUESTED', performedBy: adjustedBy, details: `Requested inventory adjustment ${adjNum} for ${mat.name} (${adjustmentType}: ${qty})`, materialId, warehouseId });
+    return adjustment;
   }
 
+  async approveInventoryAdjustment(id: string, approvedBy: string, decision: 'APPROVED' | 'REJECTED', remarks?: string): Promise<DbInventoryAdjustment | null> {
+    await ensureInventorySeeded();
+    const approver = String(approvedBy || '').trim();
+    if (!approver) throw new Error('Authenticated inventory adjustment approver identity is required.');
+    const [current] = await db.select().from(inventoryAdjustments).where(eq(inventoryAdjustments.id, id)).limit(1);
+    if (!current) return null;
+    if (current.status !== 'PENDING') throw new Error(`Inventory adjustment cannot be ${decision.toLowerCase()} from status ${current.status}.`);
+    if (decision === 'APPROVED' && String(current.adjustedBy || '').trim().toLowerCase() === approver.toLowerCase()) throw new Error('Maker-checker violation: adjustment maker cannot approve the same adjustment.');
+
+    return await db.transaction(async (tx) => {
+      if (decision === 'APPROVED') {
+        const movementType = current.adjustmentType === 'SURPLUS' ? 'GOODS_RECEIPT' : 'GOODS_ISSUE';
+        await this.createStockTransaction({
+          materialId: current.materialId, materialCode: current.materialCode, materialName: current.materialName, warehouseId: current.warehouseId, warehouseName: current.warehouseName,
+          transactionType: movementType, quantity: current.quantity, unitPrice: current.unitPrice, totalValue: current.quantity * current.unitPrice,
+          referenceDoc: current.adjustmentNumber, notes: `Approved inventory adjustment ${current.adjustmentNumber}: ${current.reason}`,
+          issuedByName: movementType === 'GOODS_ISSUE' ? current.adjustedBy : undefined, receivedByName: movementType === 'GOODS_RECEIPT' ? current.adjustedBy : undefined,
+          approvedByName: approver,
+        }, tx);
+      }
+      const [updated] = await tx.update(inventoryAdjustments).set({ status: decision, approvedBy: decision === 'APPROVED' ? approver : null, updatedBy: approver, updatedAt: new Date().toISOString() } as any).where(eq(inventoryAdjustments.id, id)).returning();
+      if (!updated) return null;
+      await this.logInventoryAction({ actionType: decision === 'APPROVED' ? 'ADJUSTMENT_APPROVED' : 'ADJUSTMENT_REJECTED', performedBy: approver, details: `${decision} inventory adjustment ${updated.adjustmentNumber}${remarks ? `: ${remarks}` : ''}`, materialId: updated.materialId, warehouseId: updated.warehouseId });
+      return updated as DbInventoryAdjustment;
+    });
+  }
   // ==========================================
   // PHASE 55: INVENTORY LOGS
   // ==========================================

@@ -156,10 +156,14 @@ export class InventoryService {
   }
 
   async createInventoryAdjustment(data: any) {
-    if (!data.warehouseId || !data.materialId || !data.adjustmentType || data.quantity === undefined) {
-      throw new Error('Warehouse, Material, Adjustment Type, and Quantity are required');
+    if (!data.warehouseId || !data.materialId || !data.adjustmentType || data.quantity === undefined || !data.adjustedBy) {
+      throw new Error('Warehouse, Material, Adjustment Type, Quantity and maker identity are required');
     }
     return inventoryRepository.createInventoryAdjustment(data);
+  }
+
+  async approveInventoryAdjustment(id: string, approvedBy: string, decision: 'APPROVED' | 'REJECTED', remarks?: string) {
+    return inventoryRepository.approveInventoryAdjustment(id, approvedBy, decision, remarks);
   }
 
   // Physical Verification Audits

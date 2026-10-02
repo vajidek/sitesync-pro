@@ -763,7 +763,7 @@ export class ProjectControlsRepository {
       lateFinish: data.plannedEndDate,
       totalFloat: 0,
       freeFloat: 0,
-      isCritical: true, // Default to critical path until CPM recache
+      isCritical: false, // CPM/service layer determines critical-path status from the schedule network
       percentComplete: 0,
       plannedCost: data.plannedCost || 0,
       actualCost: 0,
@@ -855,6 +855,14 @@ export class ProjectControlsRepository {
   public async createBaseline(data: any) {
     await this.ensureProjectControlsTablesExist();
     const actor = this.requireWriteActor(data);
+    const baselineName = String(data.baselineName || '').trim();
+    const approvedBy = String(data.approvedBy || '').trim();
+    const totalDurationDays = Number(data.totalDurationDays);
+    const totalPlannedCost = Number(data.totalPlannedCost);
+    if (!baselineName || !approvedBy || !Number.isInteger(totalDurationDays) || totalDurationDays <= 0 || !Number.isFinite(totalPlannedCost) || totalPlannedCost < 0) {
+      throw new Error('Baseline name, approver, positive duration and planned cost are required.');
+    }
+
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectBaselines);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -865,13 +873,13 @@ export class ProjectControlsRepository {
       id,
       baselineNumber,
       projectId: this.resolveProjectId(data.projectId),
-      baselineName: data.baselineName,
-      approvedBy: String(data.approvedBy || actor).trim(),
+      baselineName,
+      approvedBy,
       approvedDate: data.approvedDate || now.split('T')[0],
       version: data.version || 'V1.0',
       isCurrentActive: true,
-      totalDurationDays: data.totalDurationDays || 180,
-      totalPlannedCost: data.totalPlannedCost || 5000000,
+      totalDurationDays,
+      totalPlannedCost,
       createdAt: now,
       updatedAt: now,
       createdBy: actor,
@@ -894,15 +902,22 @@ export class ProjectControlsRepository {
   public async createCalendar(data: any) {
     await this.ensureProjectControlsTablesExist();
     const actor = this.requireWriteActor(data);
+    const calendarName = String(data.calendarName || '').trim();
+    const workingDaysPerWeek = Number(data.workingDaysPerWeek);
+    const workingHoursPerDay = Number(data.workingHoursPerDay);
+    if (!calendarName || !Number.isInteger(workingDaysPerWeek) || workingDaysPerWeek < 1 || workingDaysPerWeek > 7 || !Number.isFinite(workingHoursPerDay) || workingHoursPerDay <= 0) {
+      throw new Error('Calendar name, working days per week and working hours per day are required and must be valid.');
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
       projectId: this.resolveProjectId(data.projectId),
-      calendarName: data.calendarName,
-      workingDaysPerWeek: data.workingDaysPerWeek || 6,
-      workingHoursPerDay: data.workingHoursPerDay || 8,
+      calendarName,
+      workingDaysPerWeek,
+      workingHoursPerDay,
       holidaysJson: data.holidaysJson || '[]',
       isDefault: data.isDefault !== undefined ? data.isDefault : true,
       createdAt: now,
@@ -1044,6 +1059,13 @@ export class ProjectControlsRepository {
   public async createDelay(data: any) {
     await this.ensureProjectControlsTablesExist();
     const actor = this.requireWriteActor(data);
+    const delayCategory = String(data.delayCategory || '').trim();
+    const delayDescription = String(data.description || '').trim();
+    const delayDays = Number(data.delayDays);
+    if (!delayCategory || !delayDescription || !Number.isInteger(delayDays) || delayDays <= 0) {
+      throw new Error('Delay category, description and a positive delay duration are required.');
+    }
+
     const id = uuidv4();
     const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase64ProjectDelays);
     const count = Number(countRes[0]?.count || 0) + 1;
@@ -1055,9 +1077,9 @@ export class ProjectControlsRepository {
       delayNumber,
       projectId: this.resolveProjectId(data.projectId),
       activityId: data.activityId || null,
-      delayCategory: data.delayCategory || 'CLIENT',
-      description: data.description,
-      delayDays: data.delayDays || 1,
+      delayCategory,
+      description: delayDescription,
+      delayDays,
       impactOnCriticalPath: data.impactOnCriticalPath || false,
       mitigationPlan: data.mitigationPlan || '',
       status: 'OPEN',
@@ -1127,21 +1149,33 @@ export class ProjectControlsRepository {
     const riskNumber = `RSK-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
-    const probability = data.probability || 3;
-    const impact = data.impact || 3;
+    const title = String(data.title || '').trim();
+    const category = String(data.category || '').trim();
+    const owner = String(data.owner || '').trim();
+    const probability = Number(data.probability);
+    const impact = Number(data.impact);
+    if (!title || !category || !owner) {
+      throw new Error('Risk title, category and owner are required.');
+    }
+    if (!Number.isInteger(probability) || probability < 1 || probability > 5) {
+      throw new Error('Risk probability must be an integer from 1 to 5.');
+    }
+    if (!Number.isInteger(impact) || impact < 1 || impact > 5) {
+      throw new Error('Risk impact must be an integer from 1 to 5.');
+    }
     const riskScore = probability * impact;
 
     const record = {
       id,
       riskNumber,
       projectId: this.resolveProjectId(data.projectId),
-      title: data.title,
-      category: data.category || 'SCHEDULE',
+      title,
+      category,
       probability,
       impact,
       riskScore,
-      mitigationStrategy: data.mitigationStrategy || '',
-      owner: data.owner || 'Planning Manager',
+      mitigationStrategy: String(data.mitigationStrategy || '').trim(),
+      owner,
       status: 'OPEN',
       createdAt: now,
       updatedAt: now,
@@ -1249,9 +1283,9 @@ export class ProjectControlsRepository {
       id,
       planNumber,
       projectId: this.resolveProjectId(data.projectId),
-      periodWeeks: data.periodWeeks || 3,
-      startDate: data.startDate,
-      endDate: data.endDate,
+      periodWeeks: Number(data.periodWeeks),
+      startDate: String(data.startDate || '').trim(),
+      endDate: String(data.endDate || '').trim(),
       plannedActivitiesCount: data.plannedActivitiesCount || 0,
       readinessStatus: data.readinessStatus || 'READY',
       createdAt: now,

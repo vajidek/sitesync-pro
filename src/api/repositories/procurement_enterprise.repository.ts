@@ -628,81 +628,159 @@ export class ProcurementEnterpriseRepository {
   }
 
   // --- RFQs & Quotations ---
+
+  // --- RFQs & Quotations ---
   public async getRfqs(): Promise<any[]> {
     await this.ensureProcurementTablesExist();
-    const rfqs = await db.select().from(phase69Rfq).where(eq(phase69Rfq.isDeleted, false)).orderBy(desc(phase69Rfq.createdAt));
-    const items = await db.select().from(phase69RfqItems).where(eq(phase69RfqItems.isDeleted, false));
-    const quotes = await db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.isDeleted, false));
+    const rfqs = await db.select().from(phase69Rfq)
+      .where(eq(phase69Rfq.isDeleted, false))
+      .orderBy(desc(phase69Rfq.createdAt));
+    const items = await db.select().from(phase69RfqItems)
+      .where(eq(phase69RfqItems.isDeleted, false));
+    const quotes = await db.select().from(phase69VendorQuotations)
+      .where(eq(phase69VendorQuotations.isDeleted, false));
 
-    return rfqs.map(rfq => ({
+    return rfqs.map((rfq) => ({
       ...rfq,
-      items: items.filter(i => i.rfqId === rfq.id),
-      quotations: quotes.filter(q => q.rfqId === rfq.id),
+      items: items.filter((item) => item.rfqId === rfq.id),
+      quotations: quotes.filter((quote) => quote.rfqId === rfq.id),
     }));
   }
 
-  public async createRfq(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async createRfq(data: any, createdBy: string = ''): Promise<any> {
     await this.ensureProcurementTablesExist();
-    const now = new Date().toISOString();
-    const id = uuidv4();
-    const rfqNumber = data.rfqNumber || (await numberingService.generateRfqNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
-      date: data.issueDate || now,
-    }));
+    if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required.');
 
-    const newRfq = {
-      id,
+    const requisitionId = String(data?.requisitionId || '').trim();
+    if (!requisitionId) throw new Error('An approved purchase requisition is required before an RFQ can be created.');
+
+    const [pr] = await db.select().from(phase69PurchaseRequisitions)
+      .where(and(eq(phase69PurchaseRequisitions.id, requisitionId), eq(phase69PurchaseRequisitions.isDeleted, false)))
+      .limit(1);
+    if (!pr) throw new Error('Source purchase requisition was not found.');
+
+    if (!['HOD_APPROVED', 'FINANCE_APPROVED', 'PO_ISSUED'].includes(pr.status)) {
+      throw new Error(`RFQ cannot be created from requisition status ${pr.status}. Complete the configured approval stages first.`);
+    }
+
+    const inputs = Array.isArray(data?.items) ? data.items : [];
+    if (!inputs.length) throw new Error('At least one BOQ-linked PR item is required to create an RFQ.');
+
+    const prItems = await db.select().from(phase69PurchaseRequisitionItems)
+      .where(and(eq(phase69PurchaseRequisitionItems.prId, requisitionId), eq(phase69PurchaseRequisitionItems.isDeleted, false)));
+
+    const resolvedItems = [];
+    for (const [index, input] of inputs.entries()) {
+      const prItem = prItems.find((item) => item.id === input.prItemId);
+      if (!prItem) throw new Error(`RFQ line ${index + 1} is not linked to a valid PR item.`);
+      if (input.boqItemId !== prItem.boqItemId) throw new Error(`RFQ line ${index + 1} must retain its PR BOQ reference.`);
+
+      const quantity = Number(input.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > prItem.quantity) {
+        throw new Error(`RFQ quantity for ${prItem.boqItemCode} must be > 0 and <= PR quantity ${prItem.quantity}.`);
+      }
+
+      resolvedItems.push({
+        prItemId: prItem.id,
+        boqItemId: prItem.boqItemId,
+        wbsId: prItem.wbsId,
+        boqItemCode: prItem.boqItemCode,
+        wbsCode: prItem.wbsCode,
+        itemCode: prItem.materialCode,
+        description: prItem.description,
+        specification: input.specification || prItem.specification || null,
+        quantity,
+        uom: prItem.uom,
+        targetUnitPrice: input.targetUnitPrice == null ? prItem.estimatedUnitPrice : Number(input.targetUnitPrice),
+        requiredDeliveryDate: input.requiredDeliveryDate || prItem.requiredDate || data.targetDeliveryDate,
+      });
+    }
+
+    const rfqNumber = data.rfqNumber
+      ? String(data.rfqNumber).trim()
+      : await numberingService.generateRfqNumber({
+          companyId: data.companyId || null,
+          projectId: pr.projectId,
+          date: data.issueDate || new Date().toISOString(),
+          allocatedBy: createdBy,
+        });
+
+    const estimatedBudgetAed = data.estimatedBudgetAed == null
+      ? resolvedItems.reduce((sum, item) => sum + item.quantity * item.targetUnitPrice, 0)
+      : Number(data.estimatedBudgetAed);
+
+    if (!Number.isFinite(estimatedBudgetAed) || estimatedBudgetAed < 0) {
+      throw new Error('RFQ estimated budget must be valid.');
+    }
+
+    const now = new Date().toISOString();
+    const rfqId = uuidv4();
+    const rfqRecord = {
+      id: rfqId,
       rfqNumber,
-      title: data.title,
-      projectId: data.projectId || 'PRJ-WATER-001',
-      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
-      requisitionId: data.requisitionId || null,
-      category: data.category || 'PIPES_FITTINGS',
-      issueDate: data.issueDate || now.split('T')[0],
-      submissionDeadline: data.submissionDeadline,
-      targetDeliveryDate: data.targetDeliveryDate,
-      deliveryLocation: data.deliveryLocation,
-      estimatedBudgetAed: data.estimatedBudgetAed || 0,
-      status: 'PUBLISHED',
-      invitedVendorsCount: data.invitedVendorsCount || 4,
+      title: String(data.title || '').trim(),
+      projectId: pr.projectId,
+      projectName: pr.projectName,
+      requisitionId: pr.id,
+      category: String(data.category || '').trim(),
+      issueDate: String(data.issueDate || now.split('T')[0]),
+      submissionDeadline: String(data.submissionDeadline || '').trim(),
+      targetDeliveryDate: String(data.targetDeliveryDate || '').trim(),
+      deliveryLocation: String(data.deliveryLocation || '').trim(),
+      estimatedBudgetAed,
+      status: 'DRAFT',
+      invitedVendorsCount: Array.isArray(data.invitedVendorIds) ? data.invitedVendorIds.length : Number(data.invitedVendorsCount || 0),
       quotationsReceivedCount: 0,
-      buyerName: data.buyerName || createdBy,
-      termsAndConditions: data.termsAndConditions || 'Standard DEWA / Water Infrastructure Specifications',
+      buyerName: createdBy.trim(),
+      termsAndConditions: data.termsAndConditions || null,
       createdAt: now,
       updatedAt: now,
-      createdBy,
-      updatedBy: createdBy,
+      createdBy: createdBy.trim(),
+      updatedBy: createdBy.trim(),
       isDeleted: false,
     };
 
-    await db.insert(phase69Rfq).values(newRfq);
-
-    if (data.items && Array.isArray(data.items)) {
-      for (let idx = 0; idx < data.items.length; idx++) {
-        const itm = data.items[idx];
-        await db.insert(phase69RfqItems).values({
-          id: uuidv4(),
-          rfqId: id,
-          itemNumber: idx + 1,
-          itemCode: itm.itemCode,
-          description: itm.description,
-          specification: itm.specification || null,
-          quantity: itm.quantity,
-          uom: itm.uom || 'MTRS',
-          targetUnitPrice: itm.targetUnitPrice || 0,
-          requiredDeliveryDate: itm.requiredDeliveryDate || data.targetDeliveryDate,
-          createdAt: now,
-          updatedAt: now,
-          createdBy,
-          updatedBy: createdBy,
-          isDeleted: false,
-        });
-      }
+    if (!rfqRecord.title || !rfqRecord.category || !rfqRecord.submissionDeadline || !rfqRecord.targetDeliveryDate || !rfqRecord.deliveryLocation) {
+      throw new Error('RFQ title, category, deadlines and delivery location are required.');
     }
 
-    return this.getRfqs().then(res => res.find(r => r.id === id));
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase69Rfq.id })
+        .from(phase69Rfq)
+        .where(eq(phase69Rfq.rfqNumber, rfqNumber))
+        .limit(1);
+      if (duplicate.length) throw new Error(`RFQ ${rfqNumber} already exists.`);
+
+      await tx.insert(phase69Rfq).values(rfqRecord as any);
+      await tx.insert(phase69RfqItems).values(
+        resolvedItems.map((item, index) => ({
+          id: uuidv4(),
+          rfqId,
+          itemNumber: index + 1,
+          prItemId: item.prItemId,
+          boqItemId: item.boqItemId,
+          wbsId: item.wbsId,
+          boqItemCode: item.boqItemCode,
+          wbsCode: item.wbsCode,
+          itemCode: item.itemCode,
+          description: item.description,
+          specification: item.specification,
+          quantity: item.quantity,
+          uom: item.uom,
+          targetUnitPrice: item.targetUnitPrice,
+          requiredDeliveryDate: item.requiredDeliveryDate,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: createdBy.trim(),
+          updatedBy: createdBy.trim(),
+          isDeleted: false,
+        }))
+      );
+
+      return { ...rfqRecord, items: resolvedItems };
+    });
   }
+
 
   public async getQuotations(rfqId?: string): Promise<any[]> {
     await this.ensureProcurementTablesExist();

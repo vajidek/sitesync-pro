@@ -114,11 +114,11 @@ export const CreateSafetyInspectionSchema = z.object({
   location: z.string().min(2, 'Location is required'),
   inspectorName: z.string().min(2, 'Inspector name is required'),
   inspectionDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  totalItemsChecked: z.number().default(20),
-  compliantItems: z.number().default(18),
-  nonCompliantItems: z.number().default(2),
+  totalItemsChecked: z.number().int().min(0).default(0),
+  compliantItems: z.number().int().min(0).default(0),
+  nonCompliantItems: z.number().int().min(0).default(0),
   findings: z.string().optional(),
-  status: z.string().default('PASSED'),
+  status: z.string().default('ACTION_REQUIRED'),
 });
 
 export const CreatePpeIssuanceSchema = z.object({

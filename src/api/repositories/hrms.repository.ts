@@ -1,5 +1,5 @@
 import { db } from '../../db/index';
-import { sql, eq, desc, and } from 'drizzle-orm';
+import { sql, eq, desc, and, or } from 'drizzle-orm';
 import { enterpriseAuditRepository } from './enterprise_audit.repository';
 import {
   phase70Departments,

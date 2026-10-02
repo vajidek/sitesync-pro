@@ -1484,41 +1484,86 @@ export class ProcurementRepository {
    */
   async createMeasurementEntry(data: Partial<MeasurementEntry>): Promise<MeasurementEntry> {
     await ensureProcurementSeeded();
-    const allMBs = await db.select().from(procurementMeasurementEntriesTable);
-    const newId = `mb_${Date.now()}`;
-    const newMbNo = `MB-2026-${String(allMBs.length + 1).padStart(3, '0')}`;
-    const now = new Date().toISOString().split('T')[0];
 
-    const calcQty = data.calculatedQuantity || data.quantity || 10;
+    const projectId = String(data.projectId || '').trim();
+    const projectName = String(data.projectName || '').trim();
+    const boqItemId = String(data.boqItemId || '').trim();
+    const contractorName = String(data.contractorName || '').trim();
+    const unit = String(data.unit || '').trim();
+    const recordedByName = String(data.recordedByName || '').trim();
+
+    if (!projectId || !projectName || !boqItemId || !contractorName || !unit || !recordedByName) {
+      throw new Error('Project, BOQ item, contractor, unit and recorder identity are required for a measurement entry.');
+    }
+
+    const dimensions = [
+      data.lengthMeters == null ? undefined : Number(data.lengthMeters),
+      data.breadthMeters == null ? undefined : Number(data.breadthMeters),
+      data.depthMeters == null ? undefined : Number(data.depthMeters),
+      data.heightMeters == null ? undefined : Number(data.heightMeters),
+    ];
+    if (dimensions.some((v) => v != null && (!Number.isFinite(v) || v < 0))) {
+      throw new Error('Measurement dimensions must be valid non-negative numbers.');
+    }
+
+    const suppliedQuantity = data.calculatedQuantity ?? data.quantity;
+    const calculatedQuantity = suppliedQuantity != null
+      ? Number(suppliedQuantity)
+      : (dimensions[0] != null && dimensions[2] != null ? dimensions[0] * dimensions[2] : undefined);
+
+    if (calculatedQuantity == null || !Number.isFinite(calculatedQuantity) || calculatedQuantity <= 0) {
+      throw new Error('A positive measured quantity or sufficient dimensions are required.');
+    }
+
+    const valuation = Number(data.valuationUSD);
+    if (!Number.isFinite(valuation) || valuation < 0) {
+      throw new Error('Measurement valuation must be explicitly supplied and valid.');
+    }
+
+    const [boqRow] = await db
+      .select()
+      .from(procurementBoqItemsTable)
+      .where(eq(procurementBoqItemsTable.id, boqItemId))
+      .limit(1);
+
+    if (!boqRow) throw new Error('Linked BOQ item was not found.');
+    if (boqRow.projectId !== projectId) throw new Error('Linked BOQ item does not belong to the selected project.');
+
+    const allMBs = await db
+      .select({ id: procurementMeasurementEntriesTable.id })
+      .from(procurementMeasurementEntriesTable);
+
+    const newId = `mb_${Date.now()}`;
+    const newMbNo = String(data.mbNumber || `MB-${new Date().getFullYear()}-${String(allMBs.length + 1).padStart(4, '0')}`).trim();
+    const now = new Date().toISOString().split('T')[0];
 
     const newMb: MeasurementEntry = {
       id: newId,
       mbNumber: newMbNo,
-      entryDate: now,
-      measurementDate: now,
-      projectId: data.projectId || 'prj_01',
-      projectName: data.projectName || 'General Site',
-      boqItemId: data.boqItemId || 'boq_01',
-      boqItemCode: data.boqItemCode || 'BOQ-CV-01',
-      boqDescription: data.boqDescription || 'Site Measurement Works',
-      contractorName: data.contractorName || 'Main Contractor',
-      chainageLocation: data.chainageLocation || 'Ch 0+000 to Ch 0+100',
-      locationChainage: data.locationChainage || 'Ch 0+000 to Ch 0+100',
-      lengthMeters: data.lengthMeters || 10,
-      breadthMeters: data.breadthMeters || 1,
-      depthMeters: data.depthMeters || 1,
-      heightMeters: data.heightMeters || 1,
-      calculatedQuantity: calcQty,
-      quantity: calcQty,
-      unit: data.unit || 'CUM',
-      valuationUSD: data.valuationUSD || calcQty * 100,
-      status: 'Approved by Project Manager',
-      recordedByName: data.recordedByName || 'Junior Site Engineer',
-      verifiedByName: data.verifiedByName || 'Site Manager',
-      approvedByName: data.approvedByName || 'Project Manager',
-      remarks: data.remarks || 'Site measurement verified and recorded.',
+      entryDate: data.entryDate || now,
+      measurementDate: data.measurementDate || now,
+      projectId,
+      projectName,
+      boqItemId,
+      boqItemCode: data.boqItemCode || boqRow.itemCode,
+      boqDescription: data.boqDescription || boqRow.description || '',
+      contractorName,
+      chainageLocation: data.chainageLocation || data.locationChainage || '',
+      locationChainage: data.locationChainage || data.chainageLocation || '',
+      lengthMeters: dimensions[0],
+      breadthMeters: dimensions[1],
+      depthMeters: dimensions[2],
+      heightMeters: dimensions[3],
+      calculatedQuantity,
+      quantity: calculatedQuantity,
+      unit,
+      valuationUSD: valuation,
+      status: data.status || 'DRAFT',
+      recordedByName,
+      verifiedByName: data.verifiedByName,
+      approvedByName: data.approvedByName,
+      remarks: data.remarks || '',
     };
-
     return await db.transaction(async (tx) => {
       // 1. Insert Measurement Book record
       await tx.insert(procurementMeasurementEntriesTable).values({

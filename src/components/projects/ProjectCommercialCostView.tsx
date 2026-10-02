@@ -62,8 +62,8 @@ interface CommercialData {
     plannedValue: number;
     costVariance: number;
     scheduleVariance: number;
-    cpi: number;
-    spi: number;
+    cpi: number | null;
+    spi: number | null;
     eac: number;
     vac: number;
     pendingRaBillCost: number;
@@ -71,7 +71,7 @@ interface CommercialData {
     actualEquipmentFuelCost: number;
     actualCertifiedRaBillCost: number;
     actualImprestExpenseCost: number;
-    actualLaborCost: number;
+    actualLaborCost: number | null;
   };
   wbsBreakdown: Array<{
     id: string;
@@ -79,7 +79,7 @@ interface CommercialData {
     title: string;
     discipline: string;
     leadEmployeeName: string;
-    budget: number;
+    budget: number | null;
     committed: number;
     actual: number;
     balance: number;
@@ -92,14 +92,14 @@ interface CommercialData {
     budget: number;
     committed: number;
     actual: number;
-    color: string;
+    color?: string;
   }>;
   transactions: Array<{
     id: string;
     type: 'COMMITTED' | 'ACTUAL';
     category: string;
     categoryLabel: string;
-    sourceDocType: 'PURCHASE_ORDER' | 'WORK_ORDER' | 'MATERIAL_ISSUE' | 'FUEL_LOG' | 'RA_BILL' | 'CASH_VOUCHER';
+    sourceDocType: 'PURCHASE_ORDER' | 'WORK_ORDER' | 'MATERIAL_ISSUE' | 'FUEL_LOG' | 'RA_BILL' | 'CASH_VOUCHER' | 'SUBCONTRACT_BILL' | 'EMPLOYEE_EXPENSE' | 'CLIENT_IPC';
     sourceDocNumber: string;
     sourceDocId: string;
     date: string;
@@ -165,7 +165,9 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
   }
 
   const { project, kpis, wbsBreakdown, categoryBreakdown, transactions } = data;
-  const currency = project.currency || 'AED';
+  const currency = project.currency || '';
+  const cpiAvailable = kpis.cpi != null;
+  const spiAvailable = kpis.spi != null;
 
   // Filter transactions
   const filteredTransactions = transactions.filter((tx) => {
@@ -312,14 +314,14 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
             <TrendingUp className="w-3.5 h-3.5 text-cyan-500" />
           </div>
           <div className="flex items-center space-x-1.5">
-            <span className={`text-base font-black ${kpis.cpi >= 1.0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {kpis.cpi.toFixed(2)}
+            <span className={`text-base font-black ${!cpiAvailable ? 'text-slate-500' : kpis.cpi! >= 1.0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {cpiAvailable ? kpis.cpi!.toFixed(2) : '—'}
             </span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${kpis.cpi >= 1.0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-              {kpis.cpi >= 1.0 ? 'FAVORABLE' : 'WATCH'}
+            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${!cpiAvailable ? 'bg-slate-100 text-slate-600' : kpis.cpi! >= 1.0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+              {!cpiAvailable ? 'NO DATA' : kpis.cpi! >= 1.0 ? 'FAVORABLE' : 'WATCH'}
             </span>
           </div>
-          <p className="text-[10px] text-slate-500">SPI: <strong>{kpis.spi.toFixed(2)}</strong></p>
+          <p className="text-[10px] text-slate-500">SPI: <strong>{spiAvailable ? kpis.spi!.toFixed(2) : '—'}</strong></p>
         </div>
       </div>
 
@@ -667,7 +669,7 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
               <PieIcon className="w-4 h-4 text-purple-500" />
               <span>Project Cost Envelope by Commercial Category</span>
             </h3>
-            <p className="text-xs text-slate-500">Baseline allocation vs Issued commitments vs Incurred expenses</p>
+            <p className="text-xs text-slate-500">Observed commitments and actuals; budget allocation is shown only where a category budget is configured.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -675,14 +677,14 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
               <div key={idx} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-900 dark:text-white">{cat.category}</span>
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
+                  {cat.color ? <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} /> : null}
                 </div>
 
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Budget:</span>
                     <span className="font-mono font-bold text-slate-900 dark:text-white">
-                      {currency} {cat.budget.toLocaleString()}
+                      {cat.budget == null ? 'Not mapped' : `${currency} ${cat.budget.toLocaleString()}`}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -703,14 +705,14 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
                 <div className="space-y-1">
                   <div className="flex justify-between text-[10px] text-slate-400">
                     <span>Consumption</span>
-                    <span>{((cat.actual / (cat.budget || 1)) * 100).toFixed(1)}%</span>
+                    <span>{cat.budget == null ? 'Not mapped' : `${((cat.actual / (cat.budget || 1)) * 100).toFixed(1)}%`}</span>
                   </div>
                   <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
                     <div
                       className="h-full rounded-full"
                       style={{
-                        width: `${Math.min(100, (cat.actual / (cat.budget || 1)) * 100)}%`,
-                        backgroundColor: cat.color,
+                        width: cat.budget == null ? '0%' : `${Math.min(100, (cat.actual / (cat.budget || 1)) * 100)}%`,
+                        backgroundColor: cat.color || 'transparent',
                       }}
                     />
                   </div>
@@ -730,7 +732,7 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
                 <Receipt className="w-4 h-4 text-blue-500" />
                 <span>Audit-Ready Source Document Ledger</span>
               </h3>
-              <p className="text-xs text-slate-500">Complete drilldown into POs, Work Orders, Store Issues, Fuel Logs & RA Bills</p>
+              <p className="text-xs text-slate-500">Drill down from source documents into POs, Work Orders, Store Issues, Fuel Logs, subcontract bills, employee expenses and client IPCs.</p>
             </div>
 
             {/* Filters */}
@@ -898,7 +900,7 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
                 </div>
                 <div className="flex justify-between py-2 border-b border-slate-100 dark:border-slate-800">
                   <span className="text-slate-500">Pending Contractor RA Claims:</span>
-                  <span className="font-mono font-bold text-amber-600">{currency} {kpis.pendingRaBillCost.toLocaleString()}</span>
+                  <span className="font-mono font-bold text-amber-600">{kpis.pendingRaBillCost == null ? '—' : `${currency} ${kpis.pendingRaBillCost.toLocaleString()}`}</span>
                 </div>
               </div>
             </div>

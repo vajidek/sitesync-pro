@@ -4,11 +4,12 @@ export const CreateItpSchema = z.object({
   itpNumber: z.string().optional(),
   title: z.string().min(3, 'ITP title must be at least 3 characters'),
   discipline: z.string().default('MECHANICAL'),
-  projectId: z.string().default('PRJ-101'),
-  projectName: z.string().default('Al Reem Mechanical Piping & Structural Hub'),
+  projectId: z.string().min(1, 'Project is required'),
+  projectName: z.string().min(1, 'Project name is required'),
   revisionNumber: z.string().default('R0'),
   standardReference: z.string().optional(),
-  status: z.string().default('APPROVED'),
+  preparedBy: z.string().min(2, 'Prepared by is required'),
+  status: z.string().default('DRAFT'),
 });
 
 export const CreateInspectionSchema = z.object({
@@ -42,6 +43,7 @@ export const CreateNcrSchema = z.object({
   description: z.string().min(5, 'Description is required'),
   location: z.string().min(2, 'Location is required'),
   issuedTo: z.string().min(2, 'Issued To is required'),
+  issuedBy: z.string().min(2, 'Issued By is required'),
   targetCloseDate: z.string().default(() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);

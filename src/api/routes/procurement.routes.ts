@@ -147,9 +147,9 @@ router.get('/logs', procurementController.getProcurementLogs);// ===============
 // ==========================================
 router.get('/ra-bills', procurementController.getRABills);
 router.get('/ra-bills/:id', procurementController.getRABillById);
-router.post('/ra-bills', procurementController.createRABill);
-router.patch('/ra-bills/:id/status', procurementController.updateRABillStatus);
-router.put('/ra-bills/:id/status', procurementController.updateRABillStatus);
+router.post('/ra-bills', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.createRABill);
+router.patch('/ra-bills/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateRABillStatus);
+router.put('/ra-bills/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), procurementController.updateRABillStatus);
 router.delete('/ra-bills/:id', requireRoles('ADMIN', 'MANAGER'), procurementController.deleteRABill);
 
 export default router;

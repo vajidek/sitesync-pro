@@ -355,7 +355,8 @@ export async function updateDocument(id: string, data: any) {
   return getDocumentById(id);
 }
 
-export async function deleteDocument(id: string, user: string = 'System Administrator') {
+export async function deleteDocument(id: string, user: string) {
+  if (!user?.trim()) throw new Error('Authenticated document actor identity is required.');
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
   await db.update(phase61DocumentFiles)
@@ -366,7 +367,8 @@ export async function deleteDocument(id: string, user: string = 'System Administ
   return true;
 }
 
-export async function toggleFavoriteDocument(id: string, user: string = 'System Administrator') {
+export async function toggleFavoriteDocument(id: string, user: string) {
+  if (!user?.trim()) throw new Error('Authenticated document actor identity is required.');
   await ensureDocumentTablesExist();
   const doc = await getDocumentById(id);
   if (!doc) return null;
@@ -772,8 +774,8 @@ export async function shareDocument(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: data.createdBy || 'System Administrator',
-    updatedBy: data.createdBy || 'System Administrator',
+    createdBy: actor,
+    updatedBy: actor,
     isDeleted: false,
   };
 

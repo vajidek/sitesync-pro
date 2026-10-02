@@ -119,8 +119,12 @@ export interface DbMaterialIssue {
   issueNumber: string;
   projectId?: string;
   projectName?: string;
+  wbsId?: string;
   wbsCode?: string;
+  boqItemId?: string;
   boqRef?: string;
+  costCodeId?: string;
+  costCode?: string;
   department?: string;
   warehouseId: string;
   warehouseName: string;
@@ -139,6 +143,10 @@ export interface DbMaterialIssue {
 }
 
 export interface DbMaterialIssueItem {
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   id: string;
   issueId: string;
   materialId: string;

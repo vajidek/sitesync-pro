@@ -88,6 +88,17 @@ export class ProcurementService {
     return this.repo.createPurchaseOrder(data);
   }
 
+  async approvePurchaseOrder(
+    id: string,
+    approverId: string,
+    approverName: string,
+    approverRole: string,
+    action: 'APPROVE' | 'REJECT',
+    comments?: string,
+  ): Promise<PurchaseOrder | null> {
+    return this.repo.approvePurchaseOrder(id, approverId, approverName, approverRole, action, comments);
+  }
+
   // --- GRN ---
   async getGrns(filters: { poId?: string; projectId?: string }): Promise<GoodsReceiptNote[]> {
     return this.repo.getGrns(filters);

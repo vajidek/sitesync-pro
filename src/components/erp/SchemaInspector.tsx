@@ -38,16 +38,16 @@ export const SchemaInspector: React.FC = () => {
               <span>ERP Expansion Blueprint</span>
             </div>
             <h1 className="text-2xl font-black text-white tracking-tight">
-              PostgreSQL & Prisma Schema Inspector
+              Database Schema Reference
             </h1>
             <p className="text-xs text-slate-300">
-              Future-proof relational data schema designed by <strong className="text-blue-300 font-semibold">{CREATOR_INFO.name}</strong> to support full enterprise ERP expansion.
+              Read-only architecture reference for the current repository. Runtime database changes are governed by the authoritative migration system.
             </p>
           </div>
 
           <div className="flex items-center space-x-2 self-start sm:self-center">
             <span className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-mono border border-slate-700">
-              PostgreSQL 16 + Prisma v6
+              PostgreSQL + Drizzle ORM
             </span>
           </div>
         </div>
@@ -129,7 +129,7 @@ export const SchemaInspector: React.FC = () => {
                       : 'text-slate-500 dark:text-slate-400 hover:text-slate-900'
                   }`}
                 >
-                  Prisma Code
+                  Model Reference
                 </button>
                 <button
                   onClick={() => setActiveTab('sql')}
@@ -198,7 +198,7 @@ export const SchemaInspector: React.FC = () => {
                   className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center space-x-1 shadow-md z-10"
                 >
                   {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCode ? 'Copied' : 'Copy Prisma Schema'}</span>
+                  <span>{copiedCode ? 'Copied' : 'Copy Model Reference'}</span>
                 </button>
                 <pre className="p-4 rounded-xl bg-slate-950 text-emerald-400 font-mono text-xs overflow-x-auto leading-relaxed border border-slate-800">
                   <code>{selectedTable.prismaModel}</code>
@@ -230,7 +230,7 @@ export const SchemaInspector: React.FC = () => {
               <Server className="w-4 h-4 text-blue-500" /> Scalable ERP Migration Path
             </div>
             <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-              This schema is pre-configured to migrate seamlessly to Cloud SQL PostgreSQL or local Docker PostgreSQL instances. Execute <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-blue-600 dark:text-blue-300">npx prisma db push</code> when deploying to production servers.
+              This screen is a read-only reference. Production database changes must go through the repository's controlled Drizzle migration process after schema parity and migration checks.
             </p>
           </div>
 

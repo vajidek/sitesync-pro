@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { VendorContractService } from '../services/vendor_contract.service';
 import { 
   createVendorSchema, updateVendorStatusSchema, rateVendorSchema, blacklistVendorSchema,
-  createContractSchema, approveContractSchema, createContractVariationSchema, createContractPaymentSchema, createContractExtensionSchema
+  createContractSchema, approveContractSchema, createContractVariationSchema, createContractPaymentSchema, createContractExtensionSchema, createContractClaimSchema, updateContractClaimStatusSchema, linkContractChangeEvidenceSchema
 } from '../validators/vendor_contract.validator';
 
 const service = new VendorContractService();
@@ -224,6 +224,75 @@ export class VendorContractController {
       const result = await service.updateContractExtensionStatus(req.params.id, status, actor, req.body?.comments);
       if (!result) return res.status(404).json({ success: false, message: 'Contract extension request not found' });
       return res.status(200).json({ success: true, message: `Contract extension ${status.toLowerCase()} successfully`, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async getClaims(req: Request, res: Response) {
+    try {
+      const claims = await service.getContractClaims({
+        contractId: req.query.contractId as string,
+        projectId: req.query.projectId as string,
+        status: req.query.status as string,
+      });
+      return res.status(200).json({ success: true, count: claims.length, data: claims });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async createClaim(req: Request, res: Response) {
+    try {
+      const validated = createContractClaimSchema.parse(req.body);
+      const user = (req as any).user;
+      const createdBy = String(user?.name || user?.email || '').trim();
+      if (!createdBy) throw new Error('Authenticated claim creator identity is required.');
+      const claim = await service.createContractClaim(validated, createdBy);
+      return res.status(201).json({ success: true, message: 'Contract claim created successfully', data: claim });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async updateClaimStatus(req: Request, res: Response) {
+    try {
+      const validated = updateContractClaimStatusSchema.parse(req.body);
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) throw new Error('Authenticated claim workflow actor identity is required.');
+      const claim = await service.updateContractClaimStatus(req.params.id, validated.status, actor, {
+        approvedAmount: validated.approvedAmount,
+        approvedDays: validated.approvedDays,
+        rejectionReason: validated.rejectionReason,
+      });
+      if (!claim) return res.status(404).json({ success: false, message: 'Contract claim not found' });
+      return res.status(200).json({ success: true, data: claim });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async getChangeEvidence(req: Request, res: Response) {
+    try {
+      const entityType = req.query.entityType as 'VARIATION' | 'EXTENSION' | 'CLAIM';
+      const entityId = String(req.query.entityId || '').trim();
+      if (!['VARIATION', 'EXTENSION', 'CLAIM'].includes(entityType) || !entityId) throw new Error('Entity type and entity ID are required.');
+      const evidence = await service.getContractChangeEvidence(entityType, entityId);
+      return res.status(200).json({ success: true, count: evidence.length, data: evidence });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async linkChangeEvidence(req: Request, res: Response) {
+    try {
+      const validated = linkContractChangeEvidenceSchema.parse(req.body);
+      const user = (req as any).user;
+      const createdBy = String(user?.name || user?.email || '').trim();
+      if (!createdBy) throw new Error('Authenticated evidence actor identity is required.');
+      const evidence = await service.linkContractChangeEvidence(validated, createdBy);
+      return res.status(201).json({ success: true, data: evidence });
     } catch (error: any) {
       return res.status(400).json({ success: false, message: error.message });
     }

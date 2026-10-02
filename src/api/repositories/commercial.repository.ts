@@ -1,5 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { financeRepository } from './finance.repository';
+import { db } from '../../db';
+import { desc, eq, sql } from 'drizzle-orm';
+import { commercialTenders, commercialRateAnalyses, commercialSubcontracts, commercialSubcontractBills, commercialVariationOrders, commercialClientIpcs } from '../../db/schema';
+import { isDemoSeedAllowed } from '../config/env';
 
 export interface CommercialTender {
   id: string;
@@ -577,6 +581,63 @@ export class CommercialRepository {
   }
 
   // --- Tenders API ---
+  private static persistenceReady = false;
+
+  private async ensureCommercialPersistence(): Promise<void> {
+    if (CommercialRepository.persistenceReady) return;
+    const ddlStatements = [
+      `CREATE TABLE IF NOT EXISTS commercial_tenders (id TEXT PRIMARY KEY, tender_ref_number TEXT NOT NULL UNIQUE, tender_title TEXT NOT NULL, client_authority TEXT NOT NULL, client_type TEXT NOT NULL, sector TEXT NOT NULL, tender_type TEXT NOT NULL, estimated_project_value DOUBLE PRECISION NOT NULL, currency TEXT NOT NULL, emd_amount DOUBLE PRECISION DEFAULT 0, tender_fee DOUBLE PRECISION DEFAULT 0, emd_mode TEXT, publication_date TEXT NOT NULL, pre_bid_meeting_date TEXT, submission_deadline TEXT NOT NULL, bid_validity_days INTEGER DEFAULT 0, eligibility_criteria TEXT, technical_score_threshold DOUBLE PRECISION, quoted_bid_amount DOUBLE PRECISION, expected_gross_margin_percent DOUBLE PRECISION, bid_manager_id TEXT, bid_manager_name TEXT, status TEXT NOT NULL, award_details JSONB, documents JSONB, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS commercial_rate_analyses (id TEXT PRIMARY KEY, analysis_code TEXT NOT NULL UNIQUE, tender_id TEXT, boq_item_id TEXT, item_code TEXT NOT NULL, item_description TEXT NOT NULL, unit TEXT NOT NULL, material_cost_per_unit DOUBLE PRECISION DEFAULT 0, labor_cost_per_unit DOUBLE PRECISION DEFAULT 0, machinery_cost_per_unit DOUBLE PRECISION DEFAULT 0, subcontract_cost_per_unit DOUBLE PRECISION DEFAULT 0, overhead_percent DOUBLE PRECISION DEFAULT 0, profit_percent DOUBLE PRECISION DEFAULT 0, net_rate_per_unit DOUBLE PRECISION NOT NULL, quoted_rate_per_unit DOUBLE PRECISION NOT NULL, components_breakdown JSONB, currency TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS commercial_subcontracts (id TEXT PRIMARY KEY, agreement_number TEXT NOT NULL UNIQUE, subcontractor_name TEXT NOT NULL, subcontractor_code TEXT NOT NULL, project_id TEXT NOT NULL, project_name TEXT, contract_id TEXT, wbs_id TEXT, package_title TEXT NOT NULL, trade_category TEXT NOT NULL, contract_type TEXT NOT NULL, contract_value DOUBLE PRECISION NOT NULL, currency TEXT NOT NULL, retention_percent DOUBLE PRECISION DEFAULT 0, mobilization_advance_percent DOUBLE PRECISION DEFAULT 0, mobilization_advance_paid DOUBLE PRECISION DEFAULT 0, mobilization_advance_recovered DOUBLE PRECISION DEFAULT 0, total_billed_amount DOUBLE PRECISION DEFAULT 0, total_certified_amount DOUBLE PRECISION DEFAULT 0, total_paid_amount DOUBLE PRECISION DEFAULT 0, total_retention_withheld DOUBLE PRECISION DEFAULT 0, start_date TEXT NOT NULL, completion_date TEXT, status TEXT NOT NULL, performance_rating DOUBLE PRECISION, compliance_documents_verified BOOLEAN DEFAULT FALSE, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS commercial_subcontract_bills (id TEXT PRIMARY KEY, subcontract_id TEXT NOT NULL, subcontract_number TEXT NOT NULL, subcontractor_name TEXT NOT NULL, bill_number TEXT NOT NULL, bill_period_start TEXT NOT NULL, bill_period_end TEXT NOT NULL, submission_date TEXT NOT NULL, gross_claimed_amount DOUBLE PRECISION NOT NULL, certified_amount DOUBLE PRECISION DEFAULT 0, currency TEXT NOT NULL, retention_percent DOUBLE PRECISION DEFAULT 0, retention_amount DOUBLE PRECISION DEFAULT 0, mobilization_recovery DOUBLE PRECISION DEFAULT 0, other_deductions DOUBLE PRECISION DEFAULT 0, net_certified_payable DOUBLE PRECISION DEFAULT 0, status TEXT NOT NULL, certified_by TEXT, certified_date TEXT, remarks TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, CONSTRAINT uq_commercial_subcontract_bill UNIQUE (subcontract_id, bill_number))`,
+      `CREATE TABLE IF NOT EXISTS commercial_variation_orders (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, project_name TEXT, contract_id TEXT, wbs_id TEXT, boq_item_id TEXT, vo_number TEXT NOT NULL UNIQUE, title TEXT NOT NULL, scope_description TEXT NOT NULL, variation_type TEXT NOT NULL, claimed_amount DOUBLE PRECISION NOT NULL, approved_amount DOUBLE PRECISION DEFAULT 0, currency TEXT NOT NULL, time_extension_days INTEGER DEFAULT 0, impact_on_critical_path BOOLEAN DEFAULT FALSE, status TEXT NOT NULL, client_reference TEXT, submitted_date TEXT NOT NULL, approved_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+      `CREATE TABLE IF NOT EXISTS commercial_client_ipcs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, project_name TEXT, contract_id TEXT, ipc_number TEXT NOT NULL UNIQUE, billing_period TEXT NOT NULL, gross_work_done_claimed DOUBLE PRECISION NOT NULL, gross_work_done_certified DOUBLE PRECISION DEFAULT 0, materials_on_site_value DOUBLE PRECISION DEFAULT 0, retention_deduction DOUBLE PRECISION DEFAULT 0, mobilization_recovery DOUBLE PRECISION DEFAULT 0, statutory_tds DOUBLE PRECISION DEFAULT 0, net_receivable_amount DOUBLE PRECISION DEFAULT 0, currency TEXT NOT NULL, status TEXT NOT NULL, submission_date TEXT NOT NULL, certification_date TEXT, due_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+    ];
+    for (const statement of ddlStatements) await db.execute(sql.raw(statement));
+    if (isDemoSeedAllowed()) await this.seedDemoCommercialDataIfEmpty();
+    CommercialRepository.persistenceReady = true;
+  }
+
+  private async seedDemoCommercialDataIfEmpty(): Promise<void> {
+    if ((await db.select({ id: commercialTenders.id }).from(commercialTenders).limit(1)).length === 0) {
+      await db.insert(commercialTenders).values(this.tenders.map((t) => ({ ...t } as any))).onConflictDoNothing();
+    }
+    if ((await db.select({ id: commercialRateAnalyses.id }).from(commercialRateAnalyses).limit(1)).length === 0) {
+      await db.insert(commercialRateAnalyses).values(this.rateAnalyses.map((r) => ({ ...r, boqItemId: null, currency: 'INR' } as any))).onConflictDoNothing();
+    }
+    if ((await db.select({ id: commercialSubcontracts.id }).from(commercialSubcontracts).limit(1)).length === 0) {
+      await db.insert(commercialSubcontracts).values(this.subcontracts.map((s) => ({ ...s, contractId: null, wbsId: null, currency: 'INR' } as any))).onConflictDoNothing();
+    }
+    if ((await db.select({ id: commercialSubcontractBills.id }).from(commercialSubcontractBills).limit(1)).length === 0) {
+      await db.insert(commercialSubcontractBills).values(this.subcontractBills.map((b) => ({ ...b, currency: 'INR', updatedAt: b.createdAt } as any))).onConflictDoNothing();
+    }
+    if ((await db.select({ id: commercialVariationOrders.id }).from(commercialVariationOrders).limit(1)).length === 0) {
+      await db.insert(commercialVariationOrders).values(this.variationOrders.map((v) => ({ ...v, contractId: null, wbsId: null, boqItemId: null, currency: 'INR', updatedAt: v.createdAt } as any))).onConflictDoNothing();
+    }
+    if ((await db.select({ id: commercialClientIpcs.id }).from(commercialClientIpcs).limit(1)).length === 0) {
+      await db.insert(commercialClientIpcs).values(this.clientIPCs.map((i) => ({ ...i, contractId: null, statutoryTds: i.statutoryTDS, currency: 'INR', updatedAt: i.createdAt } as any))).onConflictDoNothing();
+    }
+  }
+
+  private mapRateAnalysis(row: any): CommercialRateAnalysis {
+    return { ...row, status: row.status, componentsBreakdown: row.componentsBreakdown || [] } as CommercialRateAnalysis;
+  }
+
+  private mapSubcontract(row: any): CommercialSubcontract {
+    return { ...row } as CommercialSubcontract;
+  }
+
+  private mapSubcontractBill(row: any): CommercialSubcontractBill {
+    return { ...row } as CommercialSubcontractBill;
+  }
+
+  private mapVariation(row: any): CommercialVariationOrder {
+    return { ...row } as CommercialVariationOrder;
+  }
+
+  private mapIPC(row: any): CommercialClientIPC {
+    return { ...row, statutoryTDS: row.statutoryTds } as CommercialClientIPC;
+  }
   public async getTenders(): Promise<CommercialTender[]> {
     return this.tenders;
   }

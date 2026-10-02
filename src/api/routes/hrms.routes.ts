@@ -6,12 +6,21 @@ import { authenticateJWT, requireRoles } from '../middleware/auth.middleware';
 const router = Router();
 const controller = new HrmsController();
 
-// Overview Stats & Dashboard (Open or JWT verified)
-router.get('/stats', controller.getDashboardStats);
-router.get('/dashboard', controller.getDashboardStats);
-
 // JWT & RBAC Middleware
 router.use(authenticateJWT);
+router.use(
+  requireRoles(
+    'ADMIN',
+    'MANAGER',
+    'INCHARGE',
+    'SUPERVISOR',
+    'STORE_KEEPER'
+  )
+);
+
+// Overview Stats & Dashboard
+router.get('/stats', controller.getDashboardStats);
+router.get('/dashboard', controller.getDashboardStats);
 router.use(
   requireRoles(
     'ADMIN',

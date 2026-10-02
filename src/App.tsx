@@ -41,7 +41,7 @@ import { PwaInstallPrompt } from './components/pwa/PwaInstallPrompt';
 import { AIAssistantModal } from './components/ai/AIAssistantModal';
 
 function MainApp() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, activeRole } = useAuth();
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
@@ -122,13 +122,20 @@ function MainApp() {
         {activeTab === 'admin' && <AdminView onNavigateTab={setActiveTab} />}
         {activeTab === 'adminServices' && <OfficeAdminModule />}
         {activeTab === 'itManagement' && <EnterpriseITManagementModule />}
-        {activeTab === 'schema' && <SchemaInspector />}
-        {activeTab === 'helpCenter' && <EnterpriseHelpCenter onNavigateTab={handleNavigateToTab} />}
-        {activeTab === 'about' && (
-          <div className="py-2">
+        {activeTab === 'schema' && (
+          activeRole === 'ADMIN' ? (
             <SchemaInspector />
-          </div>
+          ) : (
+            <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Restricted technical view</h2>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                Database and schema diagnostics are available only to authorized system administrators.
+              </p>
+            </div>
+          )
         )}
+        {activeTab === 'helpCenter' && <EnterpriseHelpCenter onNavigateTab={handleNavigateToTab} />}
+        {activeTab === 'about' && <AboutModal isOpen={true} onClose={() => setActiveTab('dashboard')} />}
       </AppShell>
 
       {/* Global Modals */}

@@ -1,6 +1,7 @@
 import { db } from '../../db';
 import { projectWbs, boqItems, wbsActivities, activityDependencies, activityDocuments, projects } from '../../db/schema';
 import { eq, and, isNull, sql, inArray, desc, asc } from 'drizzle-orm';
+import { isDemoSeedAllowed } from '../config/env';
 
 export interface DbWbsNode {
   id: string;
@@ -825,6 +826,11 @@ export class WbsRepository {
 
   // --- SEEDING METHOD ---
   async ensureSeeded(projectId: string): Promise<void> {
+    if (!projectId) throw new Error('Project ID is required.');
+
+    // Synthetic WBS/BOQ/activity fixtures are demo-only.
+    // UAT/PRODUCTION must use controlled BOQ/WBS setup or import.
+    if (!isDemoSeedAllowed()) return;
     const existing = await db
       .select({ count: sql<number>`count(*)` })
       .from(projectWbs)

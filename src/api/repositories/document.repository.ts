@@ -26,6 +26,7 @@ import {
 } from '../../db/schema';
 import { eq, and, isNull, desc, sql, like, or } from 'drizzle-orm';
 import crypto from 'crypto';
+import { isDemoSeedAllowed } from '../config/env';
 
 let tablesCreated = false;
 
@@ -33,6 +34,10 @@ export async function ensureDocumentTablesExist() {
   if (tablesCreated) return;
   try {
     // Seed default categories and root folders if empty
+    if (!isDemoSeedAllowed()) {
+      tablesCreated = true;
+      return;
+    }
     const existingCat = await db.select().from(phase61DocumentCategories).limit(1);
     if (existingCat.length === 0) {
       const now = new Date().toISOString();
@@ -118,10 +123,11 @@ export async function createFolder(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: data.createdBy || 'System Administrator',
-    updatedBy: data.createdBy || 'System Administrator',
+    createdBy: String(data.createdBy || '').trim(),
+    updatedBy: String(data.createdBy || '').trim(),
     isDeleted: false,
   };
+  if (!record.createdBy) throw new Error('Authenticated folder creator identity is required.');
 
   await db.insert(phase61DocumentFolders).values(record);
   return record;
@@ -212,22 +218,35 @@ export async function createDocument(data: {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
+  const title = String(data.title || '').trim();
+  const folderId = String(data.folderId || '').trim();
+  const createdBy = String(data.createdBy || '').trim();
+  const fileUrl = String(data.fileUrl || '').trim();
+  const fileType = String(data.fileType || '').trim().toUpperCase();
+  const mimeType = String(data.mimeType || '').trim();
+  const fileSizeBytes = Number(data.fileSizeBytes);
+  if (!title || !folderId || !createdBy || !fileUrl || !fileType || !mimeType || !Number.isFinite(fileSizeBytes) || fileSizeBytes <= 0) {
+    throw new Error('Document title, folder, uploaded file URL/type/mime/size and authenticated creator are required.');
+  }
+  const folder = await getFolderById(folderId);
+  if (!folder) throw new Error('Target document folder not found.');
+
   // Generate document number e.g. DOC-2026-XXXXX
   const countRes = await db.select({ count: sql<number>`count(*)` }).from(phase61DocumentFiles);
-  const seq = (countRes[0]?.count || 0) + 10001;
-  const documentNumber = `DOC-2026-${seq}`;
+  const seq = Number(countRes[0]?.count || 0) + 1;
+  const documentNumber = `DOC-${new Date().getFullYear()}-${String(seq).padStart(6, '0')}`;
 
   const docRecord = {
     id,
     documentNumber,
-    title: data.title,
+    title,
     description: data.description || null,
-    folderId: data.folderId,
+    folderId,
     categoryId: data.categoryId || null,
-    fileType: data.fileType || 'PDF',
-    mimeType: data.mimeType || 'application/pdf',
-    fileSizeBytes: data.fileSizeBytes || 1024 * 512, // 512 KB default
-    fileUrl: data.fileUrl || 'https://assets.sitesyncpro.com/docs/sample.pdf',
+    fileType,
+    mimeType,
+    fileSizeBytes,
+    fileUrl,
     currentVersion: 'v1.0',
     revisionNumber: 1,
     projectId: data.projectId || null,
@@ -241,15 +260,15 @@ export async function createDocument(data: {
     isFavorite: false,
     isArchived: false,
     isLocked: false,
-    ocrTextContent: `Full-text OCR index for ${data.title} (${documentNumber}) - SiteSync Pro EDMS Auto-Indexed`,
+    ocrTextContent: null,
     workflowStatus: 'DRAFT',
     digitalStampApplied: false,
     watermarkText: data.watermarkText || null,
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: data.createdBy || 'System Administrator',
-    updatedBy: data.createdBy || 'System Administrator',
+    createdBy,
+    updatedBy: createdBy,
     isDeleted: false,
   };
 
@@ -330,7 +349,8 @@ export async function updateDocument(id: string, data: any) {
   return getDocumentById(id);
 }
 
-export async function deleteDocument(id: string, user: string = 'System Administrator') {
+export async function deleteDocument(id: string, user: string) {
+  if (!user?.trim()) throw new Error('Authenticated document deletion actor is required.');
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
   await db.update(phase61DocumentFiles)
@@ -341,7 +361,8 @@ export async function deleteDocument(id: string, user: string = 'System Administ
   return true;
 }
 
-export async function toggleFavoriteDocument(id: string, user: string = 'System Administrator') {
+export async function toggleFavoriteDocument(id: string, user: string) {
+  if (!user?.trim()) throw new Error('Authenticated document actor is required.');
   await ensureDocumentTablesExist();
   const doc = await getDocumentById(id);
   if (!doc) return null;
@@ -410,6 +431,12 @@ export async function createDocumentVersion(data: {
 }) {
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
+  const uploadedBy = String(data.uploadedBy || '').trim();
+  const fileUrl = String(data.fileUrl || '').trim();
+  const fileSizeBytes = Number(data.fileSizeBytes);
+  if (!uploadedBy || !fileUrl || !Number.isFinite(fileSizeBytes) || fileSizeBytes <= 0 || !String(data.versionName || '').trim()) {
+    throw new Error('Version name, actual file URL/size and authenticated uploader identity are required.');
+  }
   const doc = await getDocumentById(data.documentId);
   if (!doc) throw new Error('Document not found');
 
@@ -421,16 +448,16 @@ export async function createDocumentVersion(data: {
     documentId: data.documentId,
     versionName: data.versionName,
     revisionNumber: nextRevision,
-    fileUrl: data.fileUrl,
-    fileSizeBytes: data.fileSizeBytes || doc.fileSizeBytes,
+    fileUrl,
+    fileSizeBytes,
     changeSummary: data.changeSummary || 'Revision update',
-    uploadedBy: data.uploadedBy || 'System Administrator',
+    uploadedBy,
     isMajorVersion: data.isMajorVersion || false,
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: data.uploadedBy || 'System Administrator',
-    updatedBy: data.uploadedBy || 'System Administrator',
+    createdBy: uploadedBy,
+    updatedBy: uploadedBy,
     isDeleted: false,
   });
 
@@ -438,15 +465,15 @@ export async function createDocumentVersion(data: {
   await db.update(phase61DocumentFiles).set({
     currentVersion: data.versionName,
     revisionNumber: nextRevision,
-    fileUrl: data.fileUrl,
-    fileSizeBytes: data.fileSizeBytes || doc.fileSizeBytes,
+    fileUrl,
+    fileSizeBytes,
     isCheckedOut: false,
     checkedOutBy: null,
     checkedOutAt: null,
     updatedAt: now,
   }).where(eq(phase61DocumentFiles.id, data.documentId));
 
-  await logAudit(data.documentId, data.uploadedBy || 'System Administrator', 'VERSION_UPLOAD', {
+  await logAudit(data.documentId, uploadedBy, 'VERSION_UPLOAD', {
     versionName: data.versionName,
     revisionNumber: nextRevision,
   });
@@ -538,7 +565,13 @@ export async function approveDocument(data: {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
-  const decision = data.decision || 'APPROVED';
+  const decision = String(data.decision || '').trim().toUpperCase();
+  if (!data.approverName?.trim()) throw new Error('Authenticated document approver identity is required.');
+  if (!['APPROVED', 'REJECTED', 'RETURNED'].includes(decision)) throw new Error('A document approval decision must be APPROVED, REJECTED or RETURNED.');
+  const [document] = await db.select().from(phase61DocumentFiles).where(and(eq(phase61DocumentFiles.id, data.documentId), eq(phase61DocumentFiles.isDeleted, false))).limit(1);
+  if (!document) throw new Error('Document not found.');
+  if (!['UNDER_REVIEW', 'SUBMITTED'].includes(document.workflowStatus)) throw new Error(`Document cannot be approved from workflow status ${document.workflowStatus}.`);
+  if (document.createdBy?.trim().toLowerCase() === data.approverName.trim().toLowerCase()) throw new Error('Maker-checker violation: document creator cannot approve the same document.');
   await db.insert(phase61DocumentApprovals).values({
     id,
     documentId: data.documentId,
@@ -561,7 +594,7 @@ export async function approveDocument(data: {
   await db.update(phase61DocumentFiles).set({
     workflowStatus: nextWorkflowStatus,
     digitalStampApplied: decision === 'APPROVED',
-    watermarkText: decision === 'APPROVED' ? 'APPROVED BY SITESYNC PRO' : null,
+    watermarkText: decision === 'APPROVED' ? 'APPROVED BY AUTHORIZED WORKFLOW' : null,
     updatedAt: now,
   }).where(eq(phase61DocumentFiles.id, data.documentId));
 
@@ -638,25 +671,26 @@ export async function shareDocument(data: {
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
   const token = crypto.randomBytes(16).toString('hex');
+  if (!data.createdBy?.trim() || (!data.sharedWithEmail?.trim() && !data.recipientName?.trim())) throw new Error('Authenticated sharer and explicit recipient are required.');
   const record = {
     id: crypto.randomUUID(),
     documentId: data.documentId,
     shareToken: token,
     sharedWithEmail: data.sharedWithEmail || null,
-    recipientName: data.recipientName || 'External Auditor',
+    recipientName: data.recipientName || null,
     permissionLevel: data.permissionLevel || 'READ_ONLY',
     expiryDate: data.expiryDate || null,
     passwordProtected: false,
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: data.createdBy || 'System Administrator',
-    updatedBy: data.createdBy || 'System Administrator',
+    createdBy: data.createdBy.trim(),
+    updatedBy: data.createdBy.trim(),
     isDeleted: false,
   };
 
   await db.insert(phase61DocumentShares).values(record);
-  await logAudit(data.documentId, data.createdBy || 'System Administrator', 'SHARE', { recipient: data.recipientName, token });
+  await logAudit(data.documentId, data.createdBy.trim(), 'SHARE', { recipient: data.recipientName, token });
   return record;
 }
 

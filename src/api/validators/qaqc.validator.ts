@@ -18,7 +18,7 @@ export const CreateInspectionSchema = z.object({
   title: z.string().min(3, 'Title is required'),
   discipline: z.string().default('MECHANICAL'),
   inspectionType: z.string().default('SITE_INSPECTION'),
-  projectId: z.string().default('PRJ-101'),
+  projectId: z.string().min(1, 'Project is required'),
   location: z.string().min(2, 'Location is required'),
   requestedDate: z.string().default(() => new Date().toISOString().split('T')[0]),
   inspectionDate: z.string().optional(),

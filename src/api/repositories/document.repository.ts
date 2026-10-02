@@ -65,8 +65,10 @@ export async function ensureDocumentTablesExist() {
 
     tablesCreated = true;
   } catch (err) {
-    console.warn('Error creating Phase 61 EDMS tables:', err);
-    tablesCreated = true;
+    // Fail closed: if the persistence layer cannot initialize in the active
+    // runtime, do not mark EDMS as ready and continue with ambiguous state.
+    tablesCreated = false;
+    throw err;
   }
 }
 

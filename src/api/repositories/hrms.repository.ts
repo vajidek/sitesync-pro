@@ -909,7 +909,7 @@ export class HrmsRepository {
     // IDEMPOTENCY SAFEGUARD: If recalculating an existing un-disbursed run for this period, rollback previous recoveries
     try {
       const existingRecoveries = await db.execute(sql`
-        SELECT * FROM hr_loan_recoveries WHERE period_id = ${periodId}
+        SELECT * FROM hr_loan_recoveries WHERE period_id = ${resolvedPeriodId}
       `);
       if (existingRecoveries?.rows && existingRecoveries.rows.length > 0) {
         for (const rec of existingRecoveries.rows as any[]) {
@@ -922,9 +922,9 @@ export class HrmsRepository {
             WHERE id = ${rec.loan_id}
           `);
         }
-        await db.execute(sql`DELETE FROM hr_loan_recoveries WHERE period_id = ${periodId}`);
+        await db.execute(sql`DELETE FROM hr_loan_recoveries WHERE period_id = ${resolvedPeriodId}`);
       }
-      await db.delete(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, `prun-${periodId}`));
+      await db.delete(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, `prun-${resolvedPeriodId}`));
     } catch (cleanErr) {
       console.warn('Recalculation idempotency cleanup notice:', cleanErr);
     }
@@ -943,7 +943,7 @@ export class HrmsRepository {
 
     for (const emp of employees) {
       const id = uuidv4();
-      const payslipNumber = `PS-2026-${Math.floor(100000 + Math.random() * 900000)}`;
+      const payslipNumber = `PS-${payrollMonth.replace(/[^0-9]/g, '')}-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
 
       // Fetch employee statutory profile
       const statutoryProfile = await statutoryEngineService.getEmployeeStatutoryProfile(emp.id, emp.employeeCode);
@@ -979,16 +979,35 @@ export class HrmsRepository {
       for (const loan of empLoans) {
         const anyLoan = loan as any;
         let calculatedInstallment = 0;
-        const method = anyLoan.repaymentMethod || 'PER_DUTY_DAY';
+        const method = String(anyLoan.repaymentMethod || '').trim().toUpperCase();
+        if (!method) {
+          throw new Error(`Loan repayment method is not configured for ${loan.loanCode || loan.id}.`);
+        }
         if (method === 'PER_DUTY_DAY' || method === 'PER_DAY' || method === 'PER_WORKING_DAY') {
-          const rate = anyLoan.repaymentRate || 1000;
+          const rate = Number(anyLoan.repaymentRate);
+          if (!Number.isFinite(rate) || rate <= 0) {
+            throw new Error(`Repayment rate is not configured for loan ${loan.loanCode || loan.id}.`);
+          }
           calculatedInstallment = payableDutyDays * rate;
         } else if (method === 'PERCENTAGE_OF_SALARY') {
-          const baseGross = emp.salaryINR || 75000;
-          calculatedInstallment = (baseGross * (anyLoan.repaymentRate || 10)) / 100;
+          const baseGross = Number(emp.salaryINR);
+          const percentage = Number(anyLoan.repaymentRate);
+          if (!Number.isFinite(baseGross) || baseGross <= 0 || !Number.isFinite(percentage) || percentage <= 0) {
+            throw new Error(`Salary base or percentage repayment rule is not configured for loan ${loan.loanCode || loan.id}.`);
+          }
+          calculatedInstallment = (baseGross * percentage) / 100;
         } else {
           // Monthly or Fixed Installment
-          calculatedInstallment = anyLoan.monthlyEmiAed || ((anyLoan.totalRepayableAed || anyLoan.principalAmountAed || 25000) / (anyLoan.tenureMonths || 12));
+          const configuredEmi = Number(anyLoan.monthlyEmiAed);
+          const totalRepayable = Number(anyLoan.totalRepayableAed ?? anyLoan.principalAmountAed);
+          const tenureMonths = Number(anyLoan.tenureMonths);
+          if (configuredEmi > 0) {
+            calculatedInstallment = configuredEmi;
+          } else if (Number.isFinite(totalRepayable) && totalRepayable > 0 && Number.isInteger(tenureMonths) && tenureMonths > 0) {
+            calculatedInstallment = Number((totalRepayable / tenureMonths).toFixed(2));
+          } else {
+            throw new Error(`Fixed/monthly repayment terms are not configured for loan ${loan.loanCode || loan.id}.`);
+          }
         }
 
         // CRITICAL BUSINESS RULE: Recovery = MIN(calculated installment, outstanding balance)
@@ -1006,11 +1025,11 @@ export class HrmsRepository {
               payable_duty_days, repayment_rate, calculated_installment, opening_outstanding, recovered_amount,
               closing_outstanding, deduction_type, transaction_reference, actor, timestamp, created_at
             ) VALUES (
-              ${uuidv4()}, ${loan.id}, ${loan.loanCode}, ${emp.id}, ${emp.employeeCode || `EMP-${emp.id}`},
-              ${`prun-${periodId}`}, ${periodId}, ${payrollMonth}, ${payableDutyDays}, ${anyLoan.repaymentRate || 1000},
+              ${uuidv4()}, ${loan.id}, ${loan.loanCode}, ${emp.id}, ${emp.employeeCode || emp.id},
+              ${`prun-${resolvedPeriodId}`}, ${resolvedPeriodId}, ${payrollMonth}, ${payableDutyDays}, ${anyLoan.repaymentRate || 1000},
               ${calculatedInstallment}, ${openingBal}, ${actualDeduction}, ${closingBal},
               ${anyLoan.repaymentMethod || 'PER_DUTY_DAY'}, ${`REC-${payrollMonth}-${loan.loanCode}`},
-              ${options.makerUserName || 'Payroll Engine'}, ${now}, ${now}
+              ${options.makerUserName || 'SYSTEM_PAYROLL_ENGINE'}, ${now}, ${now}
             )
           `);
 
@@ -1053,7 +1072,7 @@ export class HrmsRepository {
       const [ps] = await db.insert(phase70PaySlips).values({
         id,
         slipNumber: payslipNumber,
-        payrollRunId: `prun-${periodId}`,
+        payrollRunId: `prun-${resolvedPeriodId}`,
         periodId: periodId,
         employeeId: emp.id,
         employeeCode: emp.employeeCode || `EMP-${emp.id}`,
@@ -1150,7 +1169,7 @@ export class HrmsRepository {
     }).returning();
 
     // Update legacy phase70 period status
-    await db.update(phase70PayrollPeriods).set({ status: 'PROCESSED', updatedAt: now }).where(eq(phase70PayrollPeriods.id, periodId));
+    await db.update(phase70PayrollPeriods).set({ status: 'PROCESSED', updatedAt: now }).where(eq(phase70PayrollPeriods.id, resolvedPeriodId));
 
     // Audit log
     await this.recordAuditLog({

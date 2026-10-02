@@ -1372,117 +1372,106 @@ export class HrmsRepository {
 
   public async disbursePayrollRun(
     runId: string,
-    actor?: { userId: string; userName: string } | string,
+    actor: { userId: string; userName: string },
     neftBatchReference?: string
   ): Promise<any> {
     await this.ensureHrmsTablesExist();
+
+    if (!actor?.userId?.trim() || !actor?.userName?.trim()) {
+      throw new Error('Authenticated payroll disburser identity is required.');
+    }
+
     const runRows = await db.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
     if (runRows.length === 0) throw new Error(`Payroll run ${runId} not found`);
     const run = runRows[0];
 
-    const actorName = typeof actor === 'string' ? actor : (actor?.userName || 'Payroll Officer');
-    const actorId = typeof actor === 'object' && actor?.userId ? actor.userId : 'usr-payroll-admin';
+    if (run.status !== 'APPROVED') {
+      throw new Error(`Payroll run ${run.runNumber} must be APPROVED before disbursement. Current status: ${run.status}`);
+    }
+    if (run.isLocked) throw new Error(`Payroll run ${run.runNumber} is already locked.`);
 
-    const now = new Date().toISOString();
-    const payslips = await db.select().from(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, runId));
-    
-    // Distinguish between eligible (non-held) and held payslips
-    const eligiblePayslips = payslips.filter((p: any) => !p.isHold && p.paymentStatus !== 'ON_HOLD');
-    const heldPayslips = payslips.filter((p: any) => p.isHold || p.paymentStatus === 'ON_HOLD');
-
-    if (eligiblePayslips.length === 0 && payslips.length > 0) {
-      throw new Error(`Cannot disburse payroll run: All ${payslips.length} employee payslips are currently ON HOLD. Release at least one employee hold before disbursement.`);
+    const providedReference = String(neftBatchReference || '').trim();
+    const neftRef = providedReference || (isDemoSeedAllowed() ? `DEMO-NEFT-${Date.now()}` : '');
+    if (!neftRef) {
+      throw new Error('Actual bank/NEFT batch reference is required for payroll disbursement outside DEMO mode.');
     }
 
-    const neftRef = neftBatchReference || `NEFT-BAT-${Date.now().toString().slice(-8)}`;
-    const lockHash = run.lockHash || statutoryEngineService.generateLockHash(runId, run.payrollMonth, payslips);
+    const payslips = await db.select().from(phase70PaySlips).where(eq(phase70PaySlips.payrollRunId, runId));
+    if (payslips.length === 0) throw new Error(`Payroll run ${run.runNumber} contains no payslips.`);
 
-    const disbursedTotal = eligiblePayslips.reduce((sum, p) => sum + (p.netSalaryAed || 0), 0);
-    const heldTotal = heldPayslips.reduce((sum, p) => sum + (p.netSalaryAed || 0), 0);
+    const eligiblePayslips = payslips.filter((p: any) => !p.isHold && p.paymentStatus !== 'ON_HOLD');
+    const heldPayslips = payslips.filter((p: any) => p.isHold || p.paymentStatus === 'ON_HOLD');
+    if (eligiblePayslips.length === 0) throw new Error(`Cannot disburse payroll run: all payslips are currently on hold.`);
 
     const isFullDisbursement = heldPayslips.length === 0;
     const finalRunStatus = isFullDisbursement ? 'DISBURSED' : 'PARTIALLY_DISBURSED';
+    const lockHash = run.lockHash || statutoryEngineService.generateLockHash(runId, run.payrollMonth, payslips);
+    const disbursedTotal = eligiblePayslips.reduce((sum: number, p: any) => sum + Number(p.netSalaryAed || 0), 0);
+    const heldTotal = heldPayslips.reduce((sum: number, p: any) => sum + Number(p.netSalaryAed || 0), 0);
 
-    const [updated] = await db.update(hrPayrollRuns).set({
-      status: finalRunStatus,
-      isLocked: isFullDisbursement, // Locked if all items disbursed, kept unlocked for remaining held employees if partial
-      lockHash,
-      disbursedAt: now,
-      neftBatchReference: neftRef,
-      updatedAt: now,
-    }).where(eq(hrPayrollRuns.id, runId)).returning();
+    if (disbursedTotal <= 0) throw new Error('Disbursement amount must be greater than zero.');
 
-    // Mark ONLY eligible (non-held) payslips as DISBURSED / PAID
-    for (const ep of eligiblePayslips) {
-      await db.update(phase70PaySlips).set({
-        paymentStatus: 'PAID',
-        paymentReference: neftRef,
-        disbursementDate: now.split('T')[0],
+    // Post Finance GL first. A payroll run must not become PAID/DISBURSED when
+    // the corresponding accounting journal cannot be posted.
+    const totalGross = eligiblePayslips.reduce((sum: number, p: any) => sum + Number(p.grossSalaryAed || p.netSalaryAed || 0), 0);
+    const totalDeductions = Math.max(0, totalGross - disbursedTotal);
+    const journalLines: any[] = [
+      { accountCode: '5030', accountName: 'Direct Site Labor & Wages', debitAmount: totalGross, creditAmount: 0, lineDescription: `Payroll disbursement gross labor for run ${run.runNumber}` },
+      { accountCode: '1010', accountName: 'Cash & Bank Operating', debitAmount: 0, creditAmount: disbursedTotal, lineDescription: `Net salary transfer via bank batch ${neftRef}` },
+    ];
+    if (totalDeductions > 0) journalLines.push({
+      accountCode: '2030', accountName: 'Statutory Taxes & Social Security Payable', debitAmount: 0, creditAmount: totalDeductions,
+      lineDescription: `Statutory deductions withheld on run ${run.runNumber}`,
+    });
+
+    await financeRepository.createJournalEntry(
+      {
+        voucherType: 'PAYROLL_JOURNAL',
+        postingDate: new Date().toISOString().split('T')[0],
+        referenceNumber: `${run.runNumber}:${neftRef}`,
+        narration: `Payroll disbursement journal for ${run.payrollMonth} (${neftRef})`,
+        postedBy: actor.userName,
+        createdBy: actor.userName,
+      },
+      journalLines
+    );
+
+    const now = new Date().toISOString();
+    const updated = await db.transaction(async (tx) => {
+      const currentRows = await tx.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
+      if (!currentRows.length) throw new Error(`Payroll run ${runId} disappeared during disbursement.`);
+      if (currentRows[0].status !== 'APPROVED') throw new Error(`Payroll run ${run.runNumber} changed state during disbursement.`);
+
+      const [updatedRun] = await tx.update(hrPayrollRuns).set({
+        status: finalRunStatus,
+        isLocked: isFullDisbursement,
+        lockHash,
+        disbursedAt: now,
+        neftBatchReference: neftRef,
         updatedAt: now,
-      }).where(eq(phase70PaySlips.id, ep.id));
-    }
+      }).where(eq(hrPayrollRuns.id, runId)).returning();
+      if (!updatedRun) throw new Error('Payroll run update failed after finance posting. Manual reconciliation is required.');
 
-    // Cross-Module Integration: Post Real Double-Entry Payroll Journal to Finance GL
-    if (disbursedTotal > 0) {
-      try {
-        const totalGross = eligiblePayslips.reduce((sum, p: any) => sum + (p.grossSalaryAed || p.netSalaryAed || 0), 0);
-        const totalDeductions = Math.max(0, totalGross - disbursedTotal);
-
-        const journalLines = [
-          {
-            accountCode: '5030',
-            accountName: 'Direct Site Labor & Wages',
-            debitAmount: totalGross,
-            creditAmount: 0,
-            lineDescription: `Payroll disbursement gross labor for Run ${run.runNumber} (${eligiblePayslips.length} employees)`,
-          },
-          {
-            accountCode: '1010',
-            accountName: 'Cash & Bank Operating',
-            debitAmount: 0,
-            creditAmount: disbursedTotal,
-            lineDescription: `Net salary transfer via NEFT batch ${neftRef}`,
-          },
-        ];
-
-        if (totalDeductions > 0) {
-          journalLines.push({
-            accountCode: '2030',
-            accountName: 'Statutory Taxes & Social Security Payable',
-            debitAmount: 0,
-            creditAmount: totalDeductions,
-            lineDescription: `Statutory deductions (PF/Taxes) withheld on Run ${run.runNumber}`,
-          });
-        }
-
-        await financeRepository.createJournalEntry(
-          {
-            voucherType: 'PAYROLL_JOURNAL',
-            postingDate: now.split('T')[0],
-            referenceNumber: run.payrollMonth,
-            narration: `Automated payroll disbursement journal for ${run.payrollMonth} (Batch ${neftRef})`,
-          },
-          journalLines
-        );
-      } catch (fErr) {
-        console.warn('[HRMS->Finance] Payroll journal posting notice:', fErr);
+      for (const payslip of eligiblePayslips) {
+        await tx.update(phase70PaySlips).set({
+          paymentStatus: 'PAID',
+          paymentReference: neftRef,
+          disbursementDate: now.split('T')[0],
+          updatedAt: now,
+        }).where(eq(phase70PaySlips.id, payslip.id));
       }
-    }
+      return updatedRun;
+    });
 
     await this.recordAuditLog({
       actionType: isFullDisbursement ? 'PAYROLL_DISBURSED_AND_LOCKED' : 'PAYROLL_PARTIALLY_DISBURSED',
       entityType: 'PAYROLL_RUN',
       entityId: runId,
       referenceNumber: run.runNumber,
-      performedBy: actorName,
+      performedBy: actor.userName,
       detailsJson: JSON.stringify({
-        neftBatchReference: neftRef,
-        lockHash,
-        disbursedEmployeeCount: eligiblePayslips.length,
-        disbursedTotalAmount: disbursedTotal,
-        heldEmployeeCount: heldPayslips.length,
-        heldTotalAmount: heldTotal,
-        status: finalRunStatus,
+        neftBatchReference: neftRef, lockHash, disbursedEmployeeCount: eligiblePayslips.length,
+        disbursedTotalAmount: disbursedTotal, heldEmployeeCount: heldPayslips.length, heldTotalAmount: heldTotal, status: finalRunStatus,
       }),
     });
 
@@ -1494,7 +1483,6 @@ export class HrmsRepository {
       heldTotalAmount: heldTotal,
     };
   }
-
   public async rejectPayrollRun(
     runId: string,
     checker: { userId: string; userName: string },

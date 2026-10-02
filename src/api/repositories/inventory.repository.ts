@@ -363,6 +363,11 @@ export interface DbStockTransaction {
   totalValue: number;
   projectId?: string;
   projectName?: string;
+  // ERP-TRACE: allocation context carried by the central stock ledger.
+  wbsId?: string;
+  boqItemId?: string;
+  costCodeId?: string;
+  costCode?: string;
   siteId?: string;
   siteName?: string;
   workCategory?: string;
@@ -2244,7 +2249,7 @@ export class InventoryRepository {
               costCodeId: (item as any).costCodeId || costCodeId || undefined,
               costCode: (item as any).costCode || costCode || undefined,
               issuedByName: issuedBy,
-              approvedByName: data.approvedBy?.trim() || undefined,
+              approvedByName: (data as any).approvedBy?.trim() || undefined,
               receivedByName: data.recipientName?.trim() || issuedTo,
             },
             tx

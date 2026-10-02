@@ -1407,75 +1407,54 @@ export class InventoryRepository {
   async createPurchaseRequest(data: Partial<DbPurchaseRequest>): Promise<DbPurchaseRequest> {
     await ensureInventorySeeded();
     const now = new Date().toISOString();
-    let prjName = data.projectName;
-    if (data.projectId && !prjName) {
-      const prjRows = await db.select().from(projects).where(eq(projects.id, data.projectId));
-      if (prjRows[0]) prjName = prjRows[0].projectName;
-    }
+    const projectId = String(data.projectId || '').trim();
+    const requestedById = String(data.requestedById || '').trim();
+    const requestedByName = String(data.requestedByName || '').trim();
+    const materialId = String(data.materialId || '').trim();
+    const quantity = Number(data.quantity);
+    if (!projectId || !requestedById || !requestedByName || !materialId) throw new Error('Project, requester identity and material are required for a purchase request.');
+    if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Purchase request quantity must be greater than zero.');
+
+    const [project] = await db.select().from(projects).where(and(eq(projects.id, projectId), eq(projects.isActive, true))).limit(1);
+    if (!project) throw new Error('Project not found or inactive.');
+    const companyId = String(project.companyId || '').trim();
+    if (!companyId && !data.requisitionCode) throw new Error('Project company context is required for requisition numbering.');
 
     let siteName = data.siteName;
-    if (data.siteId && !siteName) {
-      const siteRows = await db.select().from(sites).where(eq(sites.id, data.siteId));
-      if (siteRows[0]) siteName = siteRows[0].siteName;
+    if (data.siteId) {
+      const [site] = await db.select().from(sites).where(and(eq(sites.id, data.siteId), eq(sites.isActive, true))).limit(1);
+      if (!site || site.projectId !== projectId) throw new Error('Site not found, inactive, or outside the selected project.');
+      siteName = site.siteName;
     }
 
-    let matName = data.materialName;
-    if (data.materialId && !matName) {
-      const mat = await this.getMaterialById(data.materialId);
-      if (mat) matName = mat.name;
-    }
+    const [mat] = await db.select().from(materials).where(and(eq(materials.id, materialId), eq(materials.isActive, true))).limit(1);
+    if (!mat) throw new Error('Material not found or inactive.');
+    const reqCode = data.requisitionCode || await numberingService.generatePurchaseRequisitionNumber({ companyId, projectId, date: data.requiredDate || now });
+    const duplicate = await db.select({ id: purchaseRequests.id }).from(purchaseRequests).where(eq(purchaseRequests.requisitionCode, reqCode)).limit(1);
+    if (duplicate.length) throw new Error('Purchase request number already exists: ' + reqCode);
 
-    const reqCode = data.requisitionCode || (await numberingService.generatePurchaseRequisitionNumber({
-      companyId: 'cmp-101',
-      projectId: data.projectId || null,
-      date: data.requiredDate || now,
-    }));
     const newReq: DbPurchaseRequest = {
-      id: genId('pr'),
-      requisitionCode: reqCode,
-      projectId: data.projectId!,
-      projectName: prjName || 'Construction Project',
-      siteId: data.siteId,
-      siteName,
-      materialId: data.materialId!,
-      materialName: matName || 'Material Item',
-      quantity: Number(data.quantity) || 1,
-      unit: data.unit || 'PCS',
-      priority: data.priority || 'MEDIUM',
-      requiredDate: data.requiredDate || new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
-      requestedById: data.requestedById || 'usr-inc-003',
-      requestedByName: data.requestedByName || 'Site Engineer',
-      status: 'SUBMITTED',
-      remarks: data.remarks || '',
-      createdAt: now,
-      updatedAt: now,
+      id: genId('pr'), requisitionCode: reqCode, projectId, projectName: project.projectName, siteId: data.siteId, siteName, materialId, materialName: mat.name,
+      quantity, unit: data.unit || 'PCS', priority: data.priority || 'MEDIUM', requiredDate: data.requiredDate || now.slice(0,10), requestedById, requestedByName, status: 'SUBMITTED', remarks: data.remarks || '', createdAt: now, updatedAt: now,
     };
-
     await db.insert(purchaseRequests).values(newReq);
     return newReq;
   }
-
   async updatePurchaseRequestStatus(id: string, status: DbPurchaseRequest['status'], approverName?: string): Promise<DbPurchaseRequest | null> {
     await ensureInventorySeeded();
-    const prRows = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, id));
-    const pr = prRows[0];
+    const actor = String(approverName || '').trim();
+    if (!actor) throw new Error('Authenticated purchase-request actor identity is required.');
+    const [pr] = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, id)).limit(1);
     if (!pr) return null;
-
-    const updateData: any = {
-      status,
-      updatedAt: new Date().toISOString(),
-    };
-    if (status === 'VERIFIED') {
-      updateData.verifiedByName = approverName || 'Store Keeper';
-    } else if (status === 'APPROVED') {
-      updateData.approvedByName = approverName || 'Project Manager';
-    }
-
-    await db.update(purchaseRequests).set(updateData).where(eq(purchaseRequests.id, id));
-    const updated = await db.select().from(purchaseRequests).where(eq(purchaseRequests.id, id));
-    return (updated[0] as DbPurchaseRequest) || null;
+    const transitions: Record<string, string[]> = { SUBMITTED: ['VERIFIED', 'REJECTED', 'CANCELLED'], VERIFIED: ['APPROVED', 'REJECTED'], APPROVED: ['CLOSED', 'CANCELLED'], REJECTED: ['SUBMITTED'], CANCELLED: [], CLOSED: [] };
+    if (!transitions[pr.status]?.includes(status)) throw new Error(`Invalid purchase request status transition: ${pr.status} → ${status}`);
+    if (['VERIFIED','APPROVED'].includes(status) && String(pr.requestedByName || '').trim().toLowerCase() === actor.toLowerCase()) throw new Error('Maker-checker violation: requester cannot approve the same purchase request.');
+    const updateData: any = { status, updatedAt: new Date().toISOString() };
+    if (status === 'VERIFIED') updateData.verifiedByName = actor;
+    if (status === 'APPROVED') updateData.approvedByName = actor;
+    const [updated] = await db.update(purchaseRequests).set(updateData).where(eq(purchaseRequests.id, id)).returning();
+    return (updated as DbPurchaseRequest) || null;
   }
-
   // ==========================================
   // PURCHASE ORDERS (CONSOLIDATED READ & SAFE WRITE BRIDGE)
   // ==========================================

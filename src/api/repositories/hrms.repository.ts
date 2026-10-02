@@ -1562,6 +1562,53 @@ export class HrmsRepository {
     return updated;
   }
 
+  public async rejectPayrollRun(
+    runId: string,
+    checker: { userId: string; userName: string },
+    remarks: string
+  ): Promise<any> {
+    await this.ensureHrmsTablesExist();
+    if (!checker?.userId?.trim() || !checker?.userName?.trim()) {
+      throw new Error('Authenticated payroll checker identity is required.');
+    }
+    const reason = String(remarks || '').trim();
+    if (!reason) throw new Error('Payroll rejection reason is required.');
+
+    return await db.transaction(async (tx) => {
+      const [run] = await tx.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
+      if (!run) throw new Error(`Payroll run ${runId} not found`);
+      if (run.isLocked) throw new Error(`Payroll run ${run.runNumber} is locked and cannot be rejected.`);
+      if (run.makerUserId && run.makerUserId === checker.userId) {
+        throw new Error('Maker-checker violation: payroll maker cannot reject the same run.');
+      }
+      if (run.status !== 'SUBMITTED_FOR_REVIEW') {
+        throw new Error(`Payroll run ${run.runNumber} can be rejected only from SUBMITTED_FOR_REVIEW. Current status: ${run.status}`);
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(hrPayrollRuns).set({
+        status: 'REJECTED',
+        checkerUserId: checker.userId,
+        checkerUserName: checker.userName,
+        checkerTimestamp: now,
+        checkerRemarks: reason,
+        isLocked: false,
+        updatedAt: now,
+      }).where(eq(hrPayrollRuns.id, runId)).returning();
+
+      await this.recordAuditLog({
+        actionType: 'PAYROLL_REJECTED_BY_CHECKER',
+        entityType: 'PAYROLL_RUN',
+        entityId: runId,
+        referenceNumber: run.runNumber,
+        performedBy: checker.userName,
+        detailsJson: JSON.stringify({ reason }),
+      }, tx);
+
+      return updated;
+    });
+  }
+
   public async holdEmployeePayslip(
     payslipId: string,
     actor: { userId: string; userName: string; role?: string },

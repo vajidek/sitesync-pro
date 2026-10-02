@@ -32,8 +32,10 @@ router.put('/contracts/:id/status', requireRoles('ADMIN', 'MANAGER'), controller
 
 // Contract Lifecycle Sub-resources
 router.post('/contracts/milestone', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.addMilestone);
-router.post('/contracts/variation', requireRoles('ADMIN', 'MANAGER'), controller.addVariation);
+router.post('/contracts/variation', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.addVariation);
+router.put('/contracts/variation/:id/decision', requireRoles('ADMIN', 'MANAGER'), controller.approveVariation);
 router.post('/contracts/payment', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.addPayment);
 router.post('/contracts/extension', requireRoles('ADMIN', 'MANAGER'), controller.addExtension);
+router.put('/contracts/extension/:id/decision', requireRoles('ADMIN', 'MANAGER'), controller.decideExtension);
 
 export default router;

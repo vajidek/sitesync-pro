@@ -339,7 +339,7 @@ export class WorkflowPolicyEngineService {
       matchProject: true,
       matchBranch: false,
       delegationAllowed: true,
-      minApprovalAmount: isProc ? 10000 : 0,
+      minApprovalAmount: 0,
       slaHours: 24,
       stages: defaultStages,
     };
@@ -749,31 +749,15 @@ export class WorkflowPolicyEngineService {
         }
       }
 
-      // Check Amount Threshold
+      // Check configured amount threshold only.
+      // Monetary limits must come from workflow configuration, not application code.
       const txnAmount = params.amount ?? instance?.amount ?? context?.amount;
-      if (txnAmount !== undefined) {
+      if (txnAmount !== undefined && policy.minApprovalAmount > 0) {
         const approverLevel = getRoleLevel(userRoleCode);
-        // High-value / Mega threshold (> $250,000) requires Level 5+ (Director/Executive/Admin)
-        if (txnAmount > 250000 && approverLevel < 5 && userRoleCode !== 'ADMIN') {
+        if (txnAmount > policy.minApprovalAmount && approverLevel < 4 && userRoleCode !== 'ADMIN') {
           return {
             isEligible: false,
-            reason: `Threshold Exceeded: Transaction amount ($${txnAmount.toLocaleString()}) exceeds the managerial limit ($250,000) and requires Level 5+ (Director/Executive) authorization.`,
-            workflowCode: policy.workflowCode,
-            workflowVersion: policy.version,
-            approvalRequired: true,
-            verificationRequired: policy.verificationRequired,
-            stagesCount: policy.stagesCount,
-            currentStage: 'APPROVAL',
-            separationOfDutiesPassed: true,
-            scopeMatchPassed: true,
-            thresholdPassed: false,
-          };
-        }
-        // Standard threshold (> minApprovalAmount) requires Level 4+ (Manager)
-        if (policy.minApprovalAmount > 0 && txnAmount > policy.minApprovalAmount && approverLevel < 4 && userRoleCode !== 'ADMIN') {
-          return {
-            isEligible: false,
-            reason: `Threshold Exceeded: Transaction amount ($${txnAmount.toLocaleString()}) exceeds the standard threshold ($${policy.minApprovalAmount.toLocaleString()}) and requires Level 4+ (Manager/Executive) authorization.`,
+            reason: 'Configured approval threshold exceeded for workflow ' + policy.workflowCode + '. Transaction amount: ' + txnAmount.toLocaleString() + '.',
             workflowCode: policy.workflowCode,
             workflowVersion: policy.version,
             approvalRequired: true,
@@ -786,7 +770,6 @@ export class WorkflowPolicyEngineService {
           };
         }
       }
-
       // Check Scope (Project / Department / Site)
       if (policy.hierarchyScope === 'PROJECT' && context?.projectId && user?.assignedProjectId) {
         if (context.projectId !== user.assignedProjectId && userRoleCode !== 'ADMIN') {

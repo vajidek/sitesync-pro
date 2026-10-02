@@ -65,6 +65,7 @@ import {
   materials,
   stockTransactions,
   warehouses,
+  sites,
 } from '../../db/schema';
 import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';

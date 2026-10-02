@@ -1,0 +1,1224 @@
+import { db } from '../../db/index';
+import { sql, eq, desc } from 'drizzle-orm';
+import { numberingService } from '../services/numbering.service';
+import {
+  phase69VendorMaster,
+  phase69VendorCategories,
+  phase69VendorEvaluations,
+  phase69VendorDocuments,
+  phase69Prequalification,
+  phase69VendorBlacklist,
+  phase69Rfq,
+  phase69RfqItems,
+  phase69VendorQuotations,
+  phase69QuoteComparison,
+  phase69PurchaseRequisitions,
+  phase69PurchaseOrders,
+  phase69PoItems,
+  phase69Contracts,
+  phase69ContractItems,
+  phase69ContractVariations,
+  phase69ContractPayments,
+  phase69BankGuarantees,
+  phase69PerformanceGuarantees,
+  phase69RetentionMoney,
+  phase69DeliverySchedules,
+  phase69GoodsReceipts,
+  phase69InvoiceMatching,
+  phase69ThreeWayMatching,
+  phase69VendorPerformance,
+  phase69SupplierScorecards,
+  phase69ContractClosures,
+  phase69ProcurementAuditLogs,
+  procurementPurchaseOrdersTable,
+  procurementGrnsTable,
+  procurementRequisitionsTable,
+} from '../../db/schema';
+import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
+import { v4 as uuidv4 } from 'uuid';
+import { financeRepository } from './finance.repository';
+import { enterpriseAuditService } from '../services/enterprise_audit.service';
+
+export class ProcurementEnterpriseRepository {
+  private static isTablesEnsured = false;
+
+  public async ensureProcurementTablesExist(): Promise<void> {
+    if (ProcurementEnterpriseRepository.isTablesEnsured) return;
+
+    try {
+      await this.seedInitialProcurementData();
+      ProcurementEnterpriseRepository.isTablesEnsured = true;
+    } catch (error) {
+      console.warn('Phase 69 tables exist or initialization note:', error);
+      ProcurementEnterpriseRepository.isTablesEnsured = true;
+    }
+  }
+
+  private async seedInitialProcurementData(): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      const existing = await db.select().from(phase69VendorMaster).limit(1);
+      if (existing.length > 0) return;
+
+      const v1Id = 'ven-emirates-steel-01';
+      const v2Id = 'ven-jindal-pipes-02';
+      const v3Id = 'ven-avalon-valves-03';
+      const v4Id = 'ven-grundfos-gulf-04';
+
+      // 1. Vendors
+      await db.insert(phase69VendorMaster).values([
+        {
+          id: v1Id,
+          vendorCode: 'VEN-2026-0001',
+          companyName: 'Emirates Steel Arkan Heavy Industries PJSC',
+          tradeName: 'Emirates Steel',
+          registrationNumber: 'CN-1049281',
+          taxIdentificationNumber: 'TRN-100294829100003',
+          vendorType: 'MANUFACTURER',
+          categoryCode: 'STEEL_PIPES',
+          status: 'ACTIVE',
+          contactPerson: 'Eng. Khalid Al-Mansouri (VP Supply Chain)',
+          email: 'sales.projects@emiratessteel.ae',
+          phone: '+971 2 550 1111',
+          website: 'https://www.emiratessteel.com',
+          addressStreet: 'Industrial City of Abu Dhabi (ICAD I), Musaffah',
+          city: 'Abu Dhabi',
+          country: 'United Arab Emirates',
+          ratingScore: 4.9,
+          creditTermsDays: 90,
+          currency: 'AED',
+          bankName: 'First Abu Dhabi Bank (FAB)',
+          bankIban: 'AE420FAB00001849201948201',
+          bankSwift: 'FABAAEAD',
+          isBlacklisted: false,
+          totalSpendAmount: 48500000,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: v2Id,
+          vendorCode: 'VEN-2026-0002',
+          companyName: 'Jindal SAW Middle East FZE (Ductile Iron Pipes)',
+          tradeName: 'Jindal SAW Gulf',
+          registrationNumber: 'FZ-394810',
+          taxIdentificationNumber: 'TRN-100482019400002',
+          vendorType: 'MANUFACTURER',
+          categoryCode: 'PIPES_FITTINGS',
+          status: 'ACTIVE',
+          contactPerson: 'Rajesh Kumar (Regional Key Accounts Manager)',
+          email: 'dubai.sales@jindalsaw.com',
+          phone: '+971 4 883 9200',
+          website: 'https://www.jindalsaw.com',
+          addressStreet: 'Jebel Ali Free Zone (JAFZA South), Plot S-20401',
+          city: 'Dubai',
+          country: 'United Arab Emirates',
+          ratingScore: 4.8,
+          creditTermsDays: 60,
+          currency: 'AED',
+          bankName: 'Emirates NBD PJSC',
+          bankIban: 'AE290EBIL00002948201948201',
+          bankSwift: 'EBILAEAD',
+          isBlacklisted: false,
+          totalSpendAmount: 32400000,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: v3Id,
+          vendorCode: 'VEN-2026-0003',
+          companyName: 'AVK Gulf Valves & Flow Control Solutions LLC',
+          tradeName: 'AVK Valves',
+          registrationNumber: 'CN-849201',
+          taxIdentificationNumber: 'TRN-100849201800003',
+          vendorType: 'DISTRIBUTOR',
+          categoryCode: 'VALVES_ACTUATORS',
+          status: 'ACTIVE',
+          contactPerson: 'Henrik Larsson (Technical Director)',
+          email: 'info@avkgulf.ae',
+          phone: '+971 4 347 1820',
+          website: 'https://www.avkgulf.ae',
+          addressStreet: 'Dubai Investments Park 1, Phase 2',
+          city: 'Dubai',
+          country: 'United Arab Emirates',
+          ratingScore: 4.7,
+          creditTermsDays: 60,
+          currency: 'AED',
+          bankName: 'Standard Chartered Bank UAE',
+          bankIban: 'AE820SCBL0000948201948201',
+          bankSwift: 'SCBLAEAD',
+          isBlacklisted: false,
+          totalSpendAmount: 14200000,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: v4Id,
+          vendorCode: 'VEN-2026-0004',
+          companyName: 'Grundfos Gulf Distribution FZE (High Capacity Pumps)',
+          tradeName: 'Grundfos Middle East',
+          registrationNumber: 'FZ-104928',
+          taxIdentificationNumber: 'TRN-100394829100002',
+          vendorType: 'MANUFACTURER',
+          categoryCode: 'PUMPING_EQUIPMENT',
+          status: 'ACTIVE',
+          contactPerson: 'Morten Poulsen (Head of Water Utilities)',
+          email: 'middleeast-sales@grundfos.com',
+          phone: '+971 4 881 5166',
+          website: 'https://www.grundfos.com/ae',
+          addressStreet: 'Jebel Ali Free Zone (North), Roundabout 5',
+          city: 'Dubai',
+          country: 'United Arab Emirates',
+          ratingScore: 4.95,
+          creditTermsDays: 45,
+          currency: 'AED',
+          bankName: 'HSBC Bank Middle East',
+          bankIban: 'AE120HBME00003948201948201',
+          bankSwift: 'HBMEAEAD',
+          isBlacklisted: false,
+          totalSpendAmount: 21800000,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 2. RFQ
+      const rfq1Id = 'rfq-pipe-dn1200-pkg4';
+      await db.insert(phase69Rfq).values([
+        {
+          id: rfq1Id,
+          rfqNumber: 'RFQ-2026-0104',
+          title: 'Supply of 1200mm DN Ductile Iron Pressure Pipes (Class C40 & K9) - 18,500 Meters',
+          projectId: 'PRJ-WATER-001',
+          projectName: 'Metropolitan Water Pipeline Network Expansion Phase-4',
+          requisitionId: 'PR-2026-0082',
+          category: 'PIPES_FITTINGS',
+          issueDate: '2026-08-01',
+          submissionDeadline: '2026-08-20',
+          targetDeliveryDate: '2026-10-15',
+          deliveryLocation: 'Zone B Central Laydown Yard, Sector 4',
+          estimatedBudgetAed: 24500000,
+          status: 'EVALUATION',
+          invitedVendorsCount: 4,
+          quotationsReceivedCount: 3,
+          buyerName: 'Senior Contracts & Procurement Specialist',
+          termsAndConditions: 'DEWA / Transco Standard Water Infrastructure Specifications Rev 8',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 3. RFQ Items
+      await db.insert(phase69RfqItems).values([
+        {
+          id: uuidv4(),
+          rfqId: rfq1Id,
+          itemNumber: 1,
+          itemCode: 'MAT-DIP-1200-C40',
+          description: '1200mm Nominal Diameter Ductile Iron Pipe Class C40 with Push-on Flexible Joints & Internal Cement Mortar Lining',
+          specification: 'BS EN 545 / ISO 2531 with external zinc coating 200g/m2 plus epoxy finish',
+          quantity: 18500,
+          uom: 'MTRS',
+          targetUnitPrice: 1300,
+          requiredDeliveryDate: '2026-10-15',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 4. Quotations
+      const qot1Id = 'qot-jindal-0104';
+      await db.insert(phase69VendorQuotations).values([
+        {
+          id: qot1Id,
+          quotationNumber: 'QOT-2026-0891',
+          rfqId: rfq1Id,
+          rfqNumber: 'RFQ-2026-0104',
+          vendorId: v2Id,
+          vendorName: 'Jindal SAW Middle East FZE (Ductile Iron Pipes)',
+          quoteDate: '2026-08-08',
+          validityDays: 90,
+          subtotalAmount: 22755000,
+          taxVatAmount: 1137750,
+          totalQuoteAmount: 23892750,
+          currency: 'AED',
+          leadTimeDays: 45,
+          paymentTerms: '60 Days PDC from verified site delivery',
+          incoterms: 'DDP Site Laydown Yard',
+          technicalComplianceStatus: 'COMPLIANT',
+          commercialRanking: 1,
+          isAwarded: true,
+          status: 'ACCEPTED',
+          remarks: 'Ranked L1 lowest compliant bidder with fully certified third-party hydro-test records.',
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: uuidv4(),
+          quotationNumber: 'QOT-2026-0892',
+          rfqId: rfq1Id,
+          rfqNumber: 'RFQ-2026-0104',
+          vendorId: v1Id,
+          vendorName: 'Emirates Steel Arkan Heavy Industries PJSC',
+          quoteDate: '2026-08-09',
+          validityDays: 60,
+          subtotalAmount: 23680000,
+          taxVatAmount: 1184000,
+          totalQuoteAmount: 24864000,
+          currency: 'AED',
+          leadTimeDays: 55,
+          paymentTerms: '60 Days Credit',
+          incoterms: 'DDP Site Laydown Yard',
+          technicalComplianceStatus: 'COMPLIANT',
+          commercialRanking: 2,
+          isAwarded: false,
+          status: 'UNDER_EVALUATION',
+          remarks: 'Compliant alternative steel variant offer.',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 5. Purchase Requisition
+      await db.insert(phase69PurchaseRequisitions).values([
+        {
+          id: 'pr-req-0082',
+          prNumber: 'PR-2026-0082',
+          title: 'Urgent Procurement of DN1200 DI Pipes for Phase-4 Main Trunk Connection',
+          projectId: 'PRJ-WATER-001',
+          projectName: 'Metropolitan Water Pipeline Network Expansion Phase-4',
+          department: 'Pipeline Infrastructure Division',
+          requestedBy: 'Eng. Farooq Al-Hashimi (Lead Resident Engineer)',
+          requiredDate: '2026-10-15',
+          priority: 'HIGH',
+          estimatedCostAed: 24500000,
+          budgetCode: 'WBS-PIPE-MAIN-04',
+          budgetAvailableAed: 35000000,
+          isBudgetApproved: true,
+          stockCheckCompleted: true,
+          status: 'PO_ISSUED',
+          workflowStep: 'PO_DISPATCHED',
+          notes: 'Pre-approved under capital works budget WBS-PIPE-MAIN-04 with DEWA technical vetting.',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 6. Purchase Order
+      const po1Id = 'po-jindal-0042';
+      await db.insert(phase69PurchaseOrders).values([
+        {
+          id: po1Id,
+          poNumber: 'PO-2026-0042',
+          prNumber: 'PR-2026-0082',
+          rfqNumber: 'RFQ-2026-0104',
+          vendorId: v2Id,
+          vendorName: 'Jindal SAW Middle East FZE (Ductile Iron Pipes)',
+          projectId: 'PRJ-WATER-001',
+          projectName: 'Metropolitan Water Pipeline Network Expansion Phase-4',
+          poDate: '2026-08-10',
+          deliveryDate: '2026-10-15',
+          deliveryLocation: 'Sector 4 Zone B Central Laydown Warehouse',
+          currency: 'AED',
+          subtotal: 22755000,
+          vatRatePercent: 5.0,
+          vatAmount: 1137750,
+          totalAmount: 23892750,
+          paymentTerms: '60 Days Credit from GRN & MIR Sign-off',
+          incoterms: 'DDP Site',
+          status: 'PARTIALLY_DELIVERED',
+          buyerName: 'Lead Procurement Manager (Eng. Tariq)',
+          approvedBy: 'VP Operations & Managing Director',
+          isAdvancePaymentRequired: true,
+          advancePaymentPercentage: 10,
+          retentionPercentage: 5.0,
+          performanceGuaranteeRequired: true,
+          notes: 'Contractor shall supply certified mill test sheets and batch chemical composition certificates with every dispatch.',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 7. PO Items
+      await db.insert(phase69PoItems).values([
+        {
+          id: uuidv4(),
+          poId: po1Id,
+          poNumber: 'PO-2026-0042',
+          itemNumber: 1,
+          itemCode: 'MAT-DIP-1200-C40',
+          description: '1200mm DN Ductile Iron Pressure Pipe Class C40 (6m standard laying lengths)',
+          orderedQuantity: 18500,
+          receivedQuantity: 6200,
+          balanceQuantity: 12300,
+          uom: 'MTRS',
+          unitPrice: 1230,
+          totalPrice: 22755000,
+          requiredDate: '2026-10-15',
+          itemStatus: 'PARTIAL',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 8. Contracts
+      const con1Id = 'con-water-epc-01';
+      await db.insert(phase69Contracts).values([
+        {
+          id: con1Id,
+          contractNumber: 'CON-2026-0012',
+          title: 'Subcontract for Underground Micro-Tunneling & Directional Drilling Under E11 Highway Crossing',
+          contractType: 'SUBCONTRACT',
+          vendorId: v1Id,
+          vendorName: 'Emirates Steel Arkan Heavy Industries PJSC',
+          projectId: 'PRJ-WATER-001',
+          projectName: 'Metropolitan Water Pipeline Network Expansion Phase-4',
+          effectiveStartDate: '2026-04-01',
+          effectiveEndDate: '2026-12-31',
+          originalContractValue: 18500000,
+          revisedContractValue: 19850000,
+          paidToDateAmount: 11200000,
+          retentionWithheldAmount: 992500,
+          performanceGuaranteeValue: 1985000,
+          advancePaymentValue: 1850000,
+          currency: 'AED',
+          status: 'ACTIVE',
+          liquidatedDamagesCapPercent: 10.0,
+          defectLiabilityPeriodMonths: 24,
+          contractManager: 'Eng. Salem Al-Nuaimi (Contracts Director)',
+          governingLaw: 'UAE Civil Code / DIAC Arbitration Rules',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 9. Contract Variations
+      await db.insert(phase69ContractVariations).values([
+        {
+          id: uuidv4(),
+          variationNumber: 'VO-2026-0003',
+          contractId: con1Id,
+          contractNumber: 'CON-2026-0012',
+          title: 'Extra Depth Micro-Tunneling Borehole Due to High-Voltage DEWA Cable Corridor Rerouting',
+          reasonCategory: 'SITE_CONDITIONS',
+          description: 'Encountered unmapped 132kV high-voltage power ducts requiring thrust-boring profile lowering by 3.8 meters.',
+          variationAmount: 1350000,
+          timeExtensionDays: 21,
+          requestedDate: '2026-07-15',
+          approvalDate: '2026-08-02',
+          approvedBy: 'Client Chief Engineer & Project Director',
+          status: 'APPROVED',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 10. Bank Guarantees & Performance Bonds
+      await db.insert(phase69BankGuarantees).values([
+        {
+          id: uuidv4(),
+          bgNumber: 'BG-FAB-2026-9812',
+          vendorId: v1Id,
+          vendorName: 'Emirates Steel Arkan Heavy Industries PJSC',
+          contractNumber: 'CON-2026-0012',
+          issuingBank: 'First Abu Dhabi Bank (FAB)',
+          guaranteeType: 'PERFORMANCE_BOND',
+          guaranteeAmountAed: 1985000,
+          issueDate: '2026-04-05',
+          expiryDate: '2027-06-30',
+          claimPeriodDays: 30,
+          status: 'ACTIVE',
+          custodyLocation: 'Head Office Finance Fireproof Vault Box 04',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 11. Goods Receipts (GRN)
+      const grn1Id = 'grn-2026-0182';
+      await db.insert(phase69GoodsReceipts).values([
+        {
+          id: grn1Id,
+          grnNumber: 'GRN-2026-0182',
+          poNumber: 'PO-2026-0042',
+          vendorId: v2Id,
+          vendorName: 'Jindal SAW Middle East FZE (Ductile Iron Pipes)',
+          deliveryNoteNumber: 'DN-JINDAL-99201',
+          receiptDate: '2026-08-12',
+          siteLocation: 'Sector 4 Zone B Laydown Yard',
+          receivedBy: 'Hassan Mansoor (Chief Storekeeper)',
+          inspectedBy: 'Sarah Jenkins (Senior QA/QC Auditor)',
+          inspectionResult: 'ACCEPTED',
+          itemsReceivedCount: 1,
+          rejectionReason: undefined,
+          mirNumber: 'MIR-QAQC-2026-0482',
+          status: 'APPROVED',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 12. Three-Way Matching
+      await db.insert(phase69ThreeWayMatching).values([
+        {
+          id: uuidv4(),
+          matchingCode: '3WAY-2026-0091',
+          poNumber: 'PO-2026-0042',
+          grnNumber: 'GRN-2026-0182',
+          invoiceNumber: 'INV-JINDAL-2026-8812',
+          vendorName: 'Jindal SAW Middle East FZE (Ductile Iron Pipes)',
+          poQuantity: 6200,
+          grnQuantity: 6200,
+          invoiceQuantity: 6200,
+          poUnitPrice: 1230,
+          invoiceUnitPrice: 1230,
+          tolerancePercentage: 1.0,
+          isQuantityMatched: true,
+          isPriceMatched: true,
+          isApprovedForPayment: true,
+          matchingStatus: 'AUTO_RECONCILED',
+          verifiedBy: 'Automated 3-Way Reconciler Engine v2.0',
+          verificationTimestamp: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 13. Supplier Scorecards
+      await db.insert(phase69SupplierScorecards).values([
+        {
+          id: uuidv4(),
+          scorecardCode: 'SCR-2026-Q2-01',
+          vendorId: v2Id,
+          vendorName: 'Jindal SAW Middle East FZE (Ductile Iron Pipes)',
+          quarterPeriod: 'Q2-2026',
+          qualityKpiScore: 98.0,
+          deliveryKpiScore: 95.0,
+          commercialKpiScore: 94.0,
+          serviceKpiScore: 96.0,
+          overallIndex: 96.2,
+          gradeRank: 'A+',
+          improvementActionPlan: 'Maintain current zero-defect dispatch quality and lead time standards.',
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: uuidv4(),
+          scorecardCode: 'SCR-2026-Q2-02',
+          vendorId: v1Id,
+          vendorName: 'Emirates Steel Arkan Heavy Industries PJSC',
+          quarterPeriod: 'Q2-2026',
+          qualityKpiScore: 96.0,
+          deliveryKpiScore: 92.0,
+          commercialKpiScore: 90.0,
+          serviceKpiScore: 94.0,
+          overallIndex: 93.0,
+          gradeRank: 'A',
+          improvementActionPlan: 'Shorten batch turnaround times on customized socket fittings.',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      // 14. Audit Logs
+      await db.insert(phase69ProcurementAuditLogs).values([
+        {
+          id: uuidv4(),
+          actionType: 'PO_ISSUE',
+          entityType: 'PURCHASE_ORDER',
+          entityId: po1Id,
+          referenceNumber: 'PO-2026-0042',
+          performedBy: 'Lead Procurement Manager (Eng. Tariq)',
+          detailsJson: JSON.stringify({ amount: 23892750, vendor: 'Jindal SAW Middle East FZE', itemsCount: 1 }),
+          timestamp: now,
+          ipAddress: '192.168.10.45',
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    } catch (err) {
+      console.warn('Phase 69 seeding note:', err);
+    }
+  }
+
+  // --- Vendors CRUD & Search ---
+  public async getVendors(search?: string, category?: string, status?: string): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    const vendors = await db.select().from(phase69VendorMaster).where(eq(phase69VendorMaster.isDeleted, false)).orderBy(desc(phase69VendorMaster.createdAt));
+    return vendors.filter(v => {
+      let match = true;
+      if (search) {
+        const s = search.toLowerCase();
+        match = match && (v.companyName.toLowerCase().includes(s) || v.vendorCode.toLowerCase().includes(s) || v.contactPerson.toLowerCase().includes(s));
+      }
+      if (category && category !== 'ALL') {
+        match = match && (v.categoryCode === category);
+      }
+      if (status && status !== 'ALL') {
+        match = match && (v.status === status);
+      }
+      return match;
+    });
+  }
+
+  public async getVendorById(id: string): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const res = await db.select().from(phase69VendorMaster).where(eq(phase69VendorMaster.id, id)).limit(1);
+    return res[0] || null;
+  }
+
+  public async createVendor(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const countRes = await db.select().from(phase69VendorMaster);
+    const codeNum = String(countRes.length + 1).padStart(4, '0');
+    const vendorCode = `VEN-2026-${codeNum}`;
+
+    const newVendor = {
+      id,
+      vendorCode,
+      companyName: data.companyName,
+      tradeName: data.tradeName || data.companyName,
+      registrationNumber: data.registrationNumber,
+      taxIdentificationNumber: data.taxIdentificationNumber,
+      vendorType: data.vendorType || 'MANUFACTURER',
+      categoryCode: data.categoryCode || 'PIPES_FITTINGS',
+      status: data.status || 'ACTIVE',
+      contactPerson: data.contactPerson,
+      email: data.email,
+      phone: data.phone,
+      website: data.website || '',
+      addressStreet: data.addressStreet,
+      city: data.city,
+      country: data.country || 'United Arab Emirates',
+      ratingScore: data.ratingScore ?? 4.5,
+      creditTermsDays: data.creditTermsDays ?? 60,
+      currency: data.currency || 'AED',
+      bankName: data.bankName || '',
+      bankIban: data.bankIban || '',
+      bankSwift: data.bankSwift || '',
+      isBlacklisted: false,
+      totalSpendAmount: data.totalSpendAmount ?? 0,
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69VendorMaster).values(newVendor);
+    return newVendor;
+  }
+
+  public async updateVendor(id: string, updates: any): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    await db.update(phase69VendorMaster).set({ ...updates, updatedAt: now }).where(eq(phase69VendorMaster.id, id));
+    return this.getVendorById(id);
+  }
+
+  // --- RFQs & Quotations ---
+  public async getRfqs(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    const rfqs = await db.select().from(phase69Rfq).where(eq(phase69Rfq.isDeleted, false)).orderBy(desc(phase69Rfq.createdAt));
+    const items = await db.select().from(phase69RfqItems).where(eq(phase69RfqItems.isDeleted, false));
+    const quotes = await db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.isDeleted, false));
+
+    return rfqs.map(rfq => ({
+      ...rfq,
+      items: items.filter(i => i.rfqId === rfq.id),
+      quotations: quotes.filter(q => q.rfqId === rfq.id),
+    }));
+  }
+
+  public async createRfq(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const rfqNumber = data.rfqNumber || (await numberingService.generateRfqNumber({
+      companyId: data.companyId || 'cmp-101',
+      projectId: data.projectId || 'PRJ-WATER-001',
+      date: data.issueDate || now,
+    }));
+
+    const newRfq = {
+      id,
+      rfqNumber,
+      title: data.title,
+      projectId: data.projectId || 'PRJ-WATER-001',
+      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
+      requisitionId: data.requisitionId || null,
+      category: data.category || 'PIPES_FITTINGS',
+      issueDate: data.issueDate || now.split('T')[0],
+      submissionDeadline: data.submissionDeadline,
+      targetDeliveryDate: data.targetDeliveryDate,
+      deliveryLocation: data.deliveryLocation,
+      estimatedBudgetAed: data.estimatedBudgetAed || 0,
+      status: 'PUBLISHED',
+      invitedVendorsCount: data.invitedVendorsCount || 4,
+      quotationsReceivedCount: 0,
+      buyerName: data.buyerName || createdBy,
+      termsAndConditions: data.termsAndConditions || 'Standard DEWA / Water Infrastructure Specifications',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69Rfq).values(newRfq);
+
+    if (data.items && Array.isArray(data.items)) {
+      for (let idx = 0; idx < data.items.length; idx++) {
+        const itm = data.items[idx];
+        await db.insert(phase69RfqItems).values({
+          id: uuidv4(),
+          rfqId: id,
+          itemNumber: idx + 1,
+          itemCode: itm.itemCode,
+          description: itm.description,
+          specification: itm.specification || null,
+          quantity: itm.quantity,
+          uom: itm.uom || 'MTRS',
+          targetUnitPrice: itm.targetUnitPrice || 0,
+          requiredDeliveryDate: itm.requiredDeliveryDate || data.targetDeliveryDate,
+          createdAt: now,
+          updatedAt: now,
+          createdBy,
+          updatedBy: createdBy,
+          isDeleted: false,
+        });
+      }
+    }
+
+    return this.getRfqs().then(res => res.find(r => r.id === id));
+  }
+
+  public async getQuotations(rfqId?: string): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    if (rfqId) {
+      return db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.rfqId, rfqId)).orderBy(desc(phase69VendorQuotations.createdAt));
+    }
+    return db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.isDeleted, false)).orderBy(desc(phase69VendorQuotations.createdAt));
+  }
+
+  public async createQuotation(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const quotationNumber = data.quotationNumber || (await numberingService.generateQuotationNumber({
+      companyId: data.companyId || 'cmp-101',
+      projectId: data.projectId || 'PRJ-WATER-001',
+      date: data.quoteDate || now,
+    }));
+
+    const newQuote = {
+      id,
+      quotationNumber,
+      rfqId: data.rfqId,
+      rfqNumber: data.rfqNumber,
+      vendorId: data.vendorId,
+      vendorName: data.vendorName,
+      quoteDate: data.quoteDate || now.split('T')[0],
+      validityDays: data.validityDays || 60,
+      subtotalAmount: data.subtotalAmount,
+      taxVatAmount: data.taxVatAmount || data.subtotalAmount * 0.05,
+      totalQuoteAmount: data.totalQuoteAmount || data.subtotalAmount * 1.05,
+      currency: data.currency || 'AED',
+      leadTimeDays: data.leadTimeDays || 30,
+      paymentTerms: data.paymentTerms || '30 Days PDC',
+      incoterms: data.incoterms || 'DDP Site',
+      technicalComplianceStatus: data.technicalComplianceStatus || 'COMPLIANT',
+      commercialRanking: data.commercialRanking || 1,
+      isAwarded: false,
+      status: 'UNDER_EVALUATION',
+      remarks: data.remarks || '',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69VendorQuotations).values(newQuote);
+
+    // Increment RFQ quotations received count
+    await db.update(phase69Rfq)
+      .set({ quotationsReceivedCount: sql`${phase69Rfq.quotationsReceivedCount} + 1` })
+      .where(eq(phase69Rfq.id, data.rfqId));
+
+    return newQuote;
+  }
+
+  // --- Purchase Requisitions ---
+  public async getPurchaseRequisitions(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    return db.select().from(phase69PurchaseRequisitions).where(eq(phase69PurchaseRequisitions.isDeleted, false)).orderBy(desc(phase69PurchaseRequisitions.createdAt));
+  }
+
+  public async createPurchaseRequisition(data: any, createdBy: string = 'Project Engineer'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const prNumber = data.prNumber || (await numberingService.generatePurchaseRequisitionNumber({
+      companyId: data.companyId || 'cmp-101',
+      projectId: data.projectId || 'PRJ-WATER-001',
+      date: data.requiredDate || now,
+    }));
+
+    const newPr = {
+      id,
+      prNumber,
+      title: data.title,
+      projectId: data.projectId || 'PRJ-WATER-001',
+      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
+      department: data.department || 'Civil & Mechanical Construction',
+      requestedBy: data.requestedBy || createdBy,
+      requiredDate: data.requiredDate,
+      priority: data.priority || 'MEDIUM',
+      estimatedCostAed: data.estimatedCostAed || 0,
+      budgetCode: data.budgetCode || 'WBS-PIPE-MAIN-04',
+      budgetAvailableAed: data.budgetAvailableAed || 5000000,
+      isBudgetApproved: data.isBudgetApproved ?? true,
+      stockCheckCompleted: data.stockCheckCompleted ?? true,
+      status: 'APPROVED',
+      workflowStep: 'PROCUREMENT_SOURCING',
+      notes: data.notes || '',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69PurchaseRequisitions).values(newPr);
+    return newPr;
+  }
+
+  // --- Purchase Orders ---
+  public async getPurchaseOrders(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    const pos = await db.select().from(phase69PurchaseOrders).where(eq(phase69PurchaseOrders.isDeleted, false)).orderBy(desc(phase69PurchaseOrders.createdAt));
+    const items = await db.select().from(phase69PoItems).where(eq(phase69PoItems.isDeleted, false));
+    return pos.map(po => ({
+      ...po,
+      items: items.filter(i => i.poId === po.id || i.poNumber === po.poNumber),
+    }));
+  }
+
+  public async createPurchaseOrder(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const poNumber = data.poNumber || (await numberingService.generatePurchaseOrderNumber({
+      companyId: data.companyId || 'cmp-101',
+      projectId: data.projectId || 'PRJ-WATER-001',
+      date: now,
+    }));
+
+    const vatAmount = data.vatAmount ?? ((data.subtotal || 0) * 0.05);
+    const totalAmount = data.totalAmount ?? ((data.subtotal || 0) + vatAmount);
+
+    const newPo = {
+      id,
+      poNumber,
+      prNumber: data.prNumber || null,
+      rfqNumber: data.rfqNumber || null,
+      vendorId: data.vendorId,
+      vendorName: data.vendorName,
+      projectId: data.projectId || 'PRJ-WATER-001',
+      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
+      poDate: data.poDate || now.split('T')[0],
+      deliveryDate: data.deliveryDate,
+      deliveryLocation: data.deliveryLocation || 'Sector 4 Laydown Yard',
+      currency: data.currency || 'AED',
+      subtotal: data.subtotal || 0,
+      vatRatePercent: data.vatRatePercent ?? 5.0,
+      vatAmount,
+      totalAmount,
+      paymentTerms: data.paymentTerms || '60 Days Credit from GRN',
+      incoterms: data.incoterms || 'DDP Site',
+      status: data.status || 'ISSUED',
+      buyerName: data.buyerName || 'Lead Procurement Manager',
+      approvedBy: data.approvedBy || 'VP Operations',
+      isAdvancePaymentRequired: data.isAdvancePaymentRequired ?? false,
+      advancePaymentPercentage: data.advancePaymentPercentage || 0,
+      retentionPercentage: data.retentionPercentage ?? 5.0,
+      performanceGuaranteeRequired: data.performanceGuaranteeRequired ?? false,
+      notes: data.notes || '',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69PurchaseOrders).values(newPo);
+
+    if (data.items && Array.isArray(data.items)) {
+      for (let idx = 0; idx < data.items.length; idx++) {
+        const itm = data.items[idx];
+        await db.insert(phase69PoItems).values({
+          id: uuidv4(),
+          poId: id,
+          poNumber,
+          itemNumber: idx + 1,
+          itemCode: itm.itemCode,
+          description: itm.description,
+          orderedQuantity: itm.orderedQuantity,
+          receivedQuantity: 0,
+          balanceQuantity: itm.orderedQuantity,
+          uom: itm.uom || 'MTRS',
+          unitPrice: itm.unitPrice,
+          totalPrice: itm.totalPrice || (itm.orderedQuantity * itm.unitPrice),
+          requiredDate: itm.requiredDate || data.deliveryDate,
+          itemStatus: 'PENDING_DELIVERY',
+          createdAt: now,
+          updatedAt: now,
+          createdBy,
+          updatedBy: createdBy,
+          isDeleted: false,
+        });
+      }
+    }
+
+    return this.getPurchaseOrders().then(res => res.find(p => p.id === id));
+  }
+
+  // --- Contracts & Variations ---
+  public async getContracts(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    const contracts = await db.select().from(phase69Contracts).where(eq(phase69Contracts.isDeleted, false)).orderBy(desc(phase69Contracts.createdAt));
+    const variations = await db.select().from(phase69ContractVariations).where(eq(phase69ContractVariations.isDeleted, false));
+    const payments = await db.select().from(phase69ContractPayments).where(eq(phase69ContractPayments.isDeleted, false));
+
+    return contracts.map(c => ({
+      ...c,
+      variations: variations.filter(v => v.contractId === c.id || v.contractNumber === c.contractNumber),
+      payments: payments.filter(p => p.contractId === c.id || p.contractNumber === c.contractNumber),
+    }));
+  }
+
+  public async createContract(data: any, createdBy: string = 'Contracts Admin'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const countRes = await db.select().from(phase69Contracts);
+    const codeNum = String(countRes.length + 1).padStart(4, '0');
+    const contractNumber = `CON-2026-${codeNum}`;
+
+    const newCon = {
+      id,
+      contractNumber,
+      title: data.title,
+      contractType: data.contractType || 'SUBCONTRACT',
+      vendorId: data.vendorId,
+      vendorName: data.vendorName,
+      projectId: data.projectId || 'PRJ-WATER-001',
+      projectName: data.projectName || 'Metropolitan Water Pipeline Network Expansion Phase-4',
+      effectiveStartDate: data.effectiveStartDate,
+      effectiveEndDate: data.effectiveEndDate,
+      originalContractValue: data.originalContractValue,
+      revisedContractValue: data.revisedContractValue || data.originalContractValue,
+      paidToDateAmount: 0,
+      retentionWithheldAmount: data.retentionWithheldAmount || 0,
+      performanceGuaranteeValue: data.performanceGuaranteeValue || (data.originalContractValue * 0.1),
+      advancePaymentValue: data.advancePaymentValue || (data.originalContractValue * 0.1),
+      currency: data.currency || 'AED',
+      status: 'ACTIVE',
+      liquidatedDamagesCapPercent: data.liquidatedDamagesCapPercent ?? 10.0,
+      defectLiabilityPeriodMonths: data.defectLiabilityPeriodMonths ?? 24,
+      contractManager: data.contractManager || 'Senior Contracts Engineer',
+      governingLaw: data.governingLaw || 'UAE Civil Code / DIAC Arbitration Rules',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69Contracts).values(newCon);
+    return newCon;
+  }
+
+  public async createVariationOrder(data: any, createdBy: string = 'Contracts Admin'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const countRes = await db.select().from(phase69ContractVariations);
+    const codeNum = String(countRes.length + 1).padStart(4, '0');
+    const variationNumber = `VO-2026-${codeNum}`;
+
+    const newVo = {
+      id,
+      variationNumber,
+      contractId: data.contractId,
+      contractNumber: data.contractNumber,
+      title: data.title,
+      reasonCategory: data.reasonCategory || 'SCOPE_EXPANSION',
+      description: data.description,
+      variationAmount: data.variationAmount,
+      timeExtensionDays: data.timeExtensionDays || 0,
+      requestedDate: data.requestedDate || now.split('T')[0],
+      approvalDate: data.approvalDate || now.split('T')[0],
+      approvedBy: data.approvedBy || createdBy,
+      status: data.status || 'APPROVED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69ContractVariations).values(newVo);
+
+    // Update Revised Contract Value
+    await db.update(phase69Contracts)
+      .set({
+        revisedContractValue: sql`${phase69Contracts.revisedContractValue} + ${data.variationAmount}`,
+        updatedAt: now
+      })
+      .where(eq(phase69Contracts.id, data.contractId));
+
+    return newVo;
+  }
+
+  // --- Goods Receipts (GRN) ---
+  public async getGoodsReceipts(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    return db.select().from(phase69GoodsReceipts).where(eq(phase69GoodsReceipts.isDeleted, false)).orderBy(desc(phase69GoodsReceipts.createdAt));
+  }
+
+  public async createGoodsReceipt(data: any, createdBy: string = 'Store Keeper'): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const grnNumber = data.grnNumber || (await numberingService.generateGoodsReceiptNumber({
+      companyId: data.companyId || 'cmp-101',
+      projectId: data.projectId || 'PRJ-WATER-001',
+      date: data.receiptDate || now,
+    }));
+
+    const newGrn = {
+      id,
+      grnNumber,
+      poNumber: data.poNumber,
+      vendorId: data.vendorId,
+      vendorName: data.vendorName,
+      deliveryNoteNumber: data.deliveryNoteNumber,
+      receiptDate: data.receiptDate || now.split('T')[0],
+      siteLocation: data.siteLocation || 'Main Project Laydown Yard',
+      receivedBy: data.receivedBy || createdBy,
+      inspectedBy: data.inspectedBy || 'QA/QC Material Inspector',
+      inspectionResult: data.inspectionResult || 'ACCEPTED',
+      itemsReceivedCount: data.itemsReceivedCount || 1,
+      rejectionReason: data.rejectionReason || null,
+      mirNumber: data.mirNumber || (await numberingService.generateMaterialInspectionNumber({
+        companyId: data.companyId || 'cmp-101',
+        projectId: data.projectId || 'PRJ-WATER-001',
+        date: data.receiptDate || now,
+      })),
+      status: 'APPROVED',
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      updatedBy: createdBy,
+      isDeleted: false,
+    };
+
+    await db.insert(phase69GoodsReceipts).values(newGrn);
+    return newGrn;
+  }
+
+  // --- Three-Way Matching & Invoices ---
+  public async getThreeWayMatches(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    return db.select().from(phase69ThreeWayMatching).where(eq(phase69ThreeWayMatching.isDeleted, false)).orderBy(desc(phase69ThreeWayMatching.createdAt));
+  }
+
+  public async createThreeWayMatch(data: any): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const countRes = await db.select().from(phase69ThreeWayMatching);
+    const codeNum = String(countRes.length + 1).padStart(4, '0');
+    const matchingCode = `3WAY-2026-${codeNum}`;
+
+    const poQty = Number(data.poQuantity ?? 1);
+    const grnQty = Number(data.grnQuantity ?? poQty);
+    const invQty = Number(data.invoiceQuantity ?? poQty);
+    const poPrice = Number(data.poUnitPrice ?? (data.matchedAmount ? data.matchedAmount / poQty : 0));
+    const invPrice = Number(data.invoiceUnitPrice ?? poPrice);
+    const tolerance = Number(data.tolerancePercentage ?? 1.0);
+
+    const isQtyMatched = Math.abs(poQty - invQty) <= (poQty * tolerance) / 100;
+    const isPrMatched = Math.abs(poPrice - invPrice) <= (poPrice * tolerance) / 100;
+
+    const totalInvoiceAmount = data.matchedAmount ? Number(data.matchedAmount) : invQty * invPrice;
+
+    const newMatch = {
+      id,
+      matchingCode,
+      matchedAmount: totalInvoiceAmount,
+      poNumber: data.poNumber,
+      grnNumber: data.grnNumber,
+      invoiceNumber: data.invoiceNumber,
+      vendorName: data.vendorName,
+      poQuantity: poQty,
+      grnQuantity: grnQty,
+      invoiceQuantity: invQty,
+      poUnitPrice: poPrice,
+      invoiceUnitPrice: invPrice,
+      tolerancePercentage: tolerance,
+      isQuantityMatched: isQtyMatched,
+      isPriceMatched: isPrMatched,
+      isApprovedForPayment: true,
+      matchingStatus: data.matchingStatus || 'AUTO_RECONCILED',
+      verifiedBy: 'Automated 3-Way Engine',
+      verificationTimestamp: now,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: 'Automated 3-Way Engine',
+      updatedBy: 'Automated 3-Way Engine',
+      isDeleted: false,
+    };
+
+    await db.insert(phase69ThreeWayMatching).values(newMatch);
+
+    // Cross-Module Integration: If approved for payment, automatically create AP Invoice in Finance & Post to GL
+    if (newMatch.isApprovedForPayment) {
+      try {
+        const totalInvoiceAmount = data.matchedAmount ? Number(data.matchedAmount) : invQty * invPrice;
+        if (totalInvoiceAmount > 0) {
+          // 1. Create Finance AP Invoice
+          await financeRepository.createAPInvoice({
+            invoiceNumber: newMatch.invoiceNumber,
+            vendorName: newMatch.vendorName,
+            poNumber: newMatch.poNumber,
+            totalAmount: totalInvoiceAmount,
+            taxAmount: Math.round(totalInvoiceAmount * 0.05),
+            dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+          });
+
+          // 2. Post balanced double-entry Journal Voucher to General Ledger:
+          // Dr. 5010 Direct Site Materials & Consumables
+          // Cr. 2010 Accounts Payable Control - Trade Creditors
+          await financeRepository.createJournalEntry(
+            {
+              voucherType: 'PURCHASE_JOURNAL',
+              postingDate: now.split('T')[0],
+              referenceNumber: newMatch.invoiceNumber,
+              narration: `Automated 3-Way Match AP recognition for PO ${newMatch.poNumber} (${newMatch.vendorName})`,
+            },
+            [
+              {
+                accountCode: '5010',
+                accountName: 'Direct Site Materials & Consumables',
+                debitAmount: totalInvoiceAmount,
+                creditAmount: 0,
+                lineDescription: `Material delivery matched against GRN ${newMatch.grnNumber}`,
+              },
+              {
+                accountCode: '2010',
+                accountName: 'Accounts Payable Control - Trade Creditors',
+                debitAmount: 0,
+                creditAmount: totalInvoiceAmount,
+                lineDescription: `Trade creditor payable for ${newMatch.vendorName}`,
+              },
+            ]
+          );
+
+          // 3. Audit trail
+          await enterpriseAuditService.recordDomainEvent({
+            actionType: 'APPROVE',
+            entityType: 'THREE_WAY_MATCH',
+            entityId: newMatch.id,
+            entityNumber: newMatch.matchingCode,
+            userName: 'Automated 3-Way Engine',
+            userRole: 'SYSTEM_BOT',
+            metadata: {
+              po: newMatch.poNumber,
+              invoice: newMatch.invoiceNumber,
+              vendor: newMatch.vendorName,
+              amount: totalInvoiceAmount,
+              glPosted: true,
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('Procurement 3-way match AP posting notice:', err);
+      }
+    }
+
+    return newMatch;
+  }
+
+  // --- Supplier Scorecards & Guarantees ---
+  public async getSupplierScorecards(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    return db.select().from(phase69SupplierScorecards).where(eq(phase69SupplierScorecards.isDeleted, false)).orderBy(desc(phase69SupplierScorecards.createdAt));
+  }
+
+  public async getBankGuarantees(): Promise<any[]> {
+    await this.ensureProcurementTablesExist();
+    return db.select().from(phase69BankGuarantees).where(eq(phase69BankGuarantees.isDeleted, false)).orderBy(desc(phase69BankGuarantees.createdAt));
+  }
+
+  // --- Executive Dashboard & Stats ---
+  public async getProcurementDashboardStats(): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    await legacyProcurementTelemetry.logEvent({
+      eventType: 'LEGACY_READ_REDIRECTED',
+      caller: 'ProcurementEnterpriseRepository.getProcurementDashboardStats',
+      legacyTarget: 'phase69_purchase_orders / phase69_goods_receipts',
+      activeTarget: 'procurement_purchase_orders / procurement_grns',
+      details: {},
+    });
+
+    const vendors = await db.select().from(phase69VendorMaster).where(eq(phase69VendorMaster.isDeleted, false));
+    const rfqs = await db.select().from(phase69Rfq).where(eq(phase69Rfq.isDeleted, false));
+    const prs = await db.select().from(phase69PurchaseRequisitions).where(eq(phase69PurchaseRequisitions.isDeleted, false));
+    const activePrs = await db.select().from(procurementRequisitionsTable);
+    const pos = await db.select().from(phase69PurchaseOrders).where(eq(phase69PurchaseOrders.isDeleted, false));
+    const activePos = await db.select().from(procurementPurchaseOrdersTable);
+    const contracts = await db.select().from(phase69Contracts).where(eq(phase69Contracts.isDeleted, false));
+    const matches = await db.select().from(phase69ThreeWayMatching).where(eq(phase69ThreeWayMatching.isDeleted, false));
+    const grns = await db.select().from(phase69GoodsReceipts).where(eq(phase69GoodsReceipts.isDeleted, false));
+    const activeGrns = await db.select().from(procurementGrnsTable);
+
+    const totalSpendAed = vendors.reduce((acc, v) => acc + (v.totalSpendAmount || 0), 0) +
+      activePos.reduce((acc, p) => acc + Number(p.netAmountUSD || 0), 0);
+    const totalContractValueAed = contracts.reduce((acc, c) => acc + (c.revisedContractValue || 0), 0);
+    
+    // Count open POs across active + phase69
+    const activeOpenPosCount = activePos.filter(p => p.status === 'Issued' || p.status === 'Partially Received' || p.status === 'Draft').length;
+    const phase69OpenPosCount = pos.filter(p => p.status === 'ISSUED' || p.status === 'PARTIALLY_DELIVERED').length;
+    const openPosCount = Math.max(activeOpenPosCount, phase69OpenPosCount, activePos.length > 0 ? activeOpenPosCount : 0);
+
+    const openPrsCount = prs.length + activePrs.length;
+    const activeRfqsCount = rfqs.filter(r => r.status === 'PUBLISHED' || r.status === 'EVALUATION').length;
+    const totalGrnsCount = Math.max(grns.length, activeGrns.length);
+
+    const autoMatchedInvoicesPercent = matches.length > 0
+      ? (matches.filter(m => m.matchingStatus === 'AUTO_RECONCILED').length / matches.length) * 100
+      : 100;
+
+    return {
+      totalVendorsCount: vendors.length,
+      activeVendorsCount: vendors.filter(v => v.status === 'ACTIVE').length,
+      totalSpendAed,
+      totalContractValueAed,
+      openPosCount,
+      openPrsCount,
+      activeRfqsCount,
+      goodsReceiptsCount: totalGrnsCount,
+      autoMatchedInvoicesPercent: Number(autoMatchedInvoicesPercent.toFixed(1)),
+      averageVendorRating: 4.85,
+      costSavingsAed: 3450000,
+      savingsPercent: 8.4,
+      topVendorsBySpend: vendors.sort((a, b) => b.totalSpendAmount - a.totalSpendAmount).slice(0, 5),
+    };
+  }
+}
+
+export const procurementEnterpriseRepository = new ProcurementEnterpriseRepository();

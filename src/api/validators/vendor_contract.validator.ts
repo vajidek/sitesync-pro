@@ -1,0 +1,143 @@
+import { z } from 'zod';
+
+export const createVendorSchema = z.object({
+  name: z.string().min(2, 'Vendor name must be at least 2 characters'),
+  category: z.string().default('General Supplier'),
+  classification: z.enum(['APPROVED', 'PREFERRED', 'BLOCKED', 'BLACKLISTED', 'UNDER_REVIEW']).default('APPROVED'),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_APPROVAL']).default('ACTIVE'),
+  tradeLicenseNo: z.string().optional(),
+  tradeLicenseExpiry: z.string().optional(),
+  gstin: z.string().optional(),
+  pan: z.string().optional(),
+  msmeRegNo: z.string().optional(),
+  isoCertified: z.boolean().default(false),
+  paymentTerms: z.string().default('NET_30'),
+  creditPeriodDays: z.number().default(30),
+  riskLevel: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('LOW'),
+  insuranceExpiry: z.string().optional(),
+  notes: z.string().optional(),
+  contacts: z.array(z.object({
+    contactName: z.string(),
+    designation: z.string().optional(),
+    email: z.string().email(),
+    phone: z.string(),
+    isPrimary: z.boolean().default(false),
+  })).optional(),
+  addresses: z.array(z.object({
+    addressType: z.enum(['OFFICE', 'WAREHOUSE', 'BILLING', 'SHIPPING']).default('OFFICE'),
+    streetAddress: z.string(),
+    city: z.string(),
+    state: z.string(),
+    country: z.string().default('UAE'),
+    pincode: z.string().optional(),
+  })).optional(),
+  bankAccounts: z.array(z.object({
+    bankName: z.string(),
+    branchName: z.string().optional(),
+    accountNumber: z.string(),
+    accountHolderName: z.string(),
+    ifscCode: z.string().optional(),
+    swiftCode: z.string().optional(),
+    iban: z.string().optional(),
+    isPrimary: z.boolean().default(true),
+  })).optional(),
+});
+
+export const updateVendorStatusSchema = z.object({
+  vendorId: z.string(),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_APPROVAL']).optional(),
+  classification: z.enum(['APPROVED', 'PREFERRED', 'BLOCKED', 'BLACKLISTED', 'UNDER_REVIEW']).optional(),
+  avlStatus: z.enum(['APPROVED', 'PROVISIONAL', 'NOT_APPROVED']).optional(),
+  comments: z.string().optional(),
+});
+
+export const rateVendorSchema = z.object({
+  vendorId: z.string(),
+  ratingPeriod: z.string(),
+  qualityRating: z.number().min(1).max(5),
+  deliveryRating: z.number().min(1).max(5),
+  priceCompetitiveness: z.number().min(1).max(5),
+  safetyRating: z.number().min(1).max(5),
+  evaluatorName: z.string(),
+  comments: z.string().optional(),
+});
+
+export const blacklistVendorSchema = z.object({
+  vendorId: z.string(),
+  reason: z.string().min(5, 'Reason is required for blacklisting'),
+  durationMonths: z.number().default(12),
+  blacklistedBy: z.string(),
+});
+
+export const createContractSchema = z.object({
+  title: z.string().min(3, 'Contract title is required'),
+  contractType: z.enum([
+    'SUPPLY', 'SERVICE', 'LABOUR', 'AMC', 'CONSULTANCY', 
+    'MECHANICAL', 'ELECTRICAL', 'CIVIL', 'PIPELINE', 'INSTRUMENTATION', 'AUTOMATION'
+  ]).default('SUPPLY'),
+  vendorId: z.string(),
+  vendorName: z.string(),
+  projectId: z.string().optional(),
+  projectName: z.string().optional(),
+  packageId: z.string().optional(),
+  wbsCode: z.string().optional(),
+  department: z.string().default('Contracts'),
+  contractValue: z.number().min(0),
+  currency: z.string().default('AED'),
+  startDate: z.string(),
+  endDate: z.string(),
+  retentionPercent: z.number().default(10.0),
+  securityDepositAmount: z.number().default(0),
+  performanceGuaranteeAmount: z.number().default(0),
+  ldPercentPerWeek: z.number().default(0.5),
+  maxLdCapPercent: z.number().default(10.0),
+  termsAndConditions: z.string().optional(),
+  notes: z.string().optional(),
+  items: z.array(z.object({
+    materialOrServiceCode: z.string(),
+    description: z.string(),
+    quantity: z.number(),
+    unit: z.string().default('PCS'),
+    rate: z.number(),
+    totalAmount: z.number(),
+    boqRef: z.string().optional(),
+    wbsRef: z.string().optional(),
+  })).optional(),
+});
+
+export const approveContractSchema = z.object({
+  contractId: z.string(),
+  action: z.enum(['APPROVE', 'REJECT', 'REVISE']),
+  approverId: z.string(),
+  approverName: z.string(),
+  comments: z.string().optional(),
+});
+
+export const createContractVariationSchema = z.object({
+  contractId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  variationType: z.enum(['ADDITION', 'OMISSION', 'SCOPE_CHANGE', 'PRICE_REVISION']).default('ADDITION'),
+  amount: z.number(),
+  timeExtensionDays: z.number().default(0),
+  justification: z.string().optional(),
+  approvedBy: z.string().optional(),
+});
+
+export const createContractPaymentSchema = z.object({
+  contractId: z.string(),
+  billingPeriod: z.string(),
+  grossAmount: z.number(),
+  retentionDeducted: z.number().default(0),
+  advanceAdjusted: z.number().default(0),
+  penaltyDeducted: z.number().default(0),
+  certifiedBy: z.string(),
+});
+
+export const createContractExtensionSchema = z.object({
+  contractId: z.string(),
+  extensionDays: z.number().min(1),
+  newEndDate: z.string(),
+  reason: z.string(),
+  approvedBy: z.string(),
+});

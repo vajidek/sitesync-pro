@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sitesync_app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://sitesync:sitesync_secret@db:5432/sitesyncpro?schema=public
+      - JWT_SECRET=sitesync-pro-enterprise-jwt-access-secret-2026-key
+      - JWT_REFRESH_SECRET=sitesync-pro-enterprise-jwt-refresh-secret-2026-key
+    depends_on:
+      - db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:15-alpine
+    container_name: sitesync_db
+    restart: always
+    environment:
+      POSTGRES_USER: sitesync
+      POSTGRES_PASSWORD: sitesync_secret
+      POSTGRES_DB: sitesyncpro
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

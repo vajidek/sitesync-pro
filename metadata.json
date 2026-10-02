@@ -1,0 +1,6 @@
+{
+  "name": "SiteSync Pro",
+  "description": "SiteSync Pro - Construction & Infrastructure Project Management Platform. Integrated enterprise ERP for multi-discipline projects, commercial governance, workforce, procurement, finance, assets, quality, HSE and operational controls.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

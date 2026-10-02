@@ -64,6 +64,9 @@ import {
   procurementRaBillsTable,
   materials,
   stockTransactions,
+  warehouses,
+  stocks,
+  sites,
 } from '../../db/schema';
 import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';
@@ -952,10 +955,12 @@ export class ProcurementRepository {
     const vendorName = String(data.vendorName || '').trim();
     const poIdInput = String(data.poId || '').trim();
     const poNumberInput = String(data.poNumber || '').trim();
+    const warehouseId = String((data as any).warehouseId || '').trim();
     const warehouseName = String(data.warehouseName || '').trim();
     const items = Array.isArray(data.items) ? data.items : [];
+    const stockPostable = data.qualityStatus === 'Passed' || data.qualityStatus === 'Passed with Partial Rejection';
 
-    if ((!poIdInput && !poNumberInput) || !vendorId || !vendorName || !projectId || !projectName || !warehouseName || items.length === 0) {
+    if ((!poIdInput && !poNumberInput) || !vendorId || !vendorName || !projectId || !projectName || !warehouseId || !warehouseName || !data.inspectedByName?.trim() || items.length === 0) {
       throw new Error('Linked PO, vendor, project, warehouse and receipt items are required for a GRN.');
     }
 
@@ -982,6 +987,7 @@ export class ProcurementRepository {
       vendorName,
       projectId,
       projectName,
+      warehouseId,
       warehouseName,
       receivedDate: data.receivedDate || now,
       challanNo: data.challanNo || '',
@@ -1107,13 +1113,12 @@ export class ProcurementRepository {
         inspectedByName: newGrn.inspectedByName,
         qualityStatus: newGrn.qualityStatus,
         items: newGrn.items,
-        stockUpdated: true,
+        stockUpdated: stockPostable,
         remarks: newGrn.remarks,
         createdAt: now,
       } as any);
 
       // 3. Atomically update warehouse stock for quality-approved accepted quantities.
-      const stockPostable = newGrn.qualityStatus === 'Passed' || newGrn.qualityStatus === 'Passed with Partial Rejection';
       if (stockPostable) {
         for (const gi of newGrn.items || []) {
           const acceptedQty = Number(gi.acceptedQty ?? 0);

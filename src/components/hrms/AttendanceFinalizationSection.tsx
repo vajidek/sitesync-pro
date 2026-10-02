@@ -73,7 +73,7 @@ export const AttendanceFinalizationSection: React.FC<AttendanceFinalizationSecti
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           periodId: selectedPeriodId,
-          monthYear: currentPeriod?.periodName || 'August 2026',
+          monthYear: currentPeriod?.monthYear || (currentPeriod?.year && currentPeriod?.month ? `${currentPeriod.year}-${String(currentPeriod.month).padStart(2, '0')}` : ''),
           remarks: 'Pre-payroll attendance verification completed by HR Operations.',
         }),
       });
@@ -81,7 +81,7 @@ export const AttendanceFinalizationSection: React.FC<AttendanceFinalizationSecti
       if (data?.success) {
         setActionMessage({
           type: 'success',
-          text: `Attendance for ${currentPeriod?.periodName || 'period'} finalized and locked successfully for payroll processing.`,
+          text: `Attendance for ${currentPeriod?.periodName || currentPeriod?.monthYear || 'period'} finalized and locked successfully for payroll processing.`,
         });
         fetchFinalizations(selectedPeriodId);
         if (onAttendanceFinalized) onAttendanceFinalized();

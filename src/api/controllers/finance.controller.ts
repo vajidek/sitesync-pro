@@ -65,7 +65,19 @@ export class FinanceController {
   async postJournalEntry(req: Request, res: Response) {
     try {
       const validated = createJournalEntrySchema.parse(req.body);
-      const journal = await service.postJournalEntry(validated);
+      const user = (req as any).user;
+      const actor = String(user?.name || user?.email || '').trim();
+      if (!actor) {
+        res.status(401).json({ success: false, message: 'Authenticated finance actor identity is required.' });
+        return;
+      }
+
+      const journal = await service.postJournalEntry({
+        ...validated,
+        postedBy: actor,
+        createdBy: actor,
+        updatedBy: actor,
+      });
       res.status(201).json({ success: true, data: journal });
     } catch (e: any) {
       res.status(400).json({ success: false, message: e.message });

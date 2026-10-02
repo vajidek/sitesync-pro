@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useShell } from '../layout/ShellContext';
 import { safeFetchJson } from '../../lib/safeFetch';
 import {
   Building2,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 
 export const EnterpriseProcurementModule: React.FC = () => {
+  const { isDemo } = useShell();
   const [activeTab, setActiveTab] = useState<
     'overview' | 'vendors' | 'rfqs' | 'pos' | 'contracts' | 'grn' | 'matching' | 'scorecards'
   >('overview');
@@ -56,55 +58,55 @@ export const EnterpriseProcurementModule: React.FC = () => {
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
 
   // Forms
-  const [newVendor, setNewVendor] = useState({
+  const [newVendor, setNewVendor] = useState(() => ({
     companyName: '',
     registrationNumber: '',
     taxIdentificationNumber: '',
-    categoryCode: 'PIPES_FITTINGS',
-    vendorType: 'MANUFACTURER',
+    categoryCode: '',
+    vendorType: '',
     contactPerson: '',
     email: '',
     phone: '',
     addressStreet: '',
-    city: 'Dubai',
-    creditTermsDays: 60,
-    currency: 'AED',
-  });
+    city: isDemo ? 'Dubai' : '',
+    creditTermsDays: isDemo ? 60 : 0,
+    currency: isDemo ? 'AED' : '',
+  }));
 
-  const [newRfq, setNewRfq] = useState({
+  const [newRfq, setNewRfq] = useState(() => ({
     title: '',
-    projectId: 'PRJ-WATER-001',
-    projectName: 'Metropolitan Water Pipeline Network Expansion Phase-4',
-    category: 'PIPES_FITTINGS',
-    submissionDeadline: '2026-09-15',
-    targetDeliveryDate: '2026-10-30',
-    deliveryLocation: 'Sector 4 Zone B Laydown Yard',
-    estimatedBudgetAed: 15000000,
-    buyerName: 'Senior Procurement Specialist',
-    items: [
-      { itemCode: 'MAT-PIPE-01', description: 'Ductile Iron Pipe DN1200 K9 Class', quantity: 5000, uom: 'MTRS', targetUnitPrice: 1250 }
-    ]
-  });
+    projectId: isDemo ? 'PRJ-WATER-001' : '',
+    projectName: isDemo ? 'Metropolitan Water Pipeline Network Expansion Phase-4' : '',
+    category: '',
+    submissionDeadline: isDemo ? '2026-09-15' : '',
+    targetDeliveryDate: isDemo ? '2026-10-30' : '',
+    deliveryLocation: isDemo ? 'Sector 4 Zone B Laydown Yard' : '',
+    estimatedBudgetAed: isDemo ? 15000000 : 0,
+    buyerName: isDemo ? 'Senior Procurement Specialist' : '',
+    items: isDemo
+      ? [{ itemCode: 'MAT-PIPE-01', description: 'Ductile Iron Pipe DN1200 K9 Class', quantity: 5000, uom: 'MTRS', targetUnitPrice: 1250 }]
+      : [{ itemCode: '', description: '', quantity: 0, uom: '', targetUnitPrice: 0 }]
+  }));
 
-  const [newPo, setNewPo] = useState({
+  const [newPo, setNewPo] = useState(() => ({
     vendorId: '',
     vendorName: '',
-    deliveryDate: '2026-10-15',
-    deliveryLocation: 'Sector 4 Zone B Laydown Yard',
-    subtotal: 2500000,
-    notes: 'Standard project delivery specifications apply.',
-  });
+    deliveryDate: isDemo ? '2026-10-15' : '',
+    deliveryLocation: isDemo ? 'Sector 4 Zone B Laydown Yard' : '',
+    subtotal: isDemo ? 2500000 : 0,
+    notes: isDemo ? 'Standard project delivery specifications apply.' : '',
+  }));
 
-  const [newContract, setNewContract] = useState({
+  const [newContract, setNewContract] = useState(() => ({
     title: '',
     vendorId: '',
     vendorName: '',
-    contractType: 'SUBCONTRACT',
-    effectiveStartDate: '2026-09-01',
-    effectiveEndDate: '2027-03-31',
-    originalContractValue: 8500000,
-    contractManager: 'Senior Contracts Director',
-  });
+    contractType: '',
+    effectiveStartDate: isDemo ? '2026-09-01' : '',
+    effectiveEndDate: isDemo ? '2027-03-31' : '',
+    originalContractValue: isDemo ? 8500000 : 0,
+    contractManager: isDemo ? 'Senior Contracts Director' : '',
+  }));
 
   const loadData = async () => {
     setIsLoading(true);

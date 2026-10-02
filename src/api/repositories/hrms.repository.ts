@@ -155,9 +155,13 @@ export class HrmsRepository {
           punch_type TEXT NOT NULL DEFAULT 'CHECK_IN',
           verification_mode TEXT NOT NULL DEFAULT 'FINGERPRINT',
           raw_payload TEXT,
+          source_fingerprint TEXT,
           is_processed BOOLEAN NOT NULL DEFAULT false,
           created_at TEXT NOT NULL
         );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_biometric_raw_source_fingerprint
+          ON hr_biometric_raw_punches(source_fingerprint);
       `);
       // Synthetic employees, salary structures, attendance and payroll fixtures are DEMO-only.
       // UAT/PRODUCTION must begin from controlled HR master provisioning.

@@ -1,5 +1,5 @@
 import { db } from '../../db/index';
-import { sql, eq, desc, inArray } from 'drizzle-orm';
+import { sql, eq, desc, inArray, and } from 'drizzle-orm';
 import {
   phase64ProjectsWbs,
   phase64WorkPackages,
@@ -612,10 +612,25 @@ export class ProjectControlsRepository {
     const wbsNumber = `WBS-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
+    const projectId = this.resolveProjectId(data.projectId);
+    if (!String(data.code || '').trim() || !String(data.name || '').trim()) {
+      throw new Error('WBS code and name are required.');
+    }
+
+    if (data.parentId) {
+      const parent = await db.select({ id: phase64ProjectsWbs.id, projectId: phase64ProjectsWbs.projectId })
+        .from(phase64ProjectsWbs)
+        .where(and(eq(phase64ProjectsWbs.id, data.parentId), sql`is_deleted = false`))
+        .limit(1);
+      if (!parent.length || parent[0].projectId !== projectId) {
+        throw new Error('Parent WBS node does not belong to the selected project.');
+      }
+    }
+
     const record = {
       id,
       wbsNumber,
-      projectId: this.resolveProjectId(data.projectId),
+      projectId,
       code: data.code,
       name: data.name,
       description: data.description || '',
@@ -656,11 +671,23 @@ export class ProjectControlsRepository {
     const wpNumber = `WP-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
+    const projectId = this.resolveProjectId(data.projectId);
+    const [wbs] = await db.select({ id: phase64ProjectsWbs.id, projectId: phase64ProjectsWbs.projectId })
+      .from(phase64ProjectsWbs)
+      .where(and(eq(phase64ProjectsWbs.id, data.wbsId), sql`is_deleted = false`))
+      .limit(1);
+    if (!wbs || wbs.projectId !== projectId) {
+      throw new Error('Work package WBS does not belong to the selected project.');
+    }
+    if (!String(data.code || '').trim() || !String(data.name || '').trim()) {
+      throw new Error('Work package code and name are required.');
+    }
+
     const record = {
       id,
       wpNumber,
       wbsId: data.wbsId,
-      projectId: this.resolveProjectId(data.projectId),
+      projectId,
       code: data.code,
       name: data.name,
       deliverable: data.deliverable || '',
@@ -697,10 +724,29 @@ export class ProjectControlsRepository {
     const activityNumber = `ACT-2026-${String(count).padStart(4, '0')}`;
     const now = new Date().toISOString();
 
+    const projectId = this.resolveProjectId(data.projectId);
+    const [wbs] = await db.select({ id: phase64ProjectsWbs.id, projectId: phase64ProjectsWbs.projectId })
+      .from(phase64ProjectsWbs)
+      .where(and(eq(phase64ProjectsWbs.id, data.wbsId), sql`is_deleted = false`))
+      .limit(1);
+    if (!wbs || wbs.projectId !== projectId) {
+      throw new Error('Activity WBS does not belong to the selected project.');
+    }
+
+    if (data.wpId) {
+      const [wp] = await db.select({ id: phase64WorkPackages.id, projectId: phase64WorkPackages.projectId, wbsId: phase64WorkPackages.wbsId })
+        .from(phase64WorkPackages)
+        .where(and(eq(phase64WorkPackages.id, data.wpId), sql`is_deleted = false`))
+        .limit(1);
+      if (!wp || wp.projectId !== projectId || wp.wbsId !== data.wbsId) {
+        throw new Error('Activity work package does not belong to the selected project/WBS.');
+      }
+    }
+
     const record = {
       id,
       activityNumber,
-      projectId: this.resolveProjectId(data.projectId),
+      projectId,
       wbsId: data.wbsId,
       wpId: data.wpId || null,
       activityCode: data.activityCode,
@@ -737,22 +783,56 @@ export class ProjectControlsRepository {
   // 4. Relationships
   public async getRelationships(projectId: string | undefined) {
     await this.ensureProjectControlsTablesExist();
-    projectId = this.resolveProjectId(projectId);
-    return db.select().from(phase64ActivityRelationships).where(sql`is_deleted = false`);
+    const resolvedProjectId = this.resolveProjectId(projectId);
+
+    const projectActivities = await db.select({ id: phase64ProjectActivities.id })
+      .from(phase64ProjectActivities)
+      .where(sql`project_id = ${resolvedProjectId} AND is_deleted = false`);
+
+    const activityIds = projectActivities.map((activity) => activity.id);
+    if (activityIds.length === 0) return [];
+
+    return db.select()
+      .from(phase64ActivityRelationships)
+      .where(and(
+        sql`is_deleted = false`,
+        inArray(phase64ActivityRelationships.predecessorActivityId, activityIds),
+        inArray(phase64ActivityRelationships.successorActivityId, activityIds),
+      ));
   }
 
   public async createRelationship(data: any) {
     await this.ensureProjectControlsTablesExist();
     const actor = this.requireWriteActor(data);
+    const predecessorId = String(data.predecessorActivityId || '').trim();
+    const successorId = String(data.successorActivityId || '').trim();
+
+    if (!predecessorId || !successorId || predecessorId === successorId) {
+      throw new Error('Valid distinct predecessor and successor activities are required.');
+    }
+
+    const [predecessor] = await db.select()
+      .from(phase64ProjectActivities)
+      .where(and(eq(phase64ProjectActivities.id, predecessorId), sql`is_deleted = false`))
+      .limit(1);
+    const [successor] = await db.select()
+      .from(phase64ProjectActivities)
+      .where(and(eq(phase64ProjectActivities.id, successorId), sql`is_deleted = false`))
+      .limit(1);
+
+    if (!predecessor || !successor || predecessor.projectId !== successor.projectId) {
+      throw new Error('Predecessor and successor activities must belong to the same project.');
+    }
+
     const id = uuidv4();
     const now = new Date().toISOString();
 
     const record = {
       id,
-      predecessorActivityId: data.predecessorActivityId,
-      successorActivityId: data.successorActivityId,
+      predecessorActivityId: predecessorId,
+      successorActivityId: successorId,
       relationshipType: data.relationshipType || 'FS',
-      lagDays: data.lagDays || 0,
+      lagDays: Number(data.lagDays || 0),
       createdAt: now,
       updatedAt: now,
       createdBy: actor,

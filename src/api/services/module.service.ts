@@ -53,8 +53,8 @@ export class ModuleService {
     return moduleRepository.archiveFeature(id);
   }
 
-  async getSidebarTree(userRole: string, departmentId?: string, projectId?: string) {
-    return moduleRepository.getSidebarTree(userRole, departmentId, projectId);
+  async getSidebarTree(userRole: string, departmentId?: string, projectId?: string, userId?: string) {
+    return moduleRepository.getSidebarTree(userRole, departmentId, projectId, userId);
   }
 
   async getDashboardWidgets(moduleCode?: string) {

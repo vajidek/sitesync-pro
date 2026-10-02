@@ -54,6 +54,7 @@ import {
   hrBiometricRawPunches,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
+import { createHash } from 'node:crypto';
 import { statutoryEngineService } from '../services/statutoryEngine.service';
 import { currencyRepository } from './currency.repository';
 import { workflowPolicyEngine } from '../services/workflowPolicyEngine.service';
@@ -142,6 +143,7 @@ export class HrmsRepository {
           created_at TEXT NOT NULL
         );
 
+        ALTER TABLE hr_biometric_raw_punches ADD COLUMN IF NOT EXISTS source_fingerprint TEXT;
         CREATE TABLE IF NOT EXISTS hr_biometric_raw_punches (
           id TEXT PRIMARY KEY,
           device_id TEXT NOT NULL,
@@ -153,9 +155,13 @@ export class HrmsRepository {
           punch_type TEXT NOT NULL DEFAULT 'CHECK_IN',
           verification_mode TEXT NOT NULL DEFAULT 'FINGERPRINT',
           raw_payload TEXT,
+          source_fingerprint TEXT,
           is_processed BOOLEAN NOT NULL DEFAULT false,
           created_at TEXT NOT NULL
         );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_hr_biometric_raw_source_fingerprint
+          ON hr_biometric_raw_punches(source_fingerprint);
       `);
       // Synthetic employees, salary structures, attendance and payroll fixtures are DEMO-only.
       // UAT/PRODUCTION must begin from controlled HR master provisioning.
@@ -596,12 +602,52 @@ export class HrmsRepository {
       totalHours = parseFloat((diff / 60).toFixed(2));
     }
 
+    const employeeId = String(data.employeeId || '').trim();
+    const employeeCode = String(data.employeeCode || '').trim();
+    const attendanceDate = String(data.attendanceDate || '').trim();
+    const recordedById = String(data.recordedById || '').trim();
+    const recordedByName = String(data.recordedByName || '').trim();
+
+    if (!employeeId || !employeeCode || !attendanceDate || !recordedById || !recordedByName) {
+      throw new Error('Employee, attendance date and authenticated recording actor are required.');
+    }
+
+    const [employee] = await db.select({ id: phase70EmployeeMaster.id, employeeCode: phase70EmployeeMaster.employeeCode, isDeleted: phase70EmployeeMaster.isDeleted })
+      .from(phase70EmployeeMaster)
+      .where(eq(phase70EmployeeMaster.id, employeeId))
+      .limit(1);
+    if (!employee || employee.isDeleted || employee.employeeCode !== employeeCode) {
+      throw new Error('Attendance employee context could not be verified.');
+    }
+
     const [rec] = await db.insert(phase70Attendance).values({
       id,
-      ...data,
+      employeeId,
+      employeeCode,
+      attendanceDate,
+      shiftId: data.shiftId || null,
+      inTime: data.inTime || null,
+      outTime: data.outTime || null,
       totalHours,
+      lateMinutes: Number(data.lateMinutes || 0),
+      earlyExitMinutes: Number(data.earlyExitMinutes || 0),
+      overtimeHours: Number(data.overtimeHours || 0),
+      status: data.status || 'PRESENT',
+      punchSource: data.punchSource || 'MANUAL_ENTRY',
+      latitude: data.latitude ?? null,
+      longitude: data.longitude ?? null,
+      deviceId: data.deviceId || null,
+      actionTaken: data.actionTaken || 'MANUAL_ATTENDANCE_ENTRY',
+      payloadSent: data.payloadSent || null,
+      rawResponse: data.rawResponse || null,
+      statusCode: data.statusCode || null,
+      executionDurationMs: data.executionDurationMs ?? null,
+      isVerified: false,
+      verifiedBy: null,
+      remarks: data.remarks || null,
       createdAt: now,
       updatedAt: now,
+      createdBy: recordedByName,
     }).returning();
     return rec;
   }
@@ -625,12 +671,16 @@ export class HrmsRepository {
       const rawTimestamp = p.timestamp || p.punchTimestamp || now;
       const punchType = (p.punchType || p.type || 'CHECK_IN').toUpperCase();
       const verificationMode = (p.verificationMode || p.authMode || 'FINGERPRINT').toUpperCase();
+      const biometricId = String(p.biometricId || 'UNKNOWN').trim();
+      const sourceFingerprint = createHash('sha256')
+        .update([deviceId, biometricId, rawTimestamp, punchType, verificationMode].join('|'))
+        .digest('hex');
 
-      // 1. IMMUTABLE RAW BIOMETRIC PUNCH PERSISTENCE (Append-only)
+      // 1. IMMUTABLE RAW BIOMETRIC PUNCH PERSISTENCE (Append-only + idempotent)
       await db.insert(hrBiometricRawPunches).values({
         id,
         deviceId,
-        biometricId: p.biometricId || 'UNKNOWN',
+        biometricId,
         employeeId: matchedEmp?.id || p.employeeId || null,
         employeeCode: matchedEmp?.employeeCode || p.employeeCode || null,
         employeeName: matchedEmp ? `${matchedEmp.firstName || ''} ${matchedEmp.lastName || ''}`.trim() : p.employeeName || null,
@@ -638,9 +688,10 @@ export class HrmsRepository {
         punchType,
         verificationMode,
         rawPayload: JSON.stringify(p),
-        isProcessed: true,
+        sourceFingerprint,
+        isProcessed: false,
         createdAt: now,
-      }).onConflictDoNothing();
+      }).onConflictDoNothing({ target: hrBiometricRawPunches.sourceFingerprint });
 
       const log = {
         id,
@@ -658,7 +709,7 @@ export class HrmsRepository {
         entityType: 'ATTENDANCE_PUNCH',
         entityId: id,
         referenceNumber: deviceId,
-        performedBy: 'Biometric Gateway',
+        performedBy: 'ESSL_INTEGRATION',
         detailsJson: JSON.stringify(log),
         timestamp: now,
         createdAt: now,

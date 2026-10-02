@@ -122,7 +122,13 @@ export class HrmsController {
 
   public recordAttendance = async (req: Request, res: Response): Promise<void> => {
     try {
-      const rec = await this.service.recordAttendance(req.body);
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const rec = await this.service.recordAttendance({
+        ...req.body,
+        recordedById: actor.userId,
+        recordedByName: actor.userName,
+      });
       res.status(201).json({ success: true, data: rec });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -131,8 +137,13 @@ export class HrmsController {
 
   public syncEssl = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { deviceId, records } = req.body;
-      const result = await this.service.syncEsslBiometrics(deviceId || 'ESSL-DX-901', records || []);
+      const deviceId = String(req.body?.deviceId || '').trim();
+      const records = Array.isArray(req.body?.records) ? req.body.records : [];
+      if (!deviceId) {
+        res.status(400).json({ success: false, message: 'Configured eSSL device ID is required.' });
+        return;
+      }
+      const result = await this.service.syncEsslBiometrics(deviceId, records);
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -248,11 +259,12 @@ export class HrmsController {
 
   public executePayrollRun = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { periodId, remarks, currency, jurisdiction } = req.body;
-      const user = (req as any).user || { id: 'usr-maker-01', name: 'Payroll Preparation Officer' };
       const runResult = await this.service.processPayrollRun(periodId, remarks, {
-        makerUserId: user.id || user.userId || 'usr-maker-01',
-        makerUserName: user.name || user.fullName || 'Payroll Preparation Officer',
+        makerUserId: actor.userId,
+        makerUserName: actor.userName,
         currency,
         jurisdiction,
       });
@@ -275,8 +287,9 @@ export class HrmsController {
 
   public upsertStatutoryRule = async (req: Request, res: Response): Promise<void> => {
     try {
-      const user = (req as any).user || { name: 'Admin' };
-      const rule = await this.service.upsertStatutoryRule(req.body, user.name || 'Admin');
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const rule = await this.service.upsertStatutoryRule(req.body, actor.userName);
       res.status(200).json({ success: true, data: rule });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -297,8 +310,9 @@ export class HrmsController {
   public updateEmployeeStatutoryProfile = async (req: Request, res: Response): Promise<void> => {
     try {
       const { employeeId } = req.params;
-      const user = (req as any).user || { name: 'Admin' };
-      const updated = await this.service.updateEmployeeStatutoryProfile(employeeId, req.body, user.name || 'Admin');
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const updated = await this.service.updateEmployeeStatutoryProfile(employeeId, req.body, actor.userName);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
@@ -331,12 +345,10 @@ export class HrmsController {
 
   public submitPayrollForReview = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
-      const user = (req as any).user || { id: 'usr-maker-01', name: 'Payroll Preparation Officer' };
-      const updated = await this.service.submitPayrollForReview(id, {
-        userId: user.id || user.userId || 'usr-maker-01',
-        userName: user.name || user.fullName || 'Payroll Preparation Officer',
-      });
+      const updated = await this.service.submitPayrollForReview(id, actor);
       res.status(200).json({ success: true, data: updated });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });

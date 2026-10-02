@@ -31,6 +31,7 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - PR #84 — HSE: incident/PTW actor binding, safety validation, maker-checker permit approval, and removal of synthetic safety-data defaults.
 - PR #85 — HSE: Risk Assessment/JSA actor binding, controlled approval lifecycle, maker-checker protection, audit history, unique document numbering, and duplicate PTW route cleanup.
 - PR #86 — Documents/CDE: versioning, checkout, review/approval, actor binding, atomic document writes, revision/checkout uniqueness, EDMS initialization fail-closed behavior, and canonical auth token usage.
+- PR #87 — Claims/Variations: contract change traceability, first-class claims, CDE evidence linkage, correct variation/EOT commercial math, privileged claim workflow roles, and Claims workspace.
 
 ## Current status
 - HR master-data hardening: completed in main through authenticated actor propagation, canonical employee/leave/salary/loan writes, configurable numbering, and removal of production fallback identities/codes.
@@ -39,13 +40,12 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - Do not repeat the completed items above.
 
 ## Next unfinished area
-1. Claims/Variations — commercial lifecycle integration and evidence linkage.
-2. UI/UX consolidation — remove duplicated modules/screens and unify ERP navigation/workflows.
-3. CI/testing — compile/test coverage and deployment gates.
-4. Remaining HSE modules — only where new evidence shows unfinished transaction integrity beyond Incident/Near-Miss/Risk/JSA/PTW.
+1. UI/UX consolidation — remove duplicated modules/screens and unify ERP navigation/workflows.
+2. CI/testing — compile/test coverage and deployment gates.
+3. Remaining HSE modules — only where new evidence shows unfinished transaction integrity beyond Incident/Near-Miss/Risk/JSA/PTW.
 
 ## Continuation marker
-Last verified main merge: PR #86. Next work should begin at Claims/Variations; do not restart Store/Cost/HR/Finance/QAQC/HSE Risk-JSA or completed Documents/CDE hardening unless new evidence shows a regression.
+Last verified main merge: PR #87. Next work should begin at UI/UX consolidation; do not restart Store/Cost/HR/Finance/QAQC/HSE Risk-JSA/Documents/CDE/Claims-Variations hardening unless new evidence shows a regression.
 
 ## Safe marking rule
 Prefer this checkpoint file. It does not affect ERP runtime behavior. Use source-code comments only when truly useful.

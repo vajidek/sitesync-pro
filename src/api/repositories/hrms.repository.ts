@@ -54,6 +54,7 @@ import {
   hrBiometricRawPunches,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
+import { createHash } from 'node:crypto';
 import { statutoryEngineService } from '../services/statutoryEngine.service';
 import { currencyRepository } from './currency.repository';
 import { workflowPolicyEngine } from '../services/workflowPolicyEngine.service';
@@ -142,6 +143,7 @@ export class HrmsRepository {
           created_at TEXT NOT NULL
         );
 
+        ALTER TABLE hr_biometric_raw_punches ADD COLUMN IF NOT EXISTS source_fingerprint TEXT;
         CREATE TABLE IF NOT EXISTS hr_biometric_raw_punches (
           id TEXT PRIMARY KEY,
           device_id TEXT NOT NULL,
@@ -665,12 +667,16 @@ export class HrmsRepository {
       const rawTimestamp = p.timestamp || p.punchTimestamp || now;
       const punchType = (p.punchType || p.type || 'CHECK_IN').toUpperCase();
       const verificationMode = (p.verificationMode || p.authMode || 'FINGERPRINT').toUpperCase();
+      const biometricId = String(p.biometricId || 'UNKNOWN').trim();
+      const sourceFingerprint = createHash('sha256')
+        .update([deviceId, biometricId, rawTimestamp, punchType, verificationMode].join('|'))
+        .digest('hex');
 
-      // 1. IMMUTABLE RAW BIOMETRIC PUNCH PERSISTENCE (Append-only)
+      // 1. IMMUTABLE RAW BIOMETRIC PUNCH PERSISTENCE (Append-only + idempotent)
       await db.insert(hrBiometricRawPunches).values({
         id,
         deviceId,
-        biometricId: p.biometricId || 'UNKNOWN',
+        biometricId,
         employeeId: matchedEmp?.id || p.employeeId || null,
         employeeCode: matchedEmp?.employeeCode || p.employeeCode || null,
         employeeName: matchedEmp ? `${matchedEmp.firstName || ''} ${matchedEmp.lastName || ''}`.trim() : p.employeeName || null,
@@ -678,9 +684,10 @@ export class HrmsRepository {
         punchType,
         verificationMode,
         rawPayload: JSON.stringify(p),
+        sourceFingerprint,
         isProcessed: false,
         createdAt: now,
-      }).onConflictDoNothing();
+      }).onConflictDoNothing({ target: hrBiometricRawPunches.sourceFingerprint });
 
       const log = {
         id,

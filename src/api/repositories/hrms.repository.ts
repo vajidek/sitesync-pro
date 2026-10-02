@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { db } from '../../db/index';
 import { sql, eq, desc, and } from 'drizzle-orm';
 import { enterpriseAuditRepository } from './enterprise_audit.repository';
@@ -750,7 +751,7 @@ export class HrmsRepository {
     return app;
   }
 
-  public async reviewLeave(id: string, status: string, remarks?: string, approverName: string): Promise<any> {
+  public async reviewLeave(id: string, status: string, remarks: string | undefined, approverName: string, approverId: string): Promise<any> {
     await this.ensureHrmsTablesExist();
     const actor = String(approverName || '').trim();
     if (!actor) throw new Error('Authenticated leave reviewer identity is required.');
@@ -771,11 +772,8 @@ export class HrmsRepository {
       throw new Error(`Invalid leave status transition: ${existing.status} → ${status}`);
     }
 
-    if (existing.employeeId === (existing.appliedById || existing.employeeId) && status !== 'CANCELLED') {
-      const requestedActorId = String((existing as any).reviewerId || '').trim();
-      if (requestedActorId && requestedActorId === actor) {
-        throw new Error('Maker-checker violation: leave requester cannot review their own leave.');
-      }
+    if (status !== 'CANCELLED' && approverId && existing.employeeId === approverId) {
+      throw new Error('Maker-checker violation: leave requester cannot review their own leave.');
     }
 
     const now = new Date().toISOString();

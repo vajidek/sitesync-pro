@@ -1121,15 +1121,34 @@ export class WorkflowRepository {
       department: data.department || parsedContext.department || null,
     };
 
-    // Dynamic Approver Resolution with base currency threshold amount (INR)
+    // Resolve the first workflow step from persisted configuration.
+    const workflowRows = await db.select()
+      .from(phase66Workflows)
+      .where(eq(phase66Workflows.code, data.workflowCode))
+      .limit(1);
+    if (!workflowRows.length) {
+      throw new Error(`Workflow '${data.workflowCode}' is not configured.`);
+    }
+
+    const stepRows = await db.select()
+      .from(phase66WorkflowSteps)
+      .where(eq(phase66WorkflowSteps.workflowId, workflowRows[0].id))
+      .orderBy(sql`step_order ASC`)
+      .limit(1);
+
+    const firstStep = stepRows[0];
+    if (!firstStep) {
+      throw new Error(`Workflow '${data.workflowCode}' has no configured approval steps.`);
+    }
+
     const approverRes = await this.resolveApprover({
       workflowCode: data.workflowCode,
-      stepOrder: 1,
-      requiredRole: 'MANAGER',
+      stepOrder: firstStep.stepOrder,
+      requiredRole: firstStep.approverRole,
       amount: baseAmount,
       currency: thresholdCurrency,
-      projectId: mergedContext.projectId,
-      department: mergedContext.department,
+      projectId: mergedContext.projectId || undefined,
+      department: mergedContext.department || undefined,
       requesterId,
     });
 
@@ -1156,12 +1175,12 @@ export class WorkflowRepository {
     const newTask = {
       id: taskId,
       instanceId,
-      stepId: `step-${data.workflowCode}-1`,
+      stepId: firstStep.id,
       assignedRoleId: approverRes.assignedRoleId,
       assignedUserId: approverRes.assignedUserId || null,
       assignedUserName: approverRes.assignedUserName,
       status: 'PENDING',
-      dueDate: due,
+      dueDate: new Date(Date.now() + Math.max(1, Number(firstStep.slaHours || 24)) * 3600000).toISOString(),
       createdAt: now,
       updatedAt: now,
     };

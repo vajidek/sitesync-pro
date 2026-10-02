@@ -22,8 +22,8 @@ export const createDocumentSchema = z.object({
   categoryId: z.string().optional(),
   fileType: z.string().min(1).default('PDF'),
   mimeType: z.string().optional().default('application/pdf'),
-  fileSizeBytes: z.number().min(0).default(0),
-  fileUrl: z.string().optional().default('https://assets.sitesyncpro.com/docs/sample.pdf'),
+  fileSizeBytes: z.number().min(0).optional().default(0),
+  fileUrl: z.string().min(1, 'A real file reference is required'),
   
   // ERP integrations
   projectId: z.string().optional(),
@@ -44,7 +44,6 @@ export const updateDocumentSchema = z.object({
   description: z.string().optional(),
   folderId: z.string().optional(),
   categoryId: z.string().optional(),
-  workflowStatus: z.enum(['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'RETURNED', 'PUBLISHED', 'ARCHIVED']).optional(),
   isFavorite: z.boolean().optional(),
   isArchived: z.boolean().optional(),
   watermarkText: z.string().optional(),

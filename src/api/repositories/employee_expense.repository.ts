@@ -742,8 +742,8 @@ export class EmployeeExpenseRepository {
       financeVerification: {
         verifiedBy: '',
         verificationDate: '',
-        accountDebitCode: '5001',
-        accountCreditCode: '2001',
+        accountDebitCode: '',
+        accountCreditCode: '',
         advanceDeductionAmount: 0,
         netPayableAmount: Number(data.amount) || 0,
         duplicateWarning: dup,
@@ -999,9 +999,9 @@ export class EmployeeExpenseRepository {
 
     const now = new Date().toISOString();
     const prev = claim.status;
-    claim.status = 'PAID';
 
-    // 1. Post real double-entry journal entry to Finance GL
+    // 1. Post the double-entry journal before changing business status.
+    // If the GL post fails, the claim must remain APPROVED_FOR_PAYMENT rather than falsely becoming PAID.
     let jvNumber = `JV-EXP-${claim.claimNumber}`;
     try {
       const debitAccount = claim.financeVerification?.accountDebitCode || '5001';
@@ -1038,8 +1038,11 @@ export class EmployeeExpenseRepository {
         jvNumber = jv.voucherNumber;
       }
     } catch (err) {
-      console.warn('Auto-posting to finance GL encountered fallback:', err);
+      console.error('Expense payment blocked because finance GL posting failed:', err);
+      throw new Error('Payment was not completed because the finance journal could not be posted.');
     }
+
+    claim.status = 'PAID';
 
     claim.paymentDetails = {
       paymentMethod: paymentData.paymentMethod,

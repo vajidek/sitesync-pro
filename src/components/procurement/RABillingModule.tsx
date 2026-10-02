@@ -87,13 +87,6 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
     mbReference: string;
   }>>([]);
 
-  // Financial parameters
-  const [advRate, setAdvRate] = useState<number>(0);
-  const [retRate, setRetRate] = useState<number>(0);
-  const [tdsRate, setTdsRate] = useState<number>(0);
-  const [gstTdsRate, setGstTdsRate] = useState<number>(0);
-  const [cessRate, setCessRate] = useState<number>(0);
-  const [penalties, setPenalties] = useState<number>(0);
 
   // Workflow Scrutiny Form state
   const [scrutinyRole, setScrutinyRole] = useState<'QS' | 'INCHARGE' | 'DIRECTOR' | 'FINANCE'>('QS');
@@ -183,17 +176,10 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
     }
   };
 
-  // Calculations for current form
+  // Client preview only. Final billing amounts are recalculated on the server.
   const computedGrossCurrent = formItems.reduce((acc, item) => {
     return acc + ((item.currentMeasuredQty || 0) * (item.boqRateUSD || 0));
   }, 0);
-  const computedAdvRecovery = computedGrossCurrent * (advRate / 100);
-  const computedRetention = computedGrossCurrent * (retRate / 100);
-  const computedTds = computedGrossCurrent * (tdsRate / 100);
-  const computedGstTds = computedGrossCurrent * (gstTdsRate / 100);
-  const computedCess = computedGrossCurrent * (cessRate / 100);
-  const computedTotalDeductions = computedAdvRecovery + computedRetention + computedTds + computedGstTds + computedCess + Number(penalties);
-  const computedNetPayable = Math.max(0, computedGrossCurrent - computedTotalDeductions);
 
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,27 +217,7 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
         cumulativeAmountUSD: (it.previousCumulativeQty + it.currentMeasuredQty) * it.boqRateUSD,
         mbReference: it.mbReference,
       })),
-      financials: {
-        grossWorkDoneCurrentUSD: computedGrossCurrent,
-        grossWorkDoneCumulativeUSD: computedGrossCurrent,
-        previousCertifiedGrossUSD: 0,
-        mobilizationAdvanceRecoveryRatePercent: advRate,
-        mobilizationAdvanceRecoveryUSD: computedAdvRecovery,
-        retentionMoneyRatePercent: retRate,
-        retentionMoneyWithheldUSD: computedRetention,
-        materialAdvanceRecoveryUSD: 0,
-        statutoryTdsPercent: tdsRate,
-        statutoryTdsUSD: computedTds,
-        statutoryGstTdsPercent: gstTdsRate,
-        statutoryGstTdsUSD: computedGstTds,
-        laborWelfareCessPercent: cessRate,
-        laborWelfareCessUSD: computedCess,
-        liquidatedDamagesOrPenaltyUSD: Number(penalties),
-        otherWithholdingsUSD: 0,
-        totalDeductionsUSD: computedTotalDeductions,
-        netPayableCurrentUSD: computedNetPayable,
-        netPayableCumulativeUSD: computedNetPayable,
-      }
+
     };
 
     setCreateError(null);
@@ -906,11 +872,17 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
               </div>
 
                 {/* Calculation Summary Footer */}
-                <div className="pt-3 border-t border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="pt-3 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-xs text-slate-500">Gross Work Done:</span>
-                    <div className="text-lg font-bold text-slate-900">${computedGrossCurrent.toLocaleString()}</div>
+                    <span className="text-xs text-slate-500">Gross measured work value</span>
+                    <div className="text-lg font-bold text-slate-900">{computedGrossCurrent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                   </div>
+                  <div className="bg-white p-3 rounded-lg border border-slate-200">
+                    <span className="text-xs text-slate-500">Final deductions / net payable</span>
+                    <div className="text-sm font-semibold text-slate-700 mt-1">Calculated by server from configured contract policy</div>
+                  </div>
+                </div>
+              </div>
                   <div className="bg-white p-3 rounded-lg border border-slate-200">
                     <span className="text-xs text-slate-500">Total Deductions:</span>
                     <div className="text-lg font-bold text-rose-600">-${computedTotalDeductions.toLocaleString()}</div>

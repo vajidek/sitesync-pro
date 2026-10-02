@@ -38,6 +38,29 @@ export class NumberingService {
   // =========================================================================
 
   /**
+   * Allocate Employee Master number (EMP)
+   */
+  async generateEmployeeNumber(
+    options: {
+      companyId?: string | null;
+      branchId?: string | null;
+      date?: Date | string;
+      manualNumber?: string;
+      allocatedBy?: string;
+    } = {},
+    clientOrTx?: any
+  ): Promise<string> {
+    const result = await this.getNextNumber({
+      entityType: 'EMPLOYEE',
+      companyId: options.companyId,
+      branchId: options.branchId,
+      date: options.date,
+      manualNumber: options.manualNumber,
+      allocatedBy: options.allocatedBy,
+    }, clientOrTx);
+    return result.documentNumber;
+  }
+  /**
    * Allocate Purchase Order number (PO)
    */
   async generatePurchaseOrderNumber(

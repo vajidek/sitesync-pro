@@ -66,8 +66,8 @@ export const ProjectCreateEditModal: React.FC<ProjectCreateEditModalProps> = ({
     googleMapUrl: '',
     
     // Dates
-    startDate: new Date().toISOString().slice(0, 10),
-    targetCompletionDate: new Date(Date.now() + 180 * 86400000).toISOString().slice(0, 10),
+    startDate: '',
+    targetCompletionDate: '',
     awardDate: '',
     contractSignDate: '',
     commencementDate: '',
@@ -619,15 +619,27 @@ export const ProjectCreateEditModal: React.FC<ProjectCreateEditModalProps> = ({
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Currency & Budget</label>
                 <div className="flex space-x-2">
                   <select
+                    required
                     value={formData.currency}
                     onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                    className="w-24 px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                    className="w-28 px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
                   >
-                    <option value="AED">AED</option>
-                    <option value="USD">USD</option>
-                    <option value="SAR">SAR</option>
-                    <option value="EUR">EUR</option>
-                    <option value="INR">INR</option>
+                    <option value="">Select</option>
+                    {currencies.length > 0
+                      ? currencies.map((currency: any) => (
+                          <option key={currency.id || currency.code} value={currency.code || currency.currencyCode}>
+                            {currency.code || currency.currencyCode}
+                          </option>
+                        ))
+                      : (
+                        <>
+                          <option value="INR">INR</option>
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                          <option value="AED">AED</option>
+                          <option value="SAR">SAR</option>
+                        </>
+                      )}
                   </select>
                   <input
                     type="number"

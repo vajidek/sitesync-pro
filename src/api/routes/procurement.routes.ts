@@ -41,6 +41,7 @@ router.patch('/requisitions/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHA
 // ==========================================
 router.get('/purchase-orders', procurementController.getPurchaseOrders);
 router.post('/purchase-orders', requireRoles('ADMIN', 'MANAGER'), procurementController.createPurchaseOrder);
+router.post('/purchase-orders/:id/approve', requireRoles('ADMIN', 'MANAGER'), procurementController.approvePurchaseOrder);
 
 // ==========================================
 // 6. GOODS RECEIPT NOTE (GRN) ENDPOINTS

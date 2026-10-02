@@ -252,15 +252,91 @@ export class ProcurementController {
 
   createPurchaseOrder = async (req: Request, res: Response) => {
     try {
-      const po = await this.service.createPurchaseOrder(req.body);
-      logger.info(`[Procurement Controller] Created Purchase Order ${po.poNumber} for ${po.vendorName}`);
+      const today = new Date().toISOString().slice(0, 10);
+      const body = createPoSchema.parse({ ...req.body, poDate: req.body?.poDate || today });
+      const user = (req as any).user;
+      const actorId = String(user?.id || '').trim();
+      const actorName = String(user?.name || user?.email || '').trim();
+      if (!actorId || !actorName) {
+        return res.status(401).json({ success: false, message: 'Authenticated procurement actor is required.' });
+      }
+
+      const subtotal = body.subtotal ?? body.items.reduce((sum: number, item: any) => sum + Number(item.totalPrice || 0), 0);
+      const discount = body.discountAmount ?? 0;
+      const tax = body.taxAmount ?? 0;
+      const netAmount = body.totalAmount;
+      const lineSubtotal = body.items.reduce((sum: number, item: any) => sum + Number(item.totalPrice || 0), 0);
+      const computedSubtotal = body.items.reduce((sum: number, item: any) => sum + Number(item.orderedQty || 0) * Number(item.unitPrice || 0), 0);
+      if (Math.abs(lineSubtotal - computedSubtotal) >= 0.01) {
+        throw new Error('PO line totals do not match ordered quantity × unit price.');
+      }
+      if (Math.abs(subtotal - lineSubtotal) >= 0.01) {
+        throw new Error('PO subtotal does not match the line-item totals.');
+      }
+      if (Math.abs(netAmount - (subtotal - discount + tax)) >= 0.01) {
+        throw new Error('PO total amount must equal subtotal − discount + tax.');
+      }
+      const companyId = String(user?.companyId || '').trim();
+      if (!companyId) {
+        throw new Error('Company context is required to generate the Purchase Order number.');
+      }
+      const po = await this.service.createPurchaseOrder({
+        ...body,
+        companyId,
+        subtotalUSD: subtotal,
+        discountUSD: discount,
+        gstUSD: tax,
+        freightUSD: 0,
+        netAmountUSD: netAmount,
+        status: 'Draft',
+        approvalStatus: 'Pending Approval',
+        issuedByName: actorName,
+        approvedByName: undefined,
+        items: body.items.map((item: any, index: number) => ({
+          id: item.id || `poi-${Date.now()}-${index}`,
+          itemCode: item.materialCode,
+          description: item.materialName,
+          unit: item.unit || 'PCS',
+          quantity: item.orderedQty,
+          unitPriceUSD: item.unitPrice,
+          gstPercent: tax > 0 && netAmount > 0 ? (tax / Math.max(0.01, subtotal)) * 100 : 0,
+          discountPercent: 0,
+          totalAmountUSD: item.totalPrice,
+        })),
+      });
+      logger.info(`[Procurement Controller] Created draft Purchase Order ${po.poNumber} for ${po.vendorName}`);
       res.status(201).json({
         success: true,
-        message: 'Purchase Order generated and approved',
+        message: 'Purchase Order created and submitted for approval',
         data: po,
       });
     } catch (err: any) {
-      res.status(500).json({ success: false, message: 'Failed to generate Purchase Order' });
+      logger.error(`Error creating Purchase Order: ${err.message}`);
+      res.status(400).json({ success: false, message: err.message || 'Failed to create Purchase Order' });
+    }
+  };
+
+  approvePurchaseOrder = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const action = req.body?.action === 'REJECT' ? 'REJECT' : 'APPROVE';
+      const user = (req as any).user;
+      const approverId = String(user?.id || '').trim();
+      const approverName = String(user?.name || user?.email || '').trim();
+      const approverRole = String(user?.role || '').trim();
+      if (!approverId || !approverName || !approverRole) {
+        return res.status(401).json({ success: false, message: 'Authenticated approver identity and role are required.' });
+      }
+      const po = await this.service.approvePurchaseOrder(id, approverId, approverName, approverRole, action, req.body?.comments);
+      if (!po) return res.status(404).json({ success: false, message: 'Purchase Order not found' });
+      res.json({
+        success: true,
+        message: `Purchase Order ${action === 'APPROVE' ? 'approved' : 'rejected'} successfully`,
+        data: po,
+      });
+    } catch (err: any) {
+      logger.error(`Error approving Purchase Order: ${err.message}`);
+      res.status(400).json({ success: false, message: err.message || 'Failed to process Purchase Order approval' });
     }
   };
 

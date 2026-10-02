@@ -863,8 +863,8 @@ export class ProcurementRepository {
       gstUSD: gst,
       freightUSD: freight,
       netAmountUSD: net,
-      status: data.status || 'Draft',
-      approvalStatus: data.approvalStatus || 'Pending',
+      status: 'Draft',
+      approvalStatus: 'Pending Approval',
       items,
       termsAndConditions: data.termsAndConditions || '',
       issuedByName: data.issuedByName || '',
@@ -902,16 +902,20 @@ export class ProcurementRepository {
         createdAt: now,
       } as any);
 
-      const costRows = await tx.select().from(procurementCostControlsTable)
-        .where(eq(procurementCostControlsTable.projectId, newPo.projectId)).limit(1);
+      // A draft/pending-approval PO is not a financial commitment yet.
+      // Cost control is updated only once the PO reaches an approved/issued state.
+      if (['Approved', 'Issued'].includes(newPo.status) && newPo.approvalStatus === 'Approved') {
+        const costRows = await tx.select().from(procurementCostControlsTable)
+          .where(eq(procurementCostControlsTable.projectId, newPo.projectId)).limit(1);
 
-      if (costRows.length > 0) {
-        const c = costRows[0];
-        const newCommitted = (c.committedPOUSD || 0) + newPo.netAmountUSD;
-        const newRemaining = (c.totalBudgetUSD || 0) - ((c.totalSpentUSD || 0) + newCommitted);
-        await tx.update(procurementCostControlsTable)
-          .set({ committedPOUSD: newCommitted, remainingBudgetUSD: newRemaining, costVarianceUSD: newRemaining } as any)
-          .where(eq(procurementCostControlsTable.id, c.id));
+        if (costRows.length > 0) {
+          const c = costRows[0];
+          const newCommitted = (c.committedPOUSD || 0) + newPo.netAmountUSD;
+          const newRemaining = (c.totalBudgetUSD || 0) - ((c.totalSpentUSD || 0) + newCommitted);
+          await tx.update(procurementCostControlsTable)
+            .set({ committedPOUSD: newCommitted, remainingBudgetUSD: newRemaining, costVarianceUSD: newRemaining } as any)
+            .where(eq(procurementCostControlsTable.id, c.id));
+        }
       }
 
       return newPo;
@@ -1177,6 +1181,97 @@ export class ProcurementRepository {
     });
   }
 
+  async approvePurchaseOrder(
+    id: string,
+    approverId: string,
+    approverName: string,
+    approverRole: string,
+    action: 'APPROVE' | 'REJECT',
+    comments?: string,
+  ): Promise<PurchaseOrder | null> {
+    const actorId = String(approverId || '').trim();
+    const actorName = String(approverName || '').trim();
+    const actorRole = String(approverRole || '').trim();
+    if (!actorId || !actorName || !actorRole) throw new Error('Authenticated approver identity and role are required.');
+
+    return await db.transaction(async (tx) => {
+      const rows = await tx.select().from(procurementPurchaseOrdersTable)
+        .where(eq(procurementPurchaseOrdersTable.id, id)).limit(1);
+      if (!rows.length) return null;
+
+      const po = rows[0] as any;
+      const status = String(po.status || '').trim();
+      const approvalStatus = String(po.approvalStatus || '').trim();
+      if (!['Draft', 'Submitted'].includes(status) || !['Pending', 'Pending Approval'].includes(approvalStatus)) {
+        throw new Error(`Purchase Order ${po.poNumber} is not pending approval.`);
+      }
+      if (po.issuedByName && String(po.issuedByName).trim().toLowerCase() === actorName.toLowerCase()) {
+        throw new Error('Maker-checker violation: PO creator cannot approve or reject the same purchase order.');
+      }
+
+      const now = new Date().toISOString();
+      const approved = action === 'APPROVE';
+      const nextApprovalStatus = approved ? 'Approved' : 'Rejected';
+      const nextStatus = approved ? 'Approved' : 'Draft';
+
+      await tx.update(procurementPurchaseOrdersTable).set({
+        approvalStatus: nextApprovalStatus,
+        status: nextStatus,
+        approvedByName: approved ? actorName : null,
+      } as any).where(eq(procurementPurchaseOrdersTable.id, id));
+
+      await tx.insert(purchaseOrderApprovals).values({
+        id: `poa-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        poId: id,
+        entityType: 'PO',
+        entityNumber: po.poNumber,
+        step: 1,
+        approverRole: actorRole,
+        approverId: actorId,
+        approverName: actorName,
+        status: approved ? 'APPROVED' : 'REJECTED',
+        comments: comments?.trim() || null,
+        actionDate: now,
+        createdAt: now,
+      });
+
+      if (approved) {
+        const costRows = await tx.select().from(procurementCostControlsTable)
+          .where(eq(procurementCostControlsTable.projectId, po.projectId)).limit(1);
+
+        if (costRows.length > 0) {
+          const c = costRows[0];
+          const newCommitted = Number(c.committedPOUSD || 0) + Number(po.netAmountUSD || 0);
+          const newRemaining = Number(c.totalBudgetUSD || 0) - (Number(c.totalSpentUSD || 0) + newCommitted);
+          await tx.update(procurementCostControlsTable)
+            .set({
+              committedPOUSD: newCommitted,
+              remainingBudgetUSD: newRemaining,
+              costVarianceUSD: newRemaining,
+            } as any)
+            .where(eq(procurementCostControlsTable.id, c.id));
+        }
+      }
+
+      await tx.insert(procurementLogs).values({
+        id: `plog-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        entityType: 'PO',
+        entityId: id,
+        entityNumber: po.poNumber,
+        actionType: approved ? 'APPROVE' : 'REJECT',
+        performedBy: actorName,
+        details: `${approved ? 'Approved' : 'Rejected'} PO ${po.poNumber}.${comments ? ` Comments: ${comments.trim()}` : ''}`,
+        isActive: true,
+        isDeleted: false,
+        createdAt: now,
+        updatedAt: now,
+      } as any);
+
+      const updatedRows = await tx.select().from(procurementPurchaseOrdersTable)
+        .where(eq(procurementPurchaseOrdersTable.id, id)).limit(1);
+      return updatedRows.length ? updatedRows[0] as unknown as PurchaseOrder : null;
+    });
+  }
   // --- SUBCONTRACT WORK ORDERS & VARIATION ORDERS (TRANSACTION WORKFLOW #5) ---
   async getWorkOrders(filters: { category?: string; status?: string; projectId?: string }): Promise<SubcontractWorkOrder[]> {
     await ensureProcurementSeeded();

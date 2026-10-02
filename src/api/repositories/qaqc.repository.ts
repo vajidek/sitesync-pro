@@ -1,4 +1,5 @@
 import { db } from '../../db/index';
+import { isDemoSeedAllowed } from '../config/env';
 import { sql } from 'drizzle-orm';
 import {
   phase62ItpMasters,
@@ -26,6 +27,11 @@ export class QAQCRepository {
   private static isTablesEnsured = false;
 
   public async ensureQAQCTablesExist(): Promise<void> {
+    if (QAQCRepository.isTablesEnsured) return;
+    if (!isDemoSeedAllowed()) {
+      QAQCRepository.isTablesEnsured = true;
+      return;
+    }
     if (QAQCRepository.isTablesEnsured) return;
     try {
       // Seed initial ITPs and Inspections if empty

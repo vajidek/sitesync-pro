@@ -3857,11 +3857,11 @@ export const phase60JournalEntries = pgTable('phase60_journal_entries', {
   totalDebit: doublePrecision('total_debit').notNull().default(0),
   totalCredit: doublePrecision('total_credit').notNull().default(0),
   status: text('status').notNull().default('POSTED'), // DRAFT, POSTED, REVERSED
-  postedBy: text('posted_by').notNull().default('Chief Financial Officer'),
+  postedBy: text('posted_by').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
 });
 
@@ -3879,8 +3879,8 @@ export const phase60JournalLines = pgTable('phase60_journal_lines', {
   lineDescription: text('line_description'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
 });
 
@@ -3901,8 +3901,8 @@ export const phase60GeneralLedger = pgTable('phase60_general_ledger', {
   costCenterCode: text('cost_center_code'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  createdBy: text('created_by').notNull().default('System Administrator'),
-  updatedBy: text('updated_by').notNull().default('System Administrator'),
+  createdBy: text('created_by').notNull(),
+  updatedBy: text('updated_by').notNull(),
   deletedAt: text('deleted_at'),
 });
 

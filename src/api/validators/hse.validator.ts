@@ -60,7 +60,7 @@ export const CreateRiskAssessmentSchema = z.object({
   residualLikelihood: z.number().int().min(1).max(5),
   assessedBy: z.string().min(2, 'Assessor is required'),
   reviewDate: z.string().default(() => new Date().toISOString().split('T')[0]),
-  status: z.literal('ACTIVE').optional(),
+  status: z.literal('PENDING_APPROVAL').optional(),
 });
 
 export const CreateJsaSchema = z.object({

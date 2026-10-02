@@ -40,12 +40,12 @@ export class HrmsService {
     return this.repo.getEmployeeById(id);
   }
 
-  public async createEmployee(data: any) {
-    return this.repo.createEmployee(data);
+  public async createEmployee(data: any, actor: { userId: string; userName: string }) {
+    return this.repo.createEmployee(data, actor);
   }
 
-  public async updateEmployee(id: string, data: any) {
-    return this.repo.updateEmployee(id, data);
+  public async updateEmployee(id: string, data: any, actor: { userId: string; userName: string }) {
+    return this.repo.updateEmployee(id, data, actor);
   }
 
   // Attendance & Biometrics

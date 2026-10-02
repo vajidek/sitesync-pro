@@ -60,8 +60,6 @@ router.post('/permits', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR
 router.post('/work-permits', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.createWorkPermit);
 router.put('/permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
 router.put('/work-permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
-router.put('/permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
-router.put('/work-permits/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), controller.reviewWorkPermit);
 
 // Safety Inspections
 router.get('/safety-inspections', controller.getSafetyInspections);

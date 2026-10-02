@@ -49,9 +49,9 @@ router.post('/employees/:id/restore', requireRoles('ADMIN', 'MANAGER'), (req, re
 
 // Attendance & Biometrics
 router.get('/attendance', controller.getAttendance);
-router.get('/attendance/raw-punches', controller.getRawBiometricPunches);
+router.get('/attendance/raw-punches', requireRoles('ADMIN', 'MANAGER'), controller.getRawBiometricPunches);
 router.post('/attendance', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), controller.recordAttendance);
-router.post('/attendance/punch', (req, res) => hrController.punchAttendance(req, res));
+router.post('/attendance/punch', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res) => hrController.punchAttendance(req, res));
 router.post('/attendance/sync-essl', requireRoles('ADMIN', 'MANAGER'), controller.syncEssl);
 router.post('/attendance/essl-sync', requireRoles('ADMIN', 'MANAGER'), controller.syncEssl);
 router.get('/attendance/finalizations', controller.getAttendanceFinalizations);

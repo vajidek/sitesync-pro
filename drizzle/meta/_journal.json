@@ -43,6 +43,13 @@
       "when": 1790899200003,
       "tag": "0005_procurement_approval_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790899200004,
+      "tag": "0006_vendor_quotation_item_lineage",
+      "breakpoints": true
     }
   ]
 }

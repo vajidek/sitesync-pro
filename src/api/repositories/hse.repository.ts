@@ -483,6 +483,7 @@ export class HSERepository {
     const score = Number(((compliant / total) * 100).toFixed(2));
     const status = String(data.status || (nonCompliant === 0 ? 'PASSED' : 'ACTION_REQUIRED')).trim().toUpperCase();
     if (!['PASSED','PASSED_WITH_OBSERVATIONS','ACTION_REQUIRED','FAILED'].includes(status)) throw new Error('Invalid safety inspection outcome.');
+    if (status === 'PASSED' && nonCompliant > 0) throw new Error('An inspection with non-compliant items cannot be marked PASSED.');
     const id = uuidv4();
     const inspectionNumber = String(data.inspectionNumber || this.buildHseNumber('SINS')).trim();
     const now = new Date().toISOString();
@@ -608,8 +609,7 @@ export class HSERepository {
     const manifestNumber = String(data.manifestNumber || this.buildHseNumber('WST')).trim();
     const now = new Date().toISOString();
     // Creation never claims completed disposal. It starts at the controlled stored-on-site stage.
-    const status = String(data.status || 'STORED_ON_SITE').trim().toUpperCase();
-    if (!['STORED_ON_SITE','IN_TRANSIT','DISPOSED'].includes(status)) throw new Error('Invalid waste lifecycle status.');
+    const status = 'STORED_ON_SITE';
     return db.transaction(async (tx) => {
       const dup = await tx.select({ id: phase63WasteManagement.id }).from(phase63WasteManagement).where(and(eq(phase63WasteManagement.manifestNumber, manifestNumber), eq(phase63WasteManagement.isDeleted, false))).limit(1);
       if (dup.length) throw new Error(`Waste manifest ${manifestNumber} already exists.`);

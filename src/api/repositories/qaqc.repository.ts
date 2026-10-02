@@ -386,35 +386,125 @@ export class QAQCRepository {
     return res.rows || res[0] || [];
   }
 
+  // ERP-TRACE: QAQC-P1 — CAPA creation is bound to a real NCR and committed atomically with audit.
   public async createCapa(data: any) {
+    requireFields(data, ['ncrId','actionPlan','assignedTo','dueDate','createdBy'], 'CAPA');
     await this.ensureQAQCTablesExist();
-    const id = uuidv4();
+
+    const ncrId = String(data.ncrId).trim();
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+    const actionPlan = String(data.actionPlan).trim();
+    const assignedTo = String(data.assignedTo).trim();
+    const dueDate = String(data.dueDate).trim();
+
+    const [ncr] = await db.select({
+      id: phase62Ncr.id,
+      ncrNumber: phase62Ncr.ncrNumber,
+      projectId: phase62Ncr.projectId,
+      status: phase62Ncr.status,
+      isDeleted: phase62Ncr.isDeleted,
+    })
+      .from(phase62Ncr)
+      .where(and(eq(phase62Ncr.id, ncrId), eq(phase62Ncr.isDeleted, false)))
+      .limit(1);
+
+    if (!ncr) throw new Error('Linked NCR was not found or has been deleted.');
+    if (ncr.status === 'CLOSED') throw new Error('A CAPA cannot be created for a closed NCR.');
+
     const now = new Date().toISOString();
-    const capaNum = `CAPA-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const id = uuidv4();
+    const capaNum = String(data.capaNumber || `CAPA-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
 
-    await db.execute(sql`
-      INSERT INTO phase62_corrective_actions (
-        id, capa_number, ncr_id, action_plan, assigned_to, due_date, status, created_at, updated_at
-      ) VALUES (
-        ${id}, ${capaNum}, ${data.ncrId}, ${data.actionPlan}, ${data.assignedTo}, ${data.dueDate},
-        ${data.status || 'IN_PROGRESS'}, ${now}, ${now}
-      )
-    `);
+    const riskCategory = String(data.riskCategory || 'PROCESS_FAILURE').trim().toUpperCase();
+    const preventiveMeasure = String(data.preventiveMeasure || '').trim();
 
-    if (data.preventiveMeasure) {
-      await db.execute(sql`
-        INSERT INTO phase62_preventive_actions (
-          id, preventive_action_number, ncr_id, risk_category, preventive_measure,
-          responsible_person, implementation_date, status, created_at, updated_at
-        ) VALUES (
-          ${uuidv4()}, ${'PA-2026-' + Math.floor(1000 + Math.random() * 9000)}, ${data.ncrId},
-          ${data.riskCategory || 'PROCESS_FAILURE'}, ${data.preventiveMeasure},
-          ${data.assignedTo}, ${data.dueDate}, 'ACTIVE', ${now}, ${now}
-        )
-      `);
-    }
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase62CorrectiveActions.id })
+        .from(phase62CorrectiveActions)
+        .where(eq(phase62CorrectiveActions.capaNumber, capaNum))
+        .limit(1);
+      if (duplicate.length) throw new Error(`CAPA number ${capaNum} already exists.`);
 
-    return { id, capaNumber: capaNum, ...data };
+      const [capa] = await tx.insert(phase62CorrectiveActions).values({
+        id,
+        capaNumber: capaNum,
+        ncrId,
+        actionPlan,
+        assignedTo,
+        dueDate,
+        completionDate: null,
+        verificationStatus: 'PENDING',
+        verifiedBy: null,
+        status: 'IN_PROGRESS',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      if (!capa) throw new Error('CAPA creation failed.');
+
+      let preventiveActionNumber: string | undefined;
+      if (preventiveMeasure) {
+        preventiveActionNumber = String(data.preventiveActionNumber || `PA-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
+
+        const paDuplicate = await tx.select({ id: phase62PreventiveActions.id })
+          .from(phase62PreventiveActions)
+          .where(eq(phase62PreventiveActions.preventiveActionNumber, preventiveActionNumber))
+          .limit(1);
+        if (paDuplicate.length) throw new Error(`Preventive action number ${preventiveActionNumber} already exists.`);
+
+        await tx.insert(phase62PreventiveActions).values({
+          id: uuidv4(),
+          preventiveActionNumber,
+          ncrId,
+          riskCategory,
+          preventiveMeasure,
+          responsiblePerson: assignedTo,
+          implementationDate: dueDate,
+          reviewFrequency: String(data.reviewFrequency || 'MONTHLY').trim().toUpperCase(),
+          effectivenessCheck: data.effectivenessCheck || null,
+          status: 'ACTIVE',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: creator,
+          updatedBy: updater,
+          deletedAt: null,
+          isDeleted: false,
+        });
+      }
+
+      await tx.insert(phase62QualityLogs).values({
+        id: uuidv4(),
+        actionType: 'CAPA_CREATED',
+        module: 'QAQC',
+        entityId: id,
+        performedBy: creator,
+        details: `Created CAPA ${capaNum} for NCR ${ncr.ncrNumber}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return {
+        id,
+        capaNumber: capaNum,
+        ncrId,
+        projectId: ncr.projectId,
+        ...data,
+        status: 'IN_PROGRESS',
+        createdBy: creator,
+        updatedBy: updater,
+        preventiveActionNumber,
+      };
+    });
   }
 
   // ITP Masters

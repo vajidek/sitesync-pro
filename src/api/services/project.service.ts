@@ -1,4 +1,5 @@
 import { projectRepository, DbProject, DbSite, DbDailyProgress, DbTask, DbProjectDocument, DbProjectMilestone, DbProjectMember } from '../repositories/project.repository';
+import { projectControlsRepository } from '../repositories/project_controls.repository';
 
 export class ProjectService {
   async getAllProjects(params: { search?: string; status?: string; priority?: string; page?: number; limit?: number }) {
@@ -315,11 +316,76 @@ export class ProjectService {
   }
 
   async getCommercialCostControl(projectId: string) {
-    const data = await projectRepository.getCommercialCostControl(projectId);
-    if (!data) {
-      throw new Error('Project not found for commercial cost control');
+    const project = await projectRepository.findProjectById(projectId);
+    if (!project) {
+      throw new Error('Project not found for commercial cost control.');
     }
-    return data;
+
+    const matrix = await projectControlsRepository.getCostControlMatrix(projectId);
+    const summary = matrix.summary;
+    const cost = summary.costBreakdown;
+
+    const kpis = {
+      contractValue: Number(matrix.project?.contractValue ?? project.contractValue ?? 0),
+      approvedBudget: Number(summary.totalBudget || project.budget || 0),
+      totalCommitted: Number(summary.totalCommitted || 0),
+      totalActualCost: Number(summary.totalActual || 0),
+      remainingBudget: Number((Number(summary.totalBudget || project.budget || 0) - Math.max(Number(summary.totalCommitted || 0), Number(summary.totalActual || 0))).toFixed(2)),
+      executedBoqValue: Number(summary.executedBoqValue || 0),
+      contractBoqValue: Number(summary.contractBoqValue || 0),
+      plannedValue: Number(summary.totalPlannedValue || 0),
+      costVariance: Number(summary.totalCostVariance || 0),
+      scheduleVariance: Number((Number(summary.totalEarnedValue || 0) - Number(summary.totalPlannedValue || 0)).toFixed(2)),
+      cpi: summary.overallCPI == null ? null : Number(summary.overallCPI),
+      spi: summary.overallSPI == null ? null : Number(summary.overallSPI),
+      eac: Number(summary.totalEAC || 0),
+      vac: Number(summary.totalVarianceAtCompletion || 0),
+      pendingRaBillCost: Number(summary.pendingSubcontractBills || 0),
+      actualMaterialCost: Number(cost.realMaterialsCost || 0),
+      actualEquipmentFuelCost: Number(cost.realFleetFuelCost || 0),
+      actualCertifiedRaBillCost: Number(cost.realSubcontractActual || 0),
+      actualImprestExpenseCost: Number(cost.realPettyCashExpenses || 0),
+      actualLaborCost: null,
+    };
+
+    const wbsBreakdown = (matrix.wbsBreakdown || []).map((wbs: any) => ({
+      id: wbs.id,
+      packageCode: wbs.wbsCode,
+      title: wbs.name,
+      discipline: wbs.nodeType || 'WBS',
+      leadEmployeeName: '',
+      budget: Number(wbs.budget || 0),
+      committed: Number(wbs.committedCost || 0),
+      actual: Number(wbs.actualCost || 0),
+      balance: Number((Number(wbs.budget || 0) - Number(wbs.actualCost || 0)).toFixed(2)),
+      variance: Number(wbs.costVariance || 0),
+      progressPercentage: Number(wbs.progressPercent || 0),
+      status: wbs.costStatus || 'NO_ACTUAL_COST',
+      allocationStatus: wbs.actualCostAllocationStatus,
+    }));
+
+    const categoryBreakdown = [
+      { category: 'Purchase Orders', budget: null, committed: Number(cost.realPOCommitments || 0), actual: 0 },
+      { category: 'Material Consumption', budget: null, committed: 0, actual: Number(cost.realMaterialsCost || 0) },
+      { category: 'Subcontract Commitments', budget: null, committed: Number(cost.realSubcontractCommitments || 0), actual: Number(cost.realSubcontractActual || 0) },
+      { category: 'Employee Expenses', budget: null, committed: 0, actual: Number(cost.realEmployeeExpenses || 0) },
+      { category: 'Project Petty Cash', budget: null, committed: 0, actual: Number(cost.realPettyCashExpenses || 0) },
+      { category: 'Equipment & Fuel', budget: null, committed: 0, actual: Number(cost.realFleetFuelCost || 0) },
+    ];
+
+    return {
+      project: matrix.project,
+      kpis,
+      wbsBreakdown,
+      categoryBreakdown,
+      transactions: matrix.transactions || [],
+      source: {
+        engine: 'ProjectControlsRepository.getCostControlMatrix',
+        transactional: true,
+        generatedAt: new Date().toISOString(),
+        budgetSource: summary.totalBudget > 0 ? 'WBS_OR_BOQ' : 'PROJECT_MASTER',
+      },
+    };
   }
 }
 

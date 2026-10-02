@@ -25,6 +25,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { currencyRepository } from './currency.repository';
 import { enterpriseAuditRepository } from './enterprise_audit.repository';
+import { isDemoSeedAllowed } from '../config/env';
 
 export interface ApproverResolutionResult {
   resolved: boolean;
@@ -39,6 +40,12 @@ export class WorkflowRepository {
 
   public async ensureWorkflowTablesExist(): Promise<void> {
     if (WorkflowRepository.isTablesEnsured) return;
+
+    // Workflow definitions are configuration/master data. Synthetic workflow seeds are DEMO-only.
+    if (!isDemoSeedAllowed()) {
+      WorkflowRepository.isTablesEnsured = true;
+      return;
+    }
 
     try {
       await this.seedInitialWorkflowData();
@@ -1017,12 +1024,22 @@ export class WorkflowRepository {
       console.warn('Error dynamically resolving approver from active users database:', err);
     }
 
-    // Fallback: Designated role representative
+    // Demo-only fallback. UAT/PRODUCTION must resolve a real user or block the workflow.
+    if (isDemoSeedAllowed()) {
+      return {
+        resolved: true,
+        assignedRoleId: role,
+        assignedUserId: `usr-role-${role.toLowerCase()}`,
+        assignedUserName: `Authorized ${role} Approver`,
+      };
+    }
+
     return {
-      resolved: true,
+      resolved: false,
       assignedRoleId: role,
-      assignedUserId: `usr-role-${role.toLowerCase()}`,
-      assignedUserName: `Authorized ${role} Approver`,
+      assignedUserId: undefined,
+      assignedUserName: `UNRESOLVED_APPROVER[${role}]`,
+      reason: `No active user is configured for workflow role '${role}' in the required project/department scope.`,
     };
   }
 
@@ -1030,7 +1047,7 @@ export class WorkflowRepository {
   // 4. SUBMIT WORKFLOW INSTANCE
   // ==========================================
 
-  public async submitWorkflowInstance(data: any, requester: any = { name: 'Authorized User', id: 'usr-req' }) {
+  public async submitWorkflowInstance(data: any, requester: any) {
     await this.ensureWorkflowTablesExist();
 
     const instanceId = `inst-${uuidv4().slice(0, 8)}`;
@@ -1038,12 +1055,22 @@ export class WorkflowRepository {
     const now = new Date().toISOString();
     const due = new Date(Date.now() + 86400000).toISOString();
 
-    const requesterName = typeof requester === 'string' ? requester : (requester.name || requester.email || 'Authorized User');
-    const requesterId = typeof requester === 'object' ? (requester.id || 'usr-requester') : 'usr-requester';
+    const requesterIsObject = requester && typeof requester === 'object';
+    const requesterName = requesterIsObject
+      ? String(requester.name || requester.email || '').trim()
+      : (isDemoSeedAllowed() ? String(requester || '').trim() : '');
+    const requesterId = requesterIsObject
+      ? String(requester.id || '').trim()
+      : (isDemoSeedAllowed() ? 'usr-requester' : '');
+
+    if (!requesterId || !requesterName) {
+      throw new Error('Authenticated workflow requester identity is required.');
+    }
 
     // Dynamic Enterprise Base Currency (INR) Governance
     const baseCurrencyObj = await currencyRepository.getBaseCurrency();
-    const thresholdCurrency = baseCurrencyObj?.code || 'INR';
+    const thresholdCurrency = String(baseCurrencyObj.code || '').trim().toUpperCase();
+    if (!thresholdCurrency) throw new Error('Enterprise base currency is not configured.');
 
     // Multi-Currency Information Preservation
     const originalAmount = Number(data.amount || 0);
@@ -1090,8 +1117,8 @@ export class WorkflowRepository {
       rateSource,
       rateType,
       transactionDate,
-      projectId: data.projectId || parsedContext.projectId || 'proj-general',
-      department: data.department || parsedContext.department || 'Operations',
+      projectId: data.projectId || parsedContext.projectId || null,
+      department: data.department || parsedContext.department || null,
     };
 
     // Dynamic Approver Resolution with base currency threshold amount (INR)
@@ -1131,7 +1158,7 @@ export class WorkflowRepository {
       instanceId,
       stepId: `step-${data.workflowCode}-1`,
       assignedRoleId: approverRes.assignedRoleId,
-      assignedUserId: approverRes.assignedUserId || 'usr-approver-mgr',
+      assignedUserId: approverRes.assignedUserId || null,
       assignedUserName: approverRes.assignedUserName,
       status: 'PENDING',
       dueDate: due,

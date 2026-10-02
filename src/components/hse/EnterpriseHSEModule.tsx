@@ -65,15 +65,15 @@ export const EnterpriseHSEModule: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<HSEStats>({
-    safeManHours: 1250400,
-    totalIncidents: 2,
-    openIncidents: 1,
-    totalNearMiss: 1,
-    totalHazards: 1,
-    openHazards: 1,
-    activePermits: 2,
-    highRisks: 2,
-    totalInspections: 5,
+    safeManHours: 0,
+    totalIncidents: 0,
+    openIncidents: 0,
+    totalNearMiss: 0,
+    totalHazards: 0,
+    openHazards: 0,
+    activePermits: 0,
+    highRisks: 0,
+    totalInspections: 0,
   });
 
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -105,28 +105,28 @@ export const EnterpriseHSEModule: React.FC = () => {
     injuredPersonName: '',
     description: '',
     immediateAction: '',
-    reportedBy: 'HSE Officer',
+    reportedBy: '',
   });
 
   const [newPermitForm, setNewPermitForm] = useState({
     permitType: 'HOT_WORK',
     location: '',
     description: '',
-    contractorName: 'SiteSync Mechanical Division',
-    supervisorName: 'Er. Abdul Vajid EK',
+    contractorName: '',
+    supervisorName: '',
     isolationStatus: 'NOT_APPLICABLE',
-    gasTestResult: 'O2: 20.9%, LEL: 0%, H2S: 0 ppm',
+    gasTestResult: '',
   });
 
   const [newRiskForm, setNewRiskForm] = useState({
     activityName: '',
-    departmentOrSite: 'Site Operations Sector 1',
+    departmentOrSite: '',
     hazardDescription: '',
     severity: 3,
     likelihood: 3,
     existingControls: '',
     additionalControls: '',
-    assessedBy: 'Senior HSE Engineer',
+    assessedBy: '',
   });
 
   const fetchHSEData = async () => {
@@ -209,7 +209,7 @@ export const EnterpriseHSEModule: React.FC = () => {
       });
       if (res.ok) {
         setShowNewIncidentModal(false);
-        setNewIncidentForm({
+                setNewIncidentForm({
           title: '',
           incidentType: 'FIRST_AID',
           severity: 'LOW',
@@ -217,7 +217,7 @@ export const EnterpriseHSEModule: React.FC = () => {
           injuredPersonName: '',
           description: '',
           immediateAction: '',
-          reportedBy: 'HSE Officer',
+          reportedBy: '',
         });
         fetchHSEData();
       }
@@ -240,14 +240,14 @@ export const EnterpriseHSEModule: React.FC = () => {
       });
       if (res.ok) {
         setShowNewPermitModal(false);
-        setNewPermitForm({
+                setNewPermitForm({
           permitType: 'HOT_WORK',
           location: '',
           description: '',
-          contractorName: 'SiteSync Mechanical Division',
-          supervisorName: 'Er. Abdul Vajid EK',
+          contractorName: '',
+          supervisorName: '',
           isolationStatus: 'NOT_APPLICABLE',
-          gasTestResult: 'O2: 20.9%, LEL: 0%, H2S: 0 ppm',
+          gasTestResult: '',
         });
         fetchHSEData();
       }

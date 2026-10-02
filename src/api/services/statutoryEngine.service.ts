@@ -3,6 +3,7 @@ import { hrStatutoryRules, hrEmployeeStatutoryProfiles, hrPayrollRuns, hrAuditTr
 import { eq, and, desc, sql, lte, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { isDemoSeedAllowed } from '../config/env';
 
 export interface EpfParameters {
   employeeRate: number; // 0.12 (12%)
@@ -497,7 +498,8 @@ export class StatutoryEngineService {
   /**
    * Update or create a statutory rule with versioning and audit
    */
-  public async upsertStatutoryRule(data: any, actor: string = 'System Administrator'): Promise<any> {
+  public async upsertStatutoryRule(data: any, actor: string = ''): Promise<any> {
+    if (!actor?.trim()) throw new Error('Authenticated statutory-rule actor identity is required.');
     await this.ensureStatutoryRulesSeeded();
     const now = new Date().toISOString();
 
@@ -577,7 +579,12 @@ export class StatutoryEngineService {
     const rows = await db.select().from(hrEmployeeStatutoryProfiles).where(eq(hrEmployeeStatutoryProfiles.employeeId, employeeId)).limit(1);
     if (rows.length > 0) return rows[0];
 
-    // Seed default employee profile
+    // Statutory identity/bank data is master data. Never invent it in UAT/PRODUCTION.
+    if (!isDemoSeedAllowed()) {
+      throw new Error(`Statutory profile is not configured for employee ${employeeCode || employeeId}. Configure the employee statutory profile before payroll.`);
+    }
+
+    // DEMO-only sample profile
     const now = new Date().toISOString();
     const [profile] = await db.insert(hrEmployeeStatutoryProfiles).values({
       id: `sp-${uuidv4()}`,
@@ -610,7 +617,8 @@ export class StatutoryEngineService {
   /**
    * Update Employee Statutory Profile
    */
-  public async updateEmployeeStatutoryProfile(employeeId: string, data: any, actor: string = 'HR Admin'): Promise<any> {
+  public async updateEmployeeStatutoryProfile(employeeId: string, data: any, actor: string = ''): Promise<any> {
+    if (!actor?.trim()) throw new Error('Authenticated statutory-profile actor identity is required.');
     await this.ensureStatutoryRulesSeeded();
     const existing = await this.getEmployeeStatutoryProfile(employeeId);
     const now = new Date().toISOString();

@@ -204,6 +204,23 @@ export class DocumentController {
     }
   }
 
+  async checkinDocument(req: Request, res: Response) {
+    try {
+      const user = getAuthenticatedActor(req, res);
+      if (!user) return;
+      const validated = checkinDocumentSchema.parse(req.body);
+      await documentService.checkinDocument(
+        validated.documentId,
+        user,
+        validated.newVersionName,
+        validated.fileUrl,
+        validated.changeSummary
+      );
+      res.json({ success: true, message: 'Document checked in successfully' });
+    } catch (e: any) {
+      res.status(400).json({ success: false, message: e.message });
+    }
+  }
   async checkoutDocument(req: Request, res: Response) {
     try {
       const user = getAuthenticatedActor(req, res);

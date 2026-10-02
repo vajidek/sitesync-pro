@@ -42,6 +42,7 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
   const [deliveryDueDate, setDeliveryDueDate] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [freightTerms, setFreightTerms] = useState('');
+  const [currency, setCurrency] = useState('');
   const [itemCode, setItemCode] = useState('');
   const [itemDesc, setItemDesc] = useState('');
   const [unit, setUnit] = useState('PCS');
@@ -64,7 +65,7 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
     const proj = projects.find(p => p.id === projectId);
     if (!vendor || !proj) return;
 
-    if (!itemCode.trim() || !itemDesc.trim() || Number(quantity) <= 0 || Number(unitPrice) < 0 || Number(gstPercent) < 0) return;
+    if (!currency.trim() || !itemCode.trim() || !itemDesc.trim() || Number(quantity) <= 0 || Number(unitPrice) < 0 || Number(gstPercent) < 0) return;
 
     const subtotal = Number(quantity) * Number(unitPrice);
     const gstUSD = subtotal * (Number(gstPercent) / 100);
@@ -75,6 +76,7 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
       vendorName: vendor.name,
       vendorCode: vendor.vendorCode,
       vendorGstin: vendor.gstin,
+      currency: currency.trim().toUpperCase(),
       projectId: proj.id,
       projectName: proj.name,
       siteAddress,
@@ -312,6 +314,17 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Currency Code *</label>
+                  <input
+                    type="text"
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+                    placeholder="e.g. INR"
+                    maxLength={3}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg font-mono uppercase"
+                  />
+                </div>
+                <div>
                   <label className="block text-slate-400 font-semibold mb-1">Delivery Due Date</label>
                   <input
                     type="date"
@@ -395,7 +408,7 @@ export const PurchaseOrderView: React.FC<PurchaseOrderProps> = ({
                   type="submit"
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-md"
                 >
-                  Generate & Sign Purchase Order
+                  Create Purchase Order
                 </button>
               </div>
             </form>

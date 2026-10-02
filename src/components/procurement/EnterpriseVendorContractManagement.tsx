@@ -52,7 +52,7 @@ interface ContractItem {
 }
 
 export const EnterpriseVendorContractManagement: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'vendors' | 'scorecards' | 'contracts' | 'variations' | 'documents' | 'analytics'>('vendors');
+  const [activeTab, setActiveTab] = useState<'vendors' | 'scorecards' | 'contracts' | 'variations' | 'claims' | 'documents' | 'analytics'>('vendors');
   const [vendors, setVendors] = useState<VendorItem[]>([]);
   const [contracts, setContracts] = useState<ContractItem[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -119,9 +119,14 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     title: '',
     description: '',
     variationType: 'ADDITION',
-    amount: 50000,
-    timeExtensionDays: 7,
-    justification: 'Additional client requirements'
+    amount: 0,
+    timeExtensionDays: 0,
+    justification: '',
+    wbsId: '',
+    boqItemId: '',
+    costCodeId: '',
+    changeEventReference: '',
+    clientReference: ''
   });
 
   // Fetch initial data
@@ -132,7 +137,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const authHeader = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       const [vRes, cRes, pRes, currRes] = await Promise.all([
@@ -156,7 +161,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const handleCreateVendor = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/vendor-management/vendors', {
         method: 'POST',
         headers: {
@@ -198,7 +203,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
   const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/contracts-engine/contracts', {
         method: 'POST',
         headers: {
@@ -235,7 +240,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedVendor) return;
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/vendor-management/vendors/rate', {
         method: 'POST',
         headers: {
@@ -267,7 +272,7 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
     e.preventDefault();
     if (!selectedContract) return;
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('sitesync_access_token');
       const res = await fetch('/api/contracts-engine/contracts/variation', {
         method: 'POST',
         headers: {
@@ -276,12 +281,21 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
         },
         body: JSON.stringify({
           contractId: selectedContract.id,
+          projectId: selectedContract.projectId,
+          projectName: selectedContract.projectName,
           title: variationForm.title,
           description: variationForm.description,
           variationType: variationForm.variationType,
           amount: Number(variationForm.amount),
+          claimedAmount: Number(variationForm.amount),
           timeExtensionDays: Number(variationForm.timeExtensionDays),
-          justification: variationForm.justification
+          claimedTimeExtensionDays: Number(variationForm.timeExtensionDays),
+          justification: variationForm.justification || undefined,
+          wbsId: variationForm.wbsId || undefined,
+          boqItemId: variationForm.boqItemId || undefined,
+          costCodeId: variationForm.costCodeId || undefined,
+          changeEventReference: variationForm.changeEventReference || undefined,
+          clientReference: variationForm.clientReference || undefined
         })
       }).then(r => r.json());
 
@@ -447,9 +461,19 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
               : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
-          <TrendingUp className="w-4 h-4" /> Variation Orders & Payments
+          <TrendingUp className="w-4 h-4" /> Variation Orders, EOT & Payments
         </button>
 
+        <button
+          onClick={() => setActiveTab('claims')}
+          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
+            activeTab === 'claims'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4" /> Contract Claims
+        </button>
         <button
           onClick={() => setActiveTab('analytics')}
           className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
@@ -718,6 +742,10 @@ export const EnterpriseVendorContractManagement: React.FC = () => {
         </div>
       )}
 
+      {/* Contract Claims */}
+      {activeTab === 'claims' && (
+        <ContractClaimsWorkspace contracts={contracts} />
+      )}
       {/* Modal: Register Vendor */}
       {isVendorModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">

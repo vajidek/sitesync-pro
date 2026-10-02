@@ -89,7 +89,7 @@ interface CommercialData {
   }>;
   categoryBreakdown: Array<{
     category: string;
-    budget: number;
+    budget: number | null;
     committed: number;
     actual: number;
     color?: string;

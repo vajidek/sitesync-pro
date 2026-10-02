@@ -44,6 +44,11 @@ ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS boq_item_id TEXT;
 ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS cost_code_id TEXT;
 ALTER TABLE purchase_order_items ADD COLUMN IF NOT EXISTS cost_code TEXT;
 
+ALTER TABLE material_issue_items ADD COLUMN IF NOT EXISTS wbs_id TEXT;
+ALTER TABLE material_issue_items ADD COLUMN IF NOT EXISTS boq_item_id TEXT;
+ALTER TABLE material_issue_items ADD COLUMN IF NOT EXISTS cost_code_id TEXT;
+ALTER TABLE material_issue_items ADD COLUMN IF NOT EXISTS cost_code TEXT;
+
 ALTER TABLE material_issues ADD COLUMN IF NOT EXISTS wbs_id TEXT;
 ALTER TABLE material_issues ADD COLUMN IF NOT EXISTS boq_item_id TEXT;
 ALTER TABLE material_issues ADD COLUMN IF NOT EXISTS cost_code_id TEXT;

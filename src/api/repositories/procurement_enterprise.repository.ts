@@ -11,6 +11,7 @@ import {
   phase69Rfq,
   phase69RfqItems,
   phase69VendorQuotations,
+  phase69VendorQuotationItems,
   phase69QuoteComparison,
   phase69PurchaseRequisitions,
   phase69PurchaseRequisitionItems,
@@ -785,59 +786,190 @@ export class ProcurementEnterpriseRepository {
 
   public async getQuotations(rfqId?: string): Promise<any[]> {
     await this.ensureProcurementTablesExist();
-    if (rfqId) {
-      return db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.rfqId, rfqId)).orderBy(desc(phase69VendorQuotations.createdAt));
-    }
-    return db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.isDeleted, false)).orderBy(desc(phase69VendorQuotations.createdAt));
-  }
+    const quotes = rfqId
+      ? await db.select().from(phase69VendorQuotations).where(and(eq(phase69VendorQuotations.rfqId, rfqId), eq(phase69VendorQuotations.isDeleted, false))).orderBy(desc(phase69VendorQuotations.createdAt))
+      : await db.select().from(phase69VendorQuotations).where(eq(phase69VendorQuotations.isDeleted, false)).orderBy(desc(phase69VendorQuotations.createdAt));
 
-  public async createQuotation(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
-    await this.ensureProcurementTablesExist();
-    const now = new Date().toISOString();
-    const id = uuidv4();
-    const quotationNumber = data.quotationNumber || (await numberingService.generateQuotationNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
-      date: data.quoteDate || now,
+    const quoteIds = quotes.map((quote) => quote.id);
+    const items = quoteIds.length
+      ? await db.select().from(phase69VendorQuotationItems).where(eq(phase69VendorQuotationItems.isDeleted, false))
+      : [];
+
+    return quotes.map((quote) => ({
+      ...quote,
+      items: items.filter((item) => item.quotationId === quote.id),
     }));
-
-    const newQuote = {
-      id,
-      quotationNumber,
-      rfqId: data.rfqId,
-      rfqNumber: data.rfqNumber,
-      vendorId: data.vendorId,
-      vendorName: data.vendorName,
-      quoteDate: data.quoteDate || now.split('T')[0],
-      validityDays: data.validityDays || 60,
-      subtotalAmount: data.subtotalAmount,
-      taxVatAmount: data.taxVatAmount || data.subtotalAmount * 0.05,
-      totalQuoteAmount: data.totalQuoteAmount || data.subtotalAmount * 1.05,
-      currency: data.currency || 'AED',
-      leadTimeDays: data.leadTimeDays || 30,
-      paymentTerms: data.paymentTerms || '30 Days PDC',
-      incoterms: data.incoterms || 'DDP Site',
-      technicalComplianceStatus: data.technicalComplianceStatus || 'COMPLIANT',
-      commercialRanking: data.commercialRanking || 1,
-      isAwarded: false,
-      status: 'UNDER_EVALUATION',
-      remarks: data.remarks || '',
-      createdAt: now,
-      updatedAt: now,
-      createdBy,
-      updatedBy: createdBy,
-      isDeleted: false,
-    };
-
-    await db.insert(phase69VendorQuotations).values(newQuote);
-
-    // Increment RFQ quotations received count
-    await db.update(phase69Rfq)
-      .set({ quotationsReceivedCount: sql`${phase69Rfq.quotationsReceivedCount} + 1` })
-      .where(eq(phase69Rfq.id, data.rfqId));
-
-    return newQuote;
   }
+
+
+  public async createQuotation(data: any, createdBy: string = ''): Promise<any> {
+    await this.ensureProcurementTablesExist();
+    if (!createdBy?.trim()) throw new Error('Authenticated quotation creator identity is required.');
+
+    const rfqId = String(data?.rfqId || '').trim();
+    const vendorId = String(data?.vendorId || '').trim();
+    if (!rfqId || !vendorId) throw new Error('RFQ and vendor are required for quotation submission.');
+
+    const [rfq] = await db.select().from(phase69Rfq)
+      .where(and(eq(phase69Rfq.id, rfqId), eq(phase69Rfq.isDeleted, false)))
+      .limit(1);
+    if (!rfq) throw new Error('Source RFQ was not found.');
+
+    const rfqItems = await db.select().from(phase69RfqItems)
+      .where(and(eq(phase69RfqItems.rfqId, rfq.id), eq(phase69RfqItems.isDeleted, false)));
+
+    const inputs = Array.isArray(data?.items) ? data.items : [];
+    if (!inputs.length) throw new Error('Quotation must contain item-level pricing for every selected RFQ line.');
+
+    const resolved = [];
+    for (const [index, input] of inputs.entries()) {
+      const rfqItem = rfqItems.find((item) => item.id === input.rfqItemId);
+      if (!rfqItem) throw new Error(`Quotation line ${index + 1} is not linked to the RFQ.`);
+      if (input.boqItemId !== rfqItem.boqItemId || input.prItemId !== rfqItem.prItemId) {
+        throw new Error(`Quotation line ${index + 1} must retain the RFQ PR/BOQ lineage.`);
+      }
+
+      const quantity = Number(input.quotedQuantity ?? input.quantity);
+      const unitPrice = Number(input.quotedUnitPrice ?? input.unitPrice);
+      if (!Number.isFinite(quantity) || quantity <= 0 || quantity > rfqItem.quantity) {
+        throw new Error(`Quoted quantity for ${rfqItem.boqItemCode || rfqItem.itemCode} is invalid.`);
+      }
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new Error(`Quoted unit price for ${rfqItem.itemCode} must be greater than zero.`);
+      }
+
+      const lineSubtotal = Math.round(quantity * unitPrice * 100) / 100;
+      resolved.push({
+        rfqItem,
+        quantity,
+        unitPrice,
+        lineSubtotal,
+        lineVatAmount: Number(input.lineVatAmount || 0),
+        lineTotal: Number(input.lineTotal ?? lineSubtotal + Number(input.lineVatAmount || 0)),
+      });
+    }
+
+    const subtotalAmount = data.subtotalAmount == null
+      ? resolved.reduce((sum, line) => sum + line.lineSubtotal, 0)
+      : Number(data.subtotalAmount);
+    const taxVatAmount = data.taxVatAmount == null
+      ? resolved.reduce((sum, line) => sum + line.lineVatAmount, 0)
+      : Number(data.taxVatAmount);
+    const totalQuoteAmount = data.totalQuoteAmount == null
+      ? subtotalAmount + taxVatAmount
+      : Number(data.totalQuoteAmount);
+
+    if (!Number.isFinite(subtotalAmount) || subtotalAmount <= 0 || !Number.isFinite(taxVatAmount) || taxVatAmount < 0 || !Number.isFinite(totalQuoteAmount) || totalQuoteAmount <= 0) {
+      throw new Error('Quotation commercial totals are invalid.');
+    }
+
+    const currency = String(data?.currency || '').trim().toUpperCase();
+    if (!currency) throw new Error('Quotation currency is required.');
+
+    const now = new Date().toISOString();
+    const quotationNumber = data.quotationNumber
+      ? String(data.quotationNumber).trim()
+      : await numberingService.generateQuotationNumber({
+          companyId: data.companyId || null,
+          projectId: rfq.projectId,
+          date: data.quoteDate || now,
+          allocatedBy: createdBy,
+        });
+
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase69VendorQuotations.id })
+        .from(phase69VendorQuotations)
+        .where(eq(phase69VendorQuotations.quotationNumber, quotationNumber))
+        .limit(1);
+      if (duplicate.length) throw new Error(`Quotation ${quotationNumber} already exists.`);
+
+      const quoteId = uuidv4();
+      const quote = {
+        id: quoteId,
+        quotationNumber,
+        rfqId: rfq.id,
+        rfqNumber: rfq.rfqNumber,
+        vendorId,
+        vendorName: String(data.vendorName || '').trim(),
+        quoteDate: String(data.quoteDate || now.split('T')[0]),
+        validityDays: Number(data.validityDays || 60),
+        subtotalAmount,
+        taxVatAmount,
+        totalQuoteAmount,
+        currency,
+        leadTimeDays: Number(data.leadTimeDays || 0),
+        paymentTerms: String(data.paymentTerms || '').trim(),
+        incoterms: String(data.incoterms || '').trim(),
+        technicalComplianceStatus: data.technicalComplianceStatus || 'UNDER_EVALUATION',
+        commercialRanking: data.commercialRanking == null ? null : Number(data.commercialRanking),
+        isAwarded: false,
+        status: 'UNDER_EVALUATION',
+        remarks: String(data.remarks || ''),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: createdBy.trim(),
+        updatedBy: createdBy.trim(),
+        isDeleted: false,
+      };
+
+      if (!quote.vendorName || !quote.paymentTerms || !quote.incoterms) {
+        throw new Error('Vendor name, payment terms and delivery terms are required for a quotation.');
+      }
+
+      await tx.insert(phase69VendorQuotations).values(quote as any);
+      await tx.insert(phase69VendorQuotationItems).values(
+        resolved.map((line, index) => ({
+          id: uuidv4(),
+          quotationId: quoteId,
+          quotationNumber,
+          rfqItemId: line.rfqItem.id,
+          prItemId: line.rfqItem.prItemId || null,
+          boqItemId: line.rfqItem.boqItemId,
+          wbsId: line.rfqItem.wbsId,
+          boqItemCode: line.rfqItem.boqItemCode || line.rfqItem.itemCode,
+          wbsCode: line.rfqItem.wbsCode || '',
+          itemCode: line.rfqItem.itemCode,
+          description: line.rfqItem.description,
+          quotedQuantity: line.quantity,
+          uom: line.rfqItem.uom,
+          quotedUnitPrice: line.unitPrice,
+          lineSubtotal: line.lineSubtotal,
+          lineVatAmount: line.lineVatAmount,
+          lineTotal: line.lineTotal,
+          deliveryLeadTimeDays: Number(data.leadTimeDays || 0),
+          remarks: data.remarks || null,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: createdBy.trim(),
+          updatedBy: createdBy.trim(),
+          isDeleted: false,
+        })) as any
+      );
+
+      await tx.update(phase69Rfq)
+        .set({ quotationsReceivedCount: sql`${phase69Rfq.quotationsReceivedCount} + 1`, updatedAt: now })
+        .where(eq(phase69Rfq.id, rfq.id));
+
+      return { ...quote, items: resolved.map((line, index) => ({
+        itemNumber: index + 1,
+        rfqItemId: line.rfqItem.id,
+        prItemId: line.rfqItem.prItemId,
+        boqItemId: line.rfqItem.boqItemId,
+        wbsId: line.rfqItem.wbsId,
+        boqItemCode: line.rfqItem.boqItemCode,
+        wbsCode: line.rfqItem.wbsCode,
+        itemCode: line.rfqItem.itemCode,
+        description: line.rfqItem.description,
+        quotedQuantity: line.quantity,
+        uom: line.rfqItem.uom,
+        quotedUnitPrice: line.unitPrice,
+        lineSubtotal: line.lineSubtotal,
+        lineVatAmount: line.lineVatAmount,
+        lineTotal: line.lineTotal,
+      })) };
+    });
+  }
+
 
   // --- Purchase Requisitions ---
   private async resolveBoqProcurementItem(

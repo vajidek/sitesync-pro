@@ -514,23 +514,27 @@ export class HrmsController {
     try {
       const actor = getAuthenticatedActor(req, res);
       if (!actor) return;
-
       const role = String((req as any).user?.role || '').trim().toUpperCase();
-      const isPrivilegedLoanAdmin = ['ADMIN', 'MANAGER'].includes(role);
-
+      const beneficiaryId = String(req.body?.employeeId || '').trim();
+      if (!beneficiaryId) {
+        res.status(400).json({ success: false, message: 'Employee beneficiary is required.' });
+        return;
+      }
+      if (!['ADMIN', 'MANAGER'].includes(role) && beneficiaryId !== actor.userId) {
+        res.status(403).json({ success: false, message: 'You may submit a loan only for your own employee record.' });
+        return;
+      }
       const loan = await this.service.applyLoan({
         ...req.body,
-        employeeId: isPrivilegedLoanAdmin && req.body?.employeeId ? req.body.employeeId : actor.userId,
-        employeeName: isPrivilegedLoanAdmin && req.body?.employeeName ? req.body.employeeName : actor.userName,
+        employeeId: beneficiaryId,
         userId: actor.userId,
         userName: actor.userName,
-      });
+      }, actor);
       res.status(201).json({ success: true, data: loan });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message });
     }
   };
-
   public approveLoan = async (req: Request, res: Response): Promise<void> => {
     try {
       const actor = getAuthenticatedActor(req, res);

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MeasurementBookEntry, BOQItem, MBStatus } from '../../types/procurement';
 import { Project } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 import { 
   Ruler, 
   Plus, 
@@ -29,17 +30,20 @@ export const MeasurementBookView: React.FC<MeasurementBookProps> = ({
   onCreateEntry,
   onUpdateStatus
 }) => {
+  const { user } = useAuth();
+  const authenticatedActorName = String(user?.name || user?.email || '').trim();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>(projects[0]?.id || '');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Form state
   const [boqItemId, setBoqItemId] = useState(boqItems[0]?.id || '');
-  const [locationChainage, setLocationChainage] = useState('Ch 14+200 Pier P14 North');
-  const [length, setLength] = useState(25);
-  const [breadth, setBreadth] = useState(4);
-  const [height, setHeight] = useState(2);
-  const [remarks, setRemarks] = useState('Reinforcement & concrete pour measured at site.');
+  const [locationChainage, setLocationChainage] = useState('');
+  const [length, setLength] = useState<number | ''>('');
+  const [breadth, setBreadth] = useState<number | ''>('');
+  const [height, setHeight] = useState<number | ''>('');
+  const [remarks, setRemarks] = useState('');
 
   const projectBoqItems = boqItems.filter(b => b.projectId === selectedProjectId);
 
@@ -59,8 +63,9 @@ export const MeasurementBookView: React.FC<MeasurementBookProps> = ({
     const proj = projects.find(p => p.id === selectedProjectId);
     if (!boq || !proj) return;
 
-    const calcQty = Number(length) * Number(breadth) * Number(height);
-    const valuation = calcQty * boq.unitRateUSD;
+    const dimensions = [length, breadth, height].map(Number);
+    if (!locationChainage.trim() || dimensions.some((value) => !Number.isFinite(value) || value <= 0) || !authenticatedActorName) return;
+    const calcQty = dimensions[0] * dimensions[1] * dimensions[2];
 
     onCreateEntry({
       boqItemId: boq.id,
@@ -68,19 +73,23 @@ export const MeasurementBookView: React.FC<MeasurementBookProps> = ({
       projectId: proj.id,
       projectName: proj.name,
       measurementDate: new Date().toISOString().split('T')[0],
-      recordedByName: 'Eng. Ramesh Kumar (Quality Site Inspector)',
+      recordedByName: authenticatedActorName,
       locationChainage,
       lengthMeters: Number(length),
       breadthMeters: Number(breadth),
       heightMeters: Number(height),
       quantity: calcQty,
       unit: boq.unit,
-      valuationUSD: valuation,
-      status: 'Recorded',
+      status: 'Draft',
       remarks
     });
 
     setIsModalOpen(false);
+    setLocationChainage('');
+    setLength('');
+    setBreadth('');
+    setHeight('');
+    setRemarks('');
   };
 
   return (
@@ -255,7 +264,7 @@ export const MeasurementBookView: React.FC<MeasurementBookProps> = ({
                     type="number"
                     step="0.01"
                     value={length}
-                    onChange={(e) => setLength(Number(e.target.value))}
+                    onChange={(e) => setLength(e.target.value === '' ? '' : Number(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg font-mono font-bold"
                   />
                 </div>
@@ -265,7 +274,7 @@ export const MeasurementBookView: React.FC<MeasurementBookProps> = ({
                     type="number"
                     step="0.01"
                     value={breadth}
-                    onChange={(e) => setBreadth(Number(e.target.value))}
+                    onChange={(e) => setBreadth(e.target.value === '' ? '' : Number(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg font-mono font-bold"
                   />
                 </div>
@@ -275,7 +284,7 @@ export const MeasurementBookView: React.FC<MeasurementBookProps> = ({
                     type="number"
                     step="0.01"
                     value={height}
-                    onChange={(e) => setHeight(Number(e.target.value))}
+                    onChange={(e) => setHeight(e.target.value === '' ? '' : Number(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg font-mono font-bold"
                   />
                 </div>

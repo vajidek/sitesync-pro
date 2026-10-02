@@ -54,6 +54,7 @@ import {
   hrBiometricRawPunches,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
+import { numberingService } from '../services/numbering.service';
 import { createHash } from 'node:crypto';
 import { statutoryEngineService } from '../services/statutoryEngine.service';
 import { currencyRepository } from './currency.repository';
@@ -540,42 +541,109 @@ export class HrmsRepository {
     return emp || null;
   }
 
-  public async createEmployee(data: any): Promise<any> {
+  public async createEmployee(data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated HR actor identity is required.');
+
+    const required = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'joiningDate', 'departmentId', 'designationId', 'workLocation'];
+    for (const field of required) {
+      if (!String(data?.[field] || '').trim()) throw new Error(`${field} is required for employee onboarding.`);
+    }
+    const normalizedEmail = String(data.email).trim().toLowerCase();
+    const duplicate = await db.select({ id: phase70EmployeeMaster.id })
+      .from(phase70EmployeeMaster)
+      .where(or(eq(phase70EmployeeMaster.email, normalizedEmail), eq(phase70EmployeeMaster.phone, String(data.phone).trim())))
+      .limit(1);
+    if (duplicate.length) throw new Error('Employee email or phone is already registered.');
+
     const id = uuidv4();
     const now = new Date().toISOString();
-    const code = data.employeeCode || `EMP-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const code = String(data.employeeCode || '').trim() || await numberingService.generateEmployeeNumber({
+      companyId: data.companyId || null,
+      branchId: data.branchId || null,
+      date: data.joiningDate || now,
+      allocatedBy: actorName,
+    });
+
     const [emp] = await db.insert(phase70EmployeeMaster).values({
       id,
-      ...data,
-      employeeCode: code,
+      firstName: String(data.firstName).trim(),
+      lastName: String(data.lastName).trim(),
+      email: normalizedEmail,
+      phone: String(data.phone).trim(),
+      gender: String(data.gender || 'OTHER').trim().toUpperCase(),
+      dateOfBirth: String(data.dateOfBirth).trim(),
+      nationalId: data.nationalId || null,
+      passportNumber: data.passportNumber || null,
+      visaStatus: data.visaStatus || 'EMPLOYMENT_RESIDENCE',
+      joiningDate: String(data.joiningDate).trim(),
+      departmentId: String(data.departmentId).trim(),
+      designationId: String(data.designationId).trim(),
+      reportingManagerId: data.reportingManagerId || null,
+      employmentType: data.employmentType || 'FULL_TIME',
+      workLocation: String(data.workLocation).trim(),
+      projectId: data.projectId || null,
+      employmentStatus: data.employmentStatus || 'ACTIVE',
+      biometricId: data.biometricId || null,
+      grade: String(data.grade || '').trim() || 'UNASSIGNED',
+      noticePeriodDays: Number.isFinite(Number(data.noticePeriodDays)) ? Number(data.noticePeriodDays) : 30,
+      probationEndDate: data.probationEndDate || null,
       createdAt: now,
       updatedAt: now,
+      createdBy: actorName,
+      updatedBy: actorName,
+      employeeCode: code,
+      isDeleted: false,
     }).returning();
+    if (!emp) throw new Error('Employee onboarding failed.');
 
-    // Audit log
     await this.recordAuditLog({
       actionType: 'EMPLOYEE_ONBOARD',
       entityType: 'EMPLOYEE',
       entityId: id,
       referenceNumber: code,
-      performedBy: 'HR Admin',
-      detailsJson: JSON.stringify({ name: `${data.firstName} ${data.lastName}`, designation: data.designationId }),
+      performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, name: `${data.firstName} ${data.lastName}`, departmentId: data.departmentId, designationId: data.designationId }),
     });
-
     return emp;
   }
 
-  public async updateEmployee(id: string, data: any): Promise<any> {
+  public async updateEmployee(id: string, data: any, actor: { userId: string; userName: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
-    const now = new Date().toISOString();
+    const actorId = String(actor?.userId || '').trim();
+    const actorName = String(actor?.userName || '').trim();
+    if (!actorId || !actorName) throw new Error('Authenticated HR actor identity is required.');
+    const [existing] = await db.select().from(phase70EmployeeMaster).where(eq(phase70EmployeeMaster.id, id)).limit(1);
+    if (!existing || existing.isDeleted) return null;
+
+    const allowed: Record<string, any> = {};
+    const fields = ['firstName','lastName','email','phone','gender','dateOfBirth','nationalId','passportNumber','visaStatus','joiningDate','departmentId','designationId','reportingManagerId','employmentType','workLocation','projectId','employmentStatus','biometricId','grade','noticePeriodDays','probationEndDate'];
+    for (const field of fields) if (data[field] !== undefined) allowed[field] = data[field];
+    if (allowed.email) allowed.email = String(allowed.email).trim().toLowerCase();
+    if (allowed.phone) allowed.phone = String(allowed.phone).trim();
+    if (allowed.noticePeriodDays !== undefined) {
+      const notice = Number(allowed.noticePeriodDays);
+      if (!Number.isFinite(notice) || notice < 0) throw new Error('Notice period days must be a non-negative number.');
+      allowed.noticePeriodDays = notice;
+    }
+
     const [updated] = await db.update(phase70EmployeeMaster)
-      .set({ ...data, updatedAt: now })
+      .set({ ...allowed, updatedAt: new Date().toISOString(), updatedBy: actorName })
       .where(eq(phase70EmployeeMaster.id, id))
       .returning();
+    if (!updated) return null;
+    await this.recordAuditLog({
+      actionType: 'EMPLOYEE_MASTER_UPDATE',
+      entityType: 'EMPLOYEE',
+      entityId: id,
+      referenceNumber: updated.employeeCode,
+      performedBy: actorName,
+      detailsJson: JSON.stringify({ actorId, changedFields: Object.keys(allowed) }),
+    });
     return updated;
   }
-
   // 4. Attendance
   public async getAttendanceRecords(date?: string): Promise<any[]> {
     await this.ensureHrmsTablesExist();

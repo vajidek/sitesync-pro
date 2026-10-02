@@ -7,6 +7,7 @@ import {
   BOQItem 
 } from '../../types/procurement';
 import { Project } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 import { safeFetchJson, safeJson } from '../../lib/safeFetch';
 import { 
   FileText, 
@@ -47,6 +48,9 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
   workOrders = [],
   boqItems = [],
 }) => {
+  const { user } = useAuth();
+  const authenticatedActorName = String(user?.name || user?.email || '').trim();
+
   const [bills, setBills] = useState<RABillRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('ALL');
@@ -88,14 +92,14 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
   const [retRate, setRetRate] = useState<number>(0);
   const [tdsRate, setTdsRate] = useState<number>(0);
   const [gstTdsRate, setGstTdsRate] = useState<number>(0);
-  const [cessRate, setCessRate] = useState<number>(1);
+  const [cessRate, setCessRate] = useState<number>(0);
   const [penalties, setPenalties] = useState<number>(0);
 
   // Workflow Scrutiny Form state
   const [scrutinyRole, setScrutinyRole] = useState<'QS' | 'INCHARGE' | 'DIRECTOR' | 'FINANCE'>('QS');
-  const [scrutinyVerifierName, setScrutinyVerifierName] = useState<string>('Alex Mercer, Lead QS');
+  const scrutinyVerifierName = authenticatedActorName;
   const [scrutinyRemarks, setScrutinyRemarks] = useState<string>('');
-  const [paymentRefNumber, setPaymentRefNumber] = useState<string>('FT/2026/HDFC-991204');
+  const [paymentRefNumber, setPaymentRefNumber] = useState<string>('');
 
   // Phase 6A: Billable Measurement Book Integration
   const [billableMbs, setBillableMbs] = useState<any[]>([]);
@@ -125,15 +129,20 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
   };
 
   const handleSelectMb = (mb: any) => {
+    if (!mb?.id || !mb?.boqItemId || !mb?.mbNumber || !Number.isFinite(Number(mb?.rateUSD)) || Number(mb?.rateUSD) <= 0) {
+      setCreateError('The selected approved measurement is missing a valid BOQ reference or server-supplied rate.');
+      return;
+    }
+
     const newItem = {
-      boqItemId: mb.boqItemId || `boq_${Date.now()}`,
-      itemCode: mb.boqItemCode || 'BOQ-ITEM',
+      boqItemId: mb.boqItemId,
+      itemCode: mb.boqItemCode || mb.boqItemId,
       description: `${mb.boqDescription || 'Measurement item'} (${mb.locationChainage || 'Site'})`,
-      unit: mb.unit || 'CUM',
-      boqQuantity: mb.approvedQuantity,
-      boqRateUSD: mb.rateUSD || 100,
-      previousCumulativeQty: mb.previouslyBilledQty || 0,
-      currentMeasuredQty: mb.remainingBillableQty,
+      unit: mb.unit,
+      boqQuantity: Number(mb.approvedQuantity),
+      boqRateUSD: Number(mb.rateUSD),
+      previousCumulativeQty: Number(mb.previouslyBilledQty || 0),
+      currentMeasuredQty: Number(mb.remainingBillableQty),
       mbReference: mb.mbNumber,
       measurementEntryId: mb.id,
     };
@@ -269,6 +278,7 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
     setScrutinyError(null);
     let updatePayload: any = {
       status: nextStatus,
+      paymentReferenceNumber: nextStatus === 'Disbursed / Paid' ? paymentRefNumber.trim() || undefined : undefined,
       remarks: scrutinyRemarks || undefined,
     };
     try {
@@ -881,67 +891,19 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
                 </div>
               </div>
 
-              {/* Deductions & Statutory Parameters */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+              {/* Contract Policy Notice */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
                 <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Deductions & Statutory Withholding Configuration
+                  Contractual Deductions
                 </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                  <div>
-                    <label className="block text-[11px] text-slate-600 font-medium mb-1">Adv Recovery %</label>
-                    <input
-                      type="number"
-                      value={advRate}
-                      onChange={(e) => setAdvRate(Number(e.target.value))}
-                      className="w-full px-2 py-1 text-xs border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-600 font-medium mb-1">Retention %</label>
-                    <input
-                      type="number"
-                      value={retRate}
-                      onChange={(e) => setRetRate(Number(e.target.value))}
-                      className="w-full px-2 py-1 text-xs border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-600 font-medium mb-1">TDS (IT) %</label>
-                    <input
-                      type="number"
-                      value={tdsRate}
-                      onChange={(e) => setTdsRate(Number(e.target.value))}
-                      className="w-full px-2 py-1 text-xs border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-600 font-medium mb-1">GST TDS %</label>
-                    <input
-                      type="number"
-                      value={gstTdsRate}
-                      onChange={(e) => setGstTdsRate(Number(e.target.value))}
-                      className="w-full px-2 py-1 text-xs border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-600 font-medium mb-1">Labor Cess %</label>
-                    <input
-                      type="number"
-                      value={cessRate}
-                      onChange={(e) => setCessRate(Number(e.target.value))}
-                      className="w-full px-2 py-1 text-xs border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] text-slate-600 font-medium mb-1">Penalties / LD ($)</label>
-                    <input
-                      type="number"
-                      value={penalties}
-                      onChange={(e) => setPenalties(Number(e.target.value))}
-                      className="w-full px-2 py-1 text-xs border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                </div>
+                <p className="text-xs text-slate-600">
+                  Retention and mobilisation recovery are calculated on the server from the stored subcontract policy.
+                  Tax withholding, cess, penalties and other deductions require their own configured policy and are never overridden from this screen.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  The values shown below are a calculation preview only. The server recalculates the final bill before it can enter the approval workflow.
+                </p>
+              </div>
 
                 {/* Calculation Summary Footer */}
                 <div className="pt-3 border-t border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -1168,28 +1130,28 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
                     <div className="grid grid-cols-4 gap-2">
                       <button
                         type="button"
-                        onClick={() => { setScrutinyRole('QS'); setScrutinyVerifierName('Alex Mercer, Lead Quantity Surveyor'); }}
+                        onClick={() => { setScrutinyRole('QS') }}
                         className={`py-2 px-3 text-xs font-semibold rounded-lg border text-center transition-colors ${scrutinyRole === 'QS' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
                       >
                         1. QS Verification
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setScrutinyRole('INCHARGE'); setScrutinyVerifierName('Siddharth Nair, Site Incharge'); }}
+                        onClick={() => { setScrutinyRole('INCHARGE') }}
                         className={`py-2 px-3 text-xs font-semibold rounded-lg border text-center transition-colors ${scrutinyRole === 'INCHARGE' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
                       >
                         2. Site Incharge
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setScrutinyRole('DIRECTOR'); setScrutinyVerifierName('Robert Vance, Project Director'); }}
+                        onClick={() => { setScrutinyRole('DIRECTOR') }}
                         className={`py-2 px-3 text-xs font-semibold rounded-lg border text-center transition-colors ${scrutinyRole === 'DIRECTOR' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
                       >
                         3. Director Approval
                       </button>
                       <button
                         type="button"
-                        onClick={() => { setScrutinyRole('FINANCE'); setScrutinyVerifierName('Finance & Accounts Team'); }}
+                        onClick={() => { setScrutinyRole('FINANCE') }}
                         className={`py-2 px-3 text-xs font-semibold rounded-lg border text-center transition-colors ${scrutinyRole === 'FINANCE' ? 'bg-emerald-600 text-white border-emerald-600 shadow' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
                       >
                         4. Finance Payout
@@ -1205,7 +1167,7 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
                     <input
                       type="text"
                       value={scrutinyVerifierName}
-                      onChange={(e) => setScrutinyVerifierName(e.target.value)}
+                      readOnly
                       disabled={selectedBillForScrutiny.status === 'Disbursed / Paid'}
                       className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                     />

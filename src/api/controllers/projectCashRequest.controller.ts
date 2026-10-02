@@ -17,13 +17,33 @@ function getActor(req: Request, res: Response): { id: string; name: string; role
 export class ProjectCashRequestController {
   async getAll(req: Request, res: Response) {
     try {
-      const { projectId, employeeId, status, category, search } = req.query as any;
+      const actor = getActor(req, res);
+      if (!actor) return;
+
+      const requestedProjectId = String((req.query as any).projectId || '').trim();
+      const requestedEmployeeId = String((req.query as any).employeeId || '').trim();
+      const assignedProjectId = String((req as any).user?.assignedProjectId || '').trim();
+      const privileged = ['ADMIN', 'MANAGER'].includes(actor.role);
+      const projectScoped = ['INCHARGE', 'SUPERVISOR'].includes(actor.role);
+
+      const projectId = privileged
+        ? (requestedProjectId || undefined)
+        : projectScoped
+          ? (assignedProjectId || requestedProjectId || undefined)
+          : undefined;
+
+      const employeeId = privileged
+        ? (requestedEmployeeId || undefined)
+        : projectScoped
+          ? undefined
+          : actor.id;
+
       const data = await projectCashRequestRepository.getAll({
         projectId,
         employeeId,
-        status,
-        category,
-        search,
+        status: (req.query as any).status,
+        category: (req.query as any).category,
+        search: (req.query as any).search,
       });
       res.json({ success: true, data });
     } catch (err: any) {
@@ -33,8 +53,24 @@ export class ProjectCashRequestController {
 
   async getById(req: Request, res: Response) {
     try {
+      const actor = getActor(req, res);
+      if (!actor) return;
+
       const data = await projectCashRequestRepository.getById(req.params.id);
       if (!data) return res.status(404).json({ success: false, message: 'Cash request not found' });
+
+      const assignedProjectId = String((req as any).user?.assignedProjectId || '').trim();
+      const privileged = ['ADMIN', 'MANAGER'].includes(actor.role);
+      const projectScoped = ['INCHARGE', 'SUPERVISOR'].includes(actor.role);
+      const visible = privileged
+        || data.employeeId === actor.id
+        || (projectScoped && assignedProjectId && data.projectId === assignedProjectId);
+
+      if (!visible) {
+        res.status(403).json({ success: false, message: 'You do not have access to this cash request.' });
+        return;
+      }
+
       const settlements = await projectCashRequestRepository.getSettlementsForRequest(req.params.id);
       res.json({ success: true, data: { ...data, settlements } });
     } catch (err: any) {

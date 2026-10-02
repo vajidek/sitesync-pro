@@ -103,7 +103,7 @@ const AppShellInner: React.FC<AppShellProps> = ({
       </div>
 
       {/* Mobile Navigation Bar */}
-      <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} onOpenMenu={() => setIsSidebarOpenMobile(true)} />
 
       {/* Enterprise Shell Modals & Drawers */}
       <GlobalSearchModal

@@ -407,7 +407,7 @@ export class InventoryController {
       const user = (req as any).user;
       const ret = await inventoryService.createMaterialReturn({
         ...req.body,
-        receivedBy: req.body.receivedBy || user?.name || 'Store Officer',
+        receivedBy: user?.name || user?.email || '',
       });
 
       await auditRepository.logAction({

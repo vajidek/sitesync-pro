@@ -7358,16 +7358,16 @@ export const phase69PurchaseOrders = pgTable('phase69_purchase_orders', {
   poDate: text('po_date').notNull(),
   deliveryDate: text('delivery_date').notNull(),
   deliveryLocation: text('delivery_location').notNull(),
-  currency: text('currency').notNull().default('AED'),
+  currency: text('currency').notNull(),
   subtotal: doublePrecision('subtotal').notNull(),
   vatRatePercent: doublePrecision('vat_rate_percent').notNull().default(5.0),
   vatAmount: doublePrecision('vat_amount').notNull().default(0),
   totalAmount: doublePrecision('total_amount').notNull(),
   paymentTerms: text('payment_terms').notNull().default('60 Days Credit from GRN'),
   incoterms: text('incoterms').notNull().default('DDP Site'),
-  status: text('status').notNull().default('ISSUED'), // DRAFT, PENDING_APPROVAL, ISSUED, PARTIALLY_DELIVERED, DELIVERED, INVOICED, CLOSED, CANCELLED
+  status: text('status').notNull().default('PENDING_APPROVAL'), // DRAFT, PENDING_APPROVAL, ISSUED, PARTIALLY_DELIVERED, DELIVERED, INVOICED, CLOSED, CANCELLED
   buyerName: text('buyer_name').notNull().default('Lead Procurement Manager'),
-  approvedBy: text('approved_by').notNull().default('VP Operations'),
+  approvedBy: text('approved_by'),
   isAdvancePaymentRequired: boolean('is_advance_payment_required').notNull().default(false),
   advancePaymentPercentage: doublePrecision('advance_payment_percentage').default(0),
   retentionPercentage: doublePrecision('retention_percentage').default(5.0),
@@ -7615,7 +7615,7 @@ export const phase69GoodsReceipts = pgTable('phase69_goods_receipts', {
   itemsReceivedCount: integer('items_received_count').notNull().default(1),
   rejectionReason: text('rejection_reason'),
   mirNumber: text('mir_number'), // Material Inspection Report Ref
-  status: text('status').notNull().default('APPROVED'), // DRAFT, UNDER_INSPECTION, APPROVED, CANCELLED
+  status: text('status').notNull().default('UNDER_INSPECTION'), // DRAFT, UNDER_INSPECTION, APPROVED, CANCELLED
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   createdBy: text('created_by').notNull().default('Store Keeper'),

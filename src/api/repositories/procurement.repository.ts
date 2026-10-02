@@ -3735,9 +3735,18 @@ export class ProcurementRepository {
     const now = new Date().toISOString();
     const today = now.split('T')[0];
 
+    const projectId = String(data.projectId || '').trim();
+    const projectName = String(data.projectName || '').trim();
+    const workOrderId = String(data.workOrderId || '').trim();
+    const companyId = String((data as any).companyId || '').trim();
+
+    if (!projectId || !projectName || !workOrderId || !companyId || !String(data.contractorName || '').trim()) {
+      throw new Error('Project, project name, work order, company context and contractor are required for an RA Bill.');
+    }
+
     const billNumber = data.billNumber || (await numberingService.generateRaBillNumber({
-      companyId: 'cmp-101',
-      projectId: data.projectId || 'prj_01',
+      companyId,
+      projectId,
       date: data.billDate || now,
     }));
 
@@ -3779,6 +3788,10 @@ export class ProcurementRepository {
       }
 
       if (matchedMb) {
+        if (!['Approved', 'Approved by Project Manager'].includes(String(matchedMb.status || ''))) {
+          throw new Error(`Measurement ${matchedMb.mbNumber} is not approved and cannot be billed.`);
+        }
+
         const approvedMbQty = Number(matchedMb.quantity || matchedMb.calculatedQuantity || 0);
         
         // Authoritatively compute previously billed quantity from DB
@@ -3854,27 +3867,30 @@ export class ProcurementRepository {
     const prevGross = Number(data.financials?.previousCertifiedGrossUSD || 0);
     const grossCumulative = Math.round((prevGross + grossCurrent) * 100) / 100;
 
-    const advRate = Math.max(0, Number(data.financials?.mobilizationAdvanceRecoveryRatePercent ?? 10));
+    const advRate = Math.max(0, Number(data.financials?.mobilizationAdvanceRecoveryRatePercent ?? 0));
     const advRecovery = Math.round(Number(data.financials?.mobilizationAdvanceRecoveryUSD ?? (grossCurrent * (advRate / 100))) * 100) / 100;
 
-    const retRate = Math.max(0, Number(data.financials?.retentionMoneyRatePercent ?? 5));
+    const retRate = Math.max(0, Number(data.financials?.retentionMoneyRatePercent ?? 0));
     const retWithheld = Math.round(Number(data.financials?.retentionMoneyWithheldUSD ?? (grossCurrent * (retRate / 100))) * 100) / 100;
 
     const matAdv = Math.max(0, Math.round(Number(data.financials?.materialAdvanceRecoveryUSD ?? 0) * 100) / 100);
-    const tdsRate = Math.max(0, Number(data.financials?.statutoryTdsPercent ?? 2));
+    const tdsRate = Math.max(0, Number(data.financials?.statutoryTdsPercent ?? 0));
     const tdsUSD = Math.round(Number(data.financials?.statutoryTdsUSD ?? (grossCurrent * (tdsRate / 100))) * 100) / 100;
 
-    const gstTdsRate = Math.max(0, Number(data.financials?.statutoryGstTdsPercent ?? 2));
+    const gstTdsRate = Math.max(0, Number(data.financials?.statutoryGstTdsPercent ?? 0));
     const gstTdsUSD = Math.round(Number(data.financials?.statutoryGstTdsUSD ?? (grossCurrent * (gstTdsRate / 100))) * 100) / 100;
 
-    const cessRate = Math.max(0, Number(data.financials?.laborWelfareCessPercent ?? 1));
+    const cessRate = Math.max(0, Number(data.financials?.laborWelfareCessPercent ?? 0));
     const cessUSD = Math.round(Number(data.financials?.laborWelfareCessUSD ?? (grossCurrent * (cessRate / 100))) * 100) / 100;
 
     const penaltyUSD = Math.max(0, Math.round(Number(data.financials?.liquidatedDamagesOrPenaltyUSD ?? 0) * 100) / 100);
     const otherWithholdingsUSD = Math.max(0, Math.round(Number(data.financials?.otherWithholdingsUSD ?? 0) * 100) / 100);
 
     const totalDeductions = Math.round((advRecovery + retWithheld + matAdv + tdsUSD + gstTdsUSD + cessUSD + penaltyUSD + otherWithholdingsUSD) * 100) / 100;
-    const netCurrent = Math.max(0, Math.round((grossCurrent - totalDeductions) * 100) / 100);
+    if (totalDeductions > grossCurrent) {
+      throw new Error('RA Bill deductions cannot exceed the current gross certified work value.');
+    }
+    const netCurrent = Math.round((grossCurrent - totalDeductions) * 100) / 100;
     const prevNet = Number(data.financials?.netPayableCumulativeUSD || 0);
     const netCumulative = Math.round((prevNet + netCurrent) * 100) / 100;
 
@@ -3882,11 +3898,11 @@ export class ProcurementRepository {
       id: `audit_${Date.now()}_1`,
       action: 'BILL_CREATED',
       fromStatus: 'None' as const,
-      toStatus: (data.status || 'Submitted') as any,
-      performedBy: data.contractorRepresentative || 'Contractor Representative',
+      toStatus: 'Draft',
+      performedBy: String((data as any).createdByName || '').trim() || data.contractorRepresentative || 'Authenticated Workflow Actor',
       role: 'CONTRACTOR_REP',
       timestamp: now,
-      remarks: data.remarks || 'Running Account bill generated and submitted for measurement verification.',
+      remarks: data.remarks || 'Running Account bill recorded and awaiting submission for measurement verification.',
       financialSnapshot: {
         grossWorkDoneCurrentUSD: grossCurrent,
         totalDeductionsUSD: totalDeductions,
@@ -3897,19 +3913,19 @@ export class ProcurementRepository {
     const newBill: RABillRecord = {
       id: newId,
       billNumber,
-      workOrderId: data.workOrderId,
+      workOrderId,
       workOrderNumber: data.workOrderNumber,
-      projectId: data.projectId || 'prj_01',
-      projectName: data.projectName || 'General Infrastructure Project',
-      contractorName: data.contractorName || 'Subcontractor Firm',
-      contractorCode: data.contractorCode || 'CNT-01',
+      projectId,
+      projectName,
+      contractorName: String(data.contractorName || '').trim(),
+      contractorCode: String(data.contractorCode || '').trim(),
       billDate: data.billDate || today,
       billingPeriodStart: data.billingPeriodStart || today,
       billingPeriodEnd: data.billingPeriodEnd || today,
       billType: data.billType || 'Progress / Running Account (RA)',
       sequenceNumber: data.sequenceNumber || 1,
       isFinalBill: Boolean(data.isFinalBill),
-      status: (data.status as any) || 'Submitted',
+      status: 'Draft',
       items,
       financials: {
         grossWorkDoneCurrentUSD: grossCurrent,
@@ -3932,7 +3948,7 @@ export class ProcurementRepository {
         netPayableCurrentUSD: netCurrent,
         netPayableCumulativeUSD: netCumulative,
       },
-      contractorRepresentative: data.contractorRepresentative || 'Contractor Project Manager',
+      contractorRepresentative: data.contractorRepresentative || undefined,
       qsVerifier: data.qsVerifier,
       siteEngineer: data.siteEngineer,
       projectDirector: data.projectDirector,
@@ -3980,22 +3996,9 @@ export class ProcurementRepository {
         updatedAt: newBill.updatedAt,
       } as any);
 
-      // 2. If linked to a work order, update executedValueUSD on the work order
-      if (newBill.workOrderId) {
-        const woRows = await tx.select().from(procurementWorkOrdersTable).where(eq(procurementWorkOrdersTable.id, newBill.workOrderId)).limit(1);
-        if (woRows.length > 0) {
-          const wo = woRows[0];
-          const newExec = Math.round(((wo.executedValueUSD || 0) + grossCurrent) * 100) / 100;
-          await tx
-            .update(procurementWorkOrdersTable)
-            .set({
-              executedValueUSD: newExec,
-              status: newBill.isFinalBill ? 'Completed' : 'Under Execution',
-            } as any)
-            .where(eq(procurementWorkOrdersTable.id, newBill.workOrderId));
-        }
-      }
-
+      // Work-order execution is updated only from certified/approved bill states.
+      // Bill creation itself is intentionally record-only.
+      
       // 3. Log Enterprise Audit Event
       await enterpriseAuditRepository.logEvent(
         {

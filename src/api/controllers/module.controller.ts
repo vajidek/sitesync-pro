@@ -138,7 +138,7 @@ export class ModuleController {
       const departmentId = req.query.departmentId as string | undefined;
       const projectId = req.query.projectId as string | undefined;
 
-      const tree = await moduleService.getSidebarTree(userRole, departmentId, projectId);
+      const tree = await moduleService.getSidebarTree(userRole, departmentId, projectId, req.user?.id);
       res.json({ success: true, data: tree });
     } catch (err) {
       next(err);

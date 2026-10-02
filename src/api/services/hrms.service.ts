@@ -195,8 +195,8 @@ export class HrmsService {
     return this.repo.getLoans();
   }
 
-  public async applyLoan(data: any) {
-    return this.repo.createLoan(data);
+  public async applyLoan(data: any, actor: { userId: string; userName: string; role?: string }) {
+    return this.repo.createLoan(data, actor);
   }
 
   public async approveLoan(loanId: string, actor: { userId: string; userName: string }, remarks?: string) {

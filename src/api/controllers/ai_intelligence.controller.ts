@@ -13,10 +13,22 @@ import {
 } from '../validators/ai_intelligence.validator';
 import { sendSuccess } from '../utils/response';
 
+function getAuthenticatedUser(req: Request, res: Response): any | null {
+  const user = (req as any).user;
+  if (!user?.id || !user?.role) {
+    res.status(401).json({ success: false, message: 'Authenticated AI actor context is required.' });
+    return null;
+  }
+  return user;
+}
+
 export class AIIntelligenceController {
   static async getStats(req: Request, res: Response, next: NextFunction) {
     try {
-      const userRole = (req as any).user?.role || 'ADMIN';
+      const userRole = (req as any).user?.role;
+      if (!userRole) {
+        return res.status(401).json({ success: false, message: 'Authenticated AI actor context is required.' });
+      }
       const stats = await aiIntelligenceRepository.getEnterpriseStats(userRole);
       return sendSuccess(res, stats, 'Enterprise AI intelligence stats retrieved');
     } catch (error) {
@@ -27,7 +39,8 @@ export class AIIntelligenceController {
   static async queryNLP(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = nlpQuerySchema.parse(req.body);
-      const user = (req as any).user || { id: 'usr-admin', role: 'ADMIN' };
+      const user = getAuthenticatedUser(req, res);
+      if (!user) return;
       const result = await AIIntelligenceService.queryNLP(parsed.query, user);
       return sendSuccess(res, result, 'Natural language query executed successfully');
     } catch (error) {
@@ -38,7 +51,8 @@ export class AIIntelligenceController {
   static async copilotChat(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = copilotChatSchema.parse(req.body);
-      const user = (req as any).user || { id: 'usr-admin', role: 'ADMIN', name: 'Executive Officer' };
+      const user = getAuthenticatedUser(req, res);
+      if (!user) return;
       const result = await AIIntelligenceService.chatCopilot({
         message: parsed.message,
         user,
@@ -69,7 +83,10 @@ export class AIIntelligenceController {
   static async acknowledgeInsight(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const user = (req as any).user?.name || 'Administrator';
+      const user = (req as any).user;
+      if (!user?.id || !user?.name) {
+        return res.status(401).json({ success: false, message: 'Authenticated AI actor context is required.' });
+      }
       const item = await aiIntelligenceRepository.acknowledgeInsight(id, user);
       if (!item) {
         return res.status(404).json({ success: false, message: 'Insight not found' });
@@ -97,7 +114,10 @@ export class AIIntelligenceController {
     try {
       const { id } = req.params;
       const parsed = recommendationActionSchema.parse(req.body);
-      const userName = (req as any).user?.name || 'Administrator';
+      const userName = (req as any).user?.name;
+      if (!userName) {
+        return res.status(401).json({ success: false, message: 'Authenticated AI actor context is required.' });
+      }
       const updated = await aiIntelligenceRepository.updateRecommendationStatus(
         id,
         parsed.status,
@@ -144,7 +164,10 @@ export class AIIntelligenceController {
     try {
       const { id } = req.params;
       const parsed = anomalyActionSchema.parse(req.body);
-      const user = (req as any).user?.name || 'Site Engineer';
+      const user = (req as any).user;
+      if (!user?.id || !user?.name) {
+        return res.status(401).json({ success: false, message: 'Authenticated AI actor context is required.' });
+      }
       const updated = await aiIntelligenceRepository.updateAnomalyStatus(
         id,
         parsed.status,
@@ -181,7 +204,8 @@ export class AIIntelligenceController {
   static async runWhatIfScenario(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = whatIfScenarioSchema.parse(req.body);
-      const user = (req as any).user || { id: 'usr-admin', role: 'ADMIN' };
+      const user = getAuthenticatedUser(req, res);
+      if (!user) return;
       const result = await AIIntelligenceService.runWhatIfScenario({
         title: parsed.title,
         description: parsed.description,
@@ -210,7 +234,8 @@ export class AIIntelligenceController {
   static async generateReport(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = generateReportSchema.parse(req.body);
-      const user = (req as any).user || { id: 'usr-admin', role: 'ADMIN', name: 'Executive Director' };
+      const user = getAuthenticatedUser(req, res);
+      if (!user) return;
       const report = await AIIntelligenceService.generateReport({
         reportType: parsed.reportType,
         periodStart: parsed.periodStart,
@@ -237,7 +262,8 @@ export class AIIntelligenceController {
   static async submitFeedback(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = feedbackSchema.parse(req.body);
-      const user = (req as any).user || { id: 'usr-anon', role: 'USER' };
+      const user = getAuthenticatedUser(req, res);
+      if (!user) return;
       const item = await aiIntelligenceRepository.addFeedback({
         id: `fb-${Date.now()}`,
         userId: user.id,

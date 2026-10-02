@@ -867,33 +867,21 @@ export const RABillingModule: React.FC<RABillingModuleProps> = ({
                   Tax withholding, cess, penalties and other deductions require their own configured policy and are not manually overridden here.
                 </p>
                 <p className="text-[11px] text-slate-500">
-                  The preview below is informational. Final deduction rates and amounts are recalculated and validated by the server before approval.
+                  Final deduction rates and amounts are recalculated and validated by the server before the bill enters approval.
                 </p>
               </div>
 
-                {/* Calculation Summary Footer */}
-                <div className="pt-3 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-xs text-slate-500">Gross measured work value</span>
-                    <div className="text-lg font-bold text-slate-900">{computedGrossCurrent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                  </div>
-                  <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-xs text-slate-500">Final deductions / net payable</span>
-                    <div className="text-sm font-semibold text-slate-700 mt-1">Calculated by server from configured contract policy</div>
-                  </div>
+              {/* Calculation Summary Footer */}
+              <div className="pt-3 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="text-xs text-slate-500">Gross measured work value</span>
+                  <div className="text-lg font-bold text-slate-900">{computedGrossCurrent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-slate-200">
+                  <span className="text-xs text-slate-500">Final deductions / net payable</span>
+                  <div className="text-sm font-semibold text-slate-700 mt-1">Calculated by server from configured contract policy</div>
                 </div>
               </div>
-                  <div className="bg-white p-3 rounded-lg border border-slate-200">
-                    <span className="text-xs text-slate-500">Total Deductions:</span>
-                    <div className="text-lg font-bold text-rose-600">-${computedTotalDeductions.toLocaleString()}</div>
-                  </div>
-                  <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200">
-                    <span className="text-xs text-emerald-700 font-medium">Net Certified Payable:</span>
-                    <div className="text-xl font-extrabold text-emerald-700">${computedNetPayable.toLocaleString()}</div>
-                  </div>
-                </div>
-              </div>
-
               {/* Remarks */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">

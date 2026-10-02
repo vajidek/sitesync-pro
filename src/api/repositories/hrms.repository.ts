@@ -2117,10 +2117,15 @@ export class HrmsRepository {
     }
   }
 
-  public async simulateLoanRecovery(employeeId: string, payableDutyDays: number, grossSalary: number = 75000): Promise<any> {
+  public async simulateLoanRecovery(employeeId: string, payableDutyDays: number, grossSalary?: number): Promise<any> {
     await this.ensureHrmsTablesExist();
+    const resolvedEmployeeId = String(employeeId || '').trim();
+    const resolvedDutyDays = Number(payableDutyDays);
+    if (!resolvedEmployeeId) throw new Error('Employee ID is required for loan recovery simulation.');
+    if (!Number.isFinite(resolvedDutyDays) || resolvedDutyDays < 0) throw new Error('Payable duty days must be a valid non-negative number.');
+
     const loans = await db.select().from(phase70Loans).where(and(
-      eq(phase70Loans.employeeId, employeeId),
+      eq(phase70Loans.employeeId, resolvedEmployeeId),
       eq(phase70Loans.isDeleted, false),
       eq(phase70Loans.status, 'ACTIVE')
     ));
@@ -2128,46 +2133,63 @@ export class HrmsRepository {
     const simulations = loans.map((loan) => {
       const anyLoan = loan as any;
       let calculatedInstallment = 0;
-      const method = anyLoan.repaymentMethod || 'PER_DUTY_DAY';
-      if (method === 'PER_DUTY_DAY' || method === 'PER_DAY' || method === 'PER_WORKING_DAY') {
-        const rate = anyLoan.repaymentRate || 1000;
-        calculatedInstallment = payableDutyDays * rate;
-      } else if (method === 'PERCENTAGE_OF_SALARY') {
-        calculatedInstallment = (grossSalary * (anyLoan.repaymentRate || 10)) / 100;
-      } else {
-        calculatedInstallment = anyLoan.monthlyEmiAed || ((anyLoan.totalRepayableAed || anyLoan.principalAmountAed || 25000) / (anyLoan.tenureMonths || 12));
+      const method = String(anyLoan.repaymentMethod || '').trim().toUpperCase();
+      const rate = Number(anyLoan.repaymentRate);
+
+      if (!method || !Number.isFinite(rate) || rate <= 0) {
+        throw new Error(`Loan ${loan.loanCode || loan.id} has incomplete repayment configuration.`);
       }
 
-      const openingBalance = anyLoan.outstandingBalanceAed ?? anyLoan.balanceOutstandingAed ?? 0;
+      if (method === 'PER_DUTY_DAY' || method === 'PER_DAY' || method === 'PER_WORKING_DAY') {
+        calculatedInstallment = resolvedDutyDays * rate;
+      } else if (method === 'PERCENTAGE_OF_SALARY') {
+        const baseSalary = Number(grossSalary);
+        if (!Number.isFinite(baseSalary) || baseSalary < 0) {
+          throw new Error(`Gross salary is required for percentage-based loan ${loan.loanCode || loan.id}.`);
+        }
+        calculatedInstallment = (baseSalary * rate) / 100;
+      } else {
+        const configuredEmi = Number(anyLoan.monthlyEmiAed);
+        const totalRepayable = Number(anyLoan.totalRepayableAed ?? anyLoan.principalAmountAed);
+        const tenureMonths = Number(anyLoan.tenureMonths);
+        if (configuredEmi > 0) {
+          calculatedInstallment = configuredEmi;
+        } else if (Number.isFinite(totalRepayable) && totalRepayable > 0 && Number.isInteger(tenureMonths) && tenureMonths > 0) {
+          calculatedInstallment = Number((totalRepayable / tenureMonths).toFixed(2));
+        } else {
+          throw new Error(`Loan ${loan.loanCode || loan.id} has no valid monthly/fixed repayment terms.`);
+        }
+      }
+
+      const openingBalance = Number(anyLoan.outstandingBalanceAed ?? anyLoan.balanceOutstandingAed ?? 0);
+      if (!Number.isFinite(openingBalance) || openingBalance < 0) throw new Error(`Invalid outstanding balance for loan ${loan.loanCode || loan.id}.`);
       const actualDeduction = Math.min(calculatedInstallment, openingBalance);
       const closingBalance = Math.max(0, openingBalance - actualDeduction);
-      const isFullyRepaid = closingBalance <= 0;
 
       return {
         loanId: loan.id,
         loanCode: loan.loanCode,
         repaymentMethod: method,
-        repaymentRate: anyLoan.repaymentRate || 1000,
-        payableDutyDays,
+        repaymentRate: rate,
+        payableDutyDays: resolvedDutyDays,
         openingBalance,
         calculatedInstallment,
         actualDeduction,
         closingBalance,
-        isFullyRepaid,
+        isFullyRepaid: closingBalance <= 0,
         ruleApplied: 'Recovery = MIN(Calculated Installment, Outstanding Balance)',
       };
     });
 
-    const totalDeduction = simulations.reduce((sum, s) => sum + s.actualDeduction, 0);
+    const totalDeduction = simulations.reduce((sum, item) => sum + item.actualDeduction, 0);
     return {
-      employeeId,
-      payableDutyDays,
+      employeeId: resolvedEmployeeId,
+      payableDutyDays: resolvedDutyDays,
       grossSalary,
       simulations,
       totalLoanDeduction: totalDeduction,
     };
   }
-
   // 10. Performance Reviews & Appraisals
   public async getPerformanceReviews(): Promise<any[]> {
     await this.ensureHrmsTablesExist();

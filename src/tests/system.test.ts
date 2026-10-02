@@ -32,7 +32,7 @@ export function runSystemTestSuite() {
   assert.ok(aiPayload.prompt, 'AI prompt payload structure valid');
   console.log('  ✅ [AI] Gemini 3.6 Flash contract verified');
 
-  console.log('🎉 ALL SYSTEM TESTS PASSED SUCCESSFULLY (100% Coverage).');
+  console.log('🎉 SiteSync Pro system sanity checks passed.');
 }
 
 if (process.env.NODE_ENV !== 'production') {

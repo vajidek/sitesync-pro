@@ -30,19 +30,6 @@ function isDemoClientMode(): boolean {
   return import.meta.env.DEV || String(import.meta.env.VITE_APP_ENVIRONMENT || '').toUpperCase() === 'DEMO';
 }
 
-const getRoleDefaultUserProfile = (role: UserRole): UserProfile => ({
-  id: `usr-${role.toLowerCase()}`,
-  name: `${ROLE_CONFIG[role]?.label || role} User`,
-  email: `${role.toLowerCase()}@sitesyncpro.com`,
-  role,
-  avatarUrl: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
-  department: 'Operations & Site Engineering',
-  phone: '+971 50 123 4567',
-  assignedProjectId: 'prj_01',
-  assignedProjectName: 'Peruvannamuzhi WTP Project',
-  permissions: EMPTY_PERMISSIONS,
-});
-
 interface AuthTokens {
   accessToken: string;
   refreshToken: string;

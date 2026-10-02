@@ -103,7 +103,7 @@ export const ProjectsView: React.FC = () => {
       {/* DS Page Header */}
       <DSPageHeader
         title="Projects & Construction Sites Execution Engine"
-        description="Real-time mechanical, piping, and structural project management & field ops"
+        description="Project execution, planning, commercial control and field operations"
         breadcrumbs={[{ label: 'ERP' }, { label: 'Projects Engine' }]}
         actions={
           <>
@@ -199,7 +199,10 @@ export const ProjectsView: React.FC = () => {
               footer={
                 <div className="flex items-center justify-between text-xs w-full">
                   <div className="text-slate-500">
-                    Budget: <strong className="text-slate-900 dark:text-white">AED {(proj.budget / 1000000).toFixed(2)}M</strong>
+                    Budget:{' '}
+                    <strong className="text-slate-900 dark:text-white">
+                      {proj.currency || '—'} {Number.isFinite(Number(proj.budget)) ? Number(proj.budget).toLocaleString() : 'Not set'}
+                    </strong>
                   </div>
                   <button
                     onClick={() => setSelectedProject(proj)}

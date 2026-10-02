@@ -97,22 +97,22 @@ router.delete('/members/:memberId', requireRoles('ADMIN', 'MANAGER'), (req, res,
 
 // Daily Progress Entries
 router.get('/:projectId/daily-progress', (req, res, next) => projectController.getDailyProgress(req, res, next));
-router.post('/daily-progress', (req, res, next) => projectController.createDailyProgress(req, res, next));
-router.put('/daily-progress/:id/status', (req, res, next) => projectController.updateProgressStatus(req, res, next));
+router.post('/daily-progress', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res, next) => projectController.createDailyProgress(req, res, next));
+router.put('/daily-progress/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res, next) => projectController.updateProgressStatus(req, res, next));
 
 // Tasks
 router.get('/:projectId/tasks', (req, res, next) => projectController.getTasks(req, res, next));
-router.post('/tasks', (req, res, next) => projectController.createTask(req, res, next));
-router.put('/tasks/:id/status', (req, res, next) => projectController.updateTaskStatus(req, res, next));
+router.post('/tasks', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res, next) => projectController.createTask(req, res, next));
+router.put('/tasks/:id/status', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res, next) => projectController.updateTaskStatus(req, res, next));
 router.get('/tasks/:id/comments', (req, res, next) => projectController.getTaskComments(req, res, next));
-router.post('/tasks/:id/comments', (req, res, next) => projectController.addTaskComment(req, res, next));
+router.post('/tasks/:id/comments', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res, next) => projectController.addTaskComment(req, res, next));
 
 // Documents
 router.get('/:projectId/documents', (req, res, next) => projectController.getDocuments(req, res, next));
-router.post('/documents', (req, res, next) => projectController.createDocument(req, res, next));
+router.post('/documents', requireRoles('ADMIN', 'MANAGER', 'INCHARGE', 'SUPERVISOR'), (req, res, next) => projectController.createDocument(req, res, next));
 
 // Milestones & Timeline
 router.get('/:projectId/milestones', (req, res, next) => projectController.getMilestones(req, res, next));
-router.post('/milestones', (req, res, next) => projectController.createMilestone(req, res, next));
+router.post('/milestones', requireRoles('ADMIN', 'MANAGER', 'INCHARGE'), (req, res, next) => projectController.createMilestone(req, res, next));
 
 export default router;

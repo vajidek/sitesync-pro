@@ -258,8 +258,8 @@ export async function createDocument(data: {
     status: 'ACTIVE',
     createdAt: now,
     updatedAt: now,
-    createdBy: actor,
-    updatedBy: actor,
+    createdBy,
+    updatedBy: createdBy,
     isDeleted: false,
   };
 

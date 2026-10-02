@@ -92,20 +92,28 @@ export class HrmsController {
 
   public createEmployee = async (req: Request, res: Response): Promise<void> => {
     try {
-      const emp = await this.service.createEmployee(req.body);
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
+      const emp = await this.service.createEmployee(req.body, actor);
       res.status(201).json({ success: true, data: emp });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 
   public updateEmployee = async (req: Request, res: Response): Promise<void> => {
     try {
+      const actor = getAuthenticatedActor(req, res);
+      if (!actor) return;
       const { id } = req.params;
-      const emp = await this.service.updateEmployee(id, req.body);
+      const emp = await this.service.updateEmployee(id, req.body, actor);
+      if (!emp) {
+        res.status(404).json({ success: false, message: 'Employee not found.' });
+        return;
+      }
       res.status(200).json({ success: true, data: emp });
     } catch (error: any) {
-      res.status(500).json({ success: false, message: error.message });
+      res.status(400).json({ success: false, message: error.message });
     }
   };
 

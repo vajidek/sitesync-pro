@@ -390,16 +390,26 @@ export class ProjectCashRequestRepository {
 
     const now = new Date().toISOString();
     const settlementId = `stl-${Date.now()}`;
-    const settlementCode = settlementData.settlementCode || (await numberingService.generateCashSettlementNumber({
-      companyId: (request as any).companyId || undefined,
-      projectId: request.projectId || null,
-      date: now,
-    }));
+    let settlementCode = settlementData.settlementCode;
+    if (!settlementCode) {
+      const [project] = request.projectId
+        ? await db.select().from(projects).where(eq(projects.id, request.projectId)).limit(1)
+        : [];
+      const companyId = String((project as any)?.companyId || '').trim();
+      if (!companyId) throw new Error('Company context is required for cash settlement numbering.');
+      settlementCode = await numberingService.generateCashSettlementNumber({
+        companyId,
+        projectId: request.projectId || null,
+        date: now,
+      });
+    }
 
-    const currency = request.currency || 'AED';
-    const baseCurrencyCode = request.baseCurrency || 'AED';
-    const exchangeRate = request.exchangeRate || 1.0;
-    const totalExpense = Number(settlementData.totalExpenseAmount) || 0;
+    const currency = request.currency || '';
+    const baseCurrencyCode = request.baseCurrency || '';
+    const exchangeRate = Number(request.exchangeRate || 1);
+    if (!currency || !baseCurrencyCode || !Number.isFinite(exchangeRate) || exchangeRate <= 0) {
+      throw new Error('Cash request currency and exchange-rate context are required for settlement.');
+    }
     const baseExpenseAmount = Number((totalExpense * exchangeRate).toFixed(2));
 
     const settlementRecord = {

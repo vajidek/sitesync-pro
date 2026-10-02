@@ -259,6 +259,14 @@ export class VendorContractService {
     return await this.repository.addContractMilestone(milestoneData);
   }
 
+  async updateContractVariationStatus(id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string, comments?: string) {
+    return this.repository.updateContractVariationStatus(id, status, approvedBy, comments);
+  }
+
+  async updateContractExtensionStatus(id: string, status: 'APPROVED' | 'REJECTED', approvedBy: string, comments?: string) {
+    return this.repository.updateContractExtensionStatus(id, status, approvedBy, comments);
+  }
+
   async addContractVariation(data: any, createdBy: string) {
     if (!createdBy?.trim()) throw new Error('Authenticated creator identity is required to create a contract variation.');
     const amount = Number(data.amount);

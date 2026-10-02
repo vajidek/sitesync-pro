@@ -639,42 +639,89 @@ export class CommercialRepository {
     return { ...row, statutoryTDS: row.statutoryTds } as CommercialClientIPC;
   }
   public async getTenders(): Promise<CommercialTender[]> {
-    return this.tenders;
+    await this.ensureCommercialPersistence();
+    const rows = await db.select().from(commercialTenders).orderBy(desc(commercialTenders.createdAt));
+    return rows.map((row) => ({
+      id: row.id,
+      tenderRefNumber: row.tenderRefNumber,
+      tenderTitle: row.tenderTitle,
+      clientAuthority: row.clientAuthority,
+      clientType: row.clientType,
+      sector: row.sector,
+      tenderType: row.tenderType,
+      estimatedProjectValue: row.estimatedProjectValue,
+      currency: row.currency,
+      emdAmount: row.emdAmount || 0,
+      tenderFee: row.tenderFee || 0,
+      emdMode: row.emdMode || '',
+      publicationDate: row.publicationDate,
+      preBidMeetingDate: row.preBidMeetingDate || undefined,
+      submissionDeadline: row.submissionDeadline,
+      bidValidityDays: row.bidValidityDays || 0,
+      eligibilityCriteria: row.eligibilityCriteria || undefined,
+      technicalScoreThreshold: row.technicalScoreThreshold || 0,
+      quotedBidAmount: row.quotedBidAmount ?? undefined,
+      expectedGrossMarginPercent: row.expectedGrossMarginPercent || 0,
+      bidManagerId: row.bidManagerId || '',
+      bidManagerName: row.bidManagerName || '',
+      status: row.status,
+      awardDetails: row.awardDetails || undefined,
+      documents: row.documents || [],
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    } as CommercialTender));
   }
 
   public async createTender(data: Partial<CommercialTender>): Promise<CommercialTender> {
-    const count = this.tenders.length + 1;
+    await this.ensureCommercialPersistence();
+    if (!data.tenderRefNumber || !data.tenderTitle || !data.clientAuthority || !data.clientType || !data.sector || !data.tenderType || !data.currency || !data.publicationDate || !data.submissionDeadline) {
+      throw new Error('Tender reference, title, client, classification, currency, publication date and submission deadline are required.');
+    }
+    const amount = Number(data.estimatedProjectValue);
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Estimated project value must be greater than zero.');
     const now = new Date().toISOString();
-    const newTnd: CommercialTender = {
-      id: `tnd-${uuidv4().substring(0, 8)}`,
-      tenderRefNumber: data.tenderRefNumber || `TND-CORP-2026-${String(80 + count).padStart(3, '0')}`,
-      tenderTitle: data.tenderTitle || 'Infrastructure EPC Project Tender',
-      clientAuthority: data.clientAuthority || 'National Infrastructure Authority',
-      clientType: data.clientType || 'GOVERNMENT',
-      sector: data.sector || 'HIGHWAY_ROAD',
-      tenderType: data.tenderType || 'EPC_TURNKEY',
-      estimatedProjectValue: data.estimatedProjectValue || 50000000,
-      currency: data.currency || 'INR',
-      emdAmount: data.emdAmount || 1000000,
-      tenderFee: data.tenderFee || 20000,
-      emdMode: data.emdMode || 'BANK_GUARANTEE',
-      publicationDate: data.publicationDate || now.split('T')[0],
-      preBidMeetingDate: data.preBidMeetingDate,
-      submissionDeadline: data.submissionDeadline || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-      bidValidityDays: data.bidValidityDays || 120,
-      eligibilityCriteria: data.eligibilityCriteria,
-      technicalScoreThreshold: data.technicalScoreThreshold || 75.0,
-      quotedBidAmount: data.quotedBidAmount,
-      expectedGrossMarginPercent: data.expectedGrossMarginPercent || 15.0,
-      bidManagerId: data.bidManagerId || 'emp-user',
-      bidManagerName: data.bidManagerName || 'Bid Director',
-      status: 'IN_ESTIMATION',
+    const id = `tnd-${uuidv4().slice(0, 8)}`;
+    await db.insert(commercialTenders).values({
+      id,
+      tenderRefNumber: data.tenderRefNumber,
+      tenderTitle: data.tenderTitle,
+      clientAuthority: data.clientAuthority,
+      clientType: data.clientType,
+      sector: data.sector,
+      tenderType: data.tenderType,
+      estimatedProjectValue: amount,
+      currency: data.currency.toUpperCase(),
+      emdAmount: Number(data.emdAmount || 0),
+      tenderFee: Number(data.tenderFee || 0),
+      emdMode: data.emdMode || null,
+      publicationDate: data.publicationDate,
+      preBidMeetingDate: data.preBidMeetingDate || null,
+      submissionDeadline: data.submissionDeadline,
+      bidValidityDays: Number(data.bidValidityDays || 0),
+      eligibilityCriteria: data.eligibilityCriteria || null,
+      technicalScoreThreshold: Number(data.technicalScoreThreshold || 0),
+      quotedBidAmount: data.quotedBidAmount == null ? null : Number(data.quotedBidAmount),
+      expectedGrossMarginPercent: data.expectedGrossMarginPercent == null ? null : Number(data.expectedGrossMarginPercent),
+      bidManagerId: data.bidManagerId || null,
+      bidManagerName: data.bidManagerName || null,
+      status: data.status || 'DISCOVERED',
+      awardDetails: data.awardDetails || null,
       documents: data.documents || [],
       createdAt: now,
       updatedAt: now,
-    };
-    this.tenders.unshift(newTnd);
-    return newTnd;
+    });
+    const [row] = await db.select().from(commercialTenders).where(eq(commercialTenders.id, id)).limit(1);
+    if (!row) throw new Error('Tender was not persisted.');
+    return {
+      id: row.id, tenderRefNumber: row.tenderRefNumber, tenderTitle: row.tenderTitle, clientAuthority: row.clientAuthority,
+      clientType: row.clientType, sector: row.sector, tenderType: row.tenderType, estimatedProjectValue: row.estimatedProjectValue,
+      currency: row.currency, emdAmount: row.emdAmount || 0, tenderFee: row.tenderFee || 0, emdMode: row.emdMode || '',
+      publicationDate: row.publicationDate, preBidMeetingDate: row.preBidMeetingDate || undefined, submissionDeadline: row.submissionDeadline,
+      bidValidityDays: row.bidValidityDays || 0, eligibilityCriteria: row.eligibilityCriteria || undefined, technicalScoreThreshold: row.technicalScoreThreshold || 0,
+      quotedBidAmount: row.quotedBidAmount ?? undefined, expectedGrossMarginPercent: row.expectedGrossMarginPercent || 0, bidManagerId: row.bidManagerId || '',
+      bidManagerName: row.bidManagerName || '', status: row.status, awardDetails: row.awardDetails || undefined, documents: row.documents || [],
+      createdAt: row.createdAt, updatedAt: row.updatedAt,
+    } as CommercialTender;
   }
 
   public async updateTenderStatus(
@@ -683,412 +730,358 @@ export class CommercialRepository {
     quotedBidAmount?: number,
     awardDetails?: any
   ): Promise<CommercialTender | null> {
-    const tnd = this.tenders.find((t) => t.id === id);
-    if (!tnd) return null;
-    tnd.status = status;
-    if (quotedBidAmount !== undefined) tnd.quotedBidAmount = quotedBidAmount;
-    if (awardDetails) tnd.awardDetails = awardDetails;
-    tnd.updatedAt = new Date().toISOString();
-    return tnd;
+    await this.ensureCommercialPersistence();
+    const rows = await db.select().from(commercialTenders).where(eq(commercialTenders.id, id)).limit(1);
+    if (!rows.length) return null;
+    const transitions: Record<string, string[]> = {
+      DISCOVERED: ['IN_ESTIMATION', 'CANCELLED'],
+      IN_ESTIMATION: ['UNDER_MANAGEMENT_REVIEW', 'CANCELLED'],
+      UNDER_MANAGEMENT_REVIEW: ['BID_SUBMITTED', 'CANCELLED'],
+      BID_SUBMITTED: ['EVALUATION_STAGE', 'LOST', 'CANCELLED'],
+      EVALUATION_STAGE: ['AWARDED', 'LOST', 'CANCELLED'],
+      AWARDED: [],
+      LOST: [],
+      CANCELLED: [],
+    };
+    if (!transitions[rows[0].status]?.includes(status)) {
+      throw new Error(`Invalid tender status transition: ${rows[0].status} → ${status}`);
+    }
+    const [updated] = await db.update(commercialTenders).set({
+      status,
+      quotedBidAmount: quotedBidAmount === undefined ? rows[0].quotedBidAmount : Number(quotedBidAmount),
+      awardDetails: awardDetails === undefined ? rows[0].awardDetails : awardDetails,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(commercialTenders.id, id)).returning();
+    if (!updated) return null;
+    return {
+      id: updated.id, tenderRefNumber: updated.tenderRefNumber, tenderTitle: updated.tenderTitle, clientAuthority: updated.clientAuthority,
+      clientType: updated.clientType, sector: updated.sector, tenderType: updated.tenderType, estimatedProjectValue: updated.estimatedProjectValue,
+      currency: updated.currency, emdAmount: updated.emdAmount || 0, tenderFee: updated.tenderFee || 0, emdMode: updated.emdMode || '',
+      publicationDate: updated.publicationDate, preBidMeetingDate: updated.preBidMeetingDate || undefined, submissionDeadline: updated.submissionDeadline,
+      bidValidityDays: updated.bidValidityDays || 0, eligibilityCriteria: updated.eligibilityCriteria || undefined, technicalScoreThreshold: updated.technicalScoreThreshold || 0,
+      quotedBidAmount: updated.quotedBidAmount ?? undefined, expectedGrossMarginPercent: updated.expectedGrossMarginPercent || 0, bidManagerId: updated.bidManagerId || '',
+      bidManagerName: updated.bidManagerName || '', status: updated.status, awardDetails: updated.awardDetails || undefined, documents: updated.documents || [],
+      createdAt: updated.createdAt, updatedAt: updated.updatedAt,
+    } as CommercialTender;
   }
 
   // --- Rate Analyses API ---
+
+  // --- Rate Analyses API ---
   public async getRateAnalyses(): Promise<CommercialRateAnalysis[]> {
-    return this.rateAnalyses;
+    await this.ensureCommercialPersistence();
+    const rows = await db.select().from(commercialRateAnalyses).orderBy(desc(commercialRateAnalyses.createdAt));
+    return rows.map((row) => this.mapRateAnalysis(row));
   }
 
   public async createRateAnalysis(data: Partial<CommercialRateAnalysis>): Promise<CommercialRateAnalysis> {
-    const count = this.rateAnalyses.length + 1;
+    await this.ensureCommercialPersistence();
+    if (!data.analysisCode || !data.itemCode || !data.itemDescription || !data.unit || !(data as any).currency) {
+      throw new Error('Analysis code, item code, description, unit and currency are required.');
+    }
+    const mat = Number(data.materialCostPerUnit || 0);
+    const lab = Number(data.laborCostPerUnit || 0);
+    const mach = Number(data.machineryCostPerUnit || 0);
+    const sub = Number(data.subcontractCostPerUnit || 0);
+    const overheadPct = Number(data.overheadPercent || 0);
+    const profitPct = Number(data.profitPercent || 0);
+    if ([mat, lab, mach, sub].some((n) => !Number.isFinite(n) || n < 0) || !Number.isFinite(overheadPct) || overheadPct < 0 || !Number.isFinite(profitPct) || profitPct < 0) {
+      throw new Error('Rate analysis costs and percentages must be valid non-negative numbers.');
+    }
+    const direct = mat + lab + mach + sub;
+    const withOverhead = direct + (direct * overheadPct) / 100;
+    const quoted = withOverhead + (withOverhead * profitPct) / 100;
     const now = new Date().toISOString();
-    const mat = data.materialCostPerUnit || 0;
-    const lab = data.laborCostPerUnit || 0;
-    const mach = data.machineryCostPerUnit || 0;
-    const sub = data.subcontractCostPerUnit || 0;
-    const directCost = mat + lab + mach + sub;
-    const overhead = (directCost * (data.overheadPercent || 10)) / 100;
-    const costWithOverhead = directCost + overhead;
-    const profit = (costWithOverhead * (data.profitPercent || 12)) / 100;
-    const quoted = costWithOverhead + profit;
-
-    const newAnalysis: CommercialRateAnalysis = {
-      id: `ra-${uuidv4().substring(0, 8)}`,
-      analysisCode: data.analysisCode || `RA-BOQ-2026-${String(10 + count).padStart(3, '0')}`,
-      tenderId: data.tenderId,
-      itemCode: data.itemCode || `BOQ-ITM-${count}`,
-      itemDescription: data.itemDescription || 'Standard Construction Item',
-      unit: data.unit || 'cum',
+    const id = `ra-${uuidv4().slice(0, 8)}`;
+    await db.insert(commercialRateAnalyses).values({
+      id,
+      analysisCode: data.analysisCode,
+      tenderId: data.tenderId || null,
+      boqItemId: (data as any).boqItemId || null,
+      itemCode: data.itemCode,
+      itemDescription: data.itemDescription,
+      unit: data.unit,
       materialCostPerUnit: mat,
       laborCostPerUnit: lab,
       machineryCostPerUnit: mach,
       subcontractCostPerUnit: sub,
-      overheadPercent: data.overheadPercent || 10,
-      profitPercent: data.profitPercent || 12,
-      netRatePerUnit: directCost,
+      overheadPercent: overheadPct,
+      profitPercent: profitPct,
+      netRatePerUnit: direct,
       quotedRatePerUnit: Math.round(quoted * 100) / 100,
       componentsBreakdown: data.componentsBreakdown || [],
-      status: 'APPROVED',
+      currency: String((data as any).currency).toUpperCase(),
+      status: data.status || 'DRAFT',
       createdAt: now,
       updatedAt: now,
-    };
-    this.rateAnalyses.unshift(newAnalysis);
-    return newAnalysis;
+    });
+    const [row] = await db.select().from(commercialRateAnalyses).where(eq(commercialRateAnalyses.id, id)).limit(1);
+    if (!row) throw new Error('Rate analysis was not persisted.');
+    return this.mapRateAnalysis(row);
   }
 
   // --- Subcontracts API ---
+
+  // --- Subcontracts API ---
   public async getSubcontracts(): Promise<CommercialSubcontract[]> {
-    return this.subcontracts;
+    await this.ensureCommercialPersistence();
+    const rows = await db.select().from(commercialSubcontracts).orderBy(desc(commercialSubcontracts.createdAt));
+    return rows.map((row) => this.mapSubcontract(row));
   }
 
   public async createSubcontract(data: Partial<CommercialSubcontract>): Promise<CommercialSubcontract> {
-    const count = this.subcontracts.length + 1;
+    await this.ensureCommercialPersistence();
+    if (!data.agreementNumber || !data.subcontractorName || !data.subcontractorCode || !data.projectId || !data.packageTitle || !data.tradeCategory || !data.contractType || !data.startDate || !(data as any).currency) {
+      throw new Error('Subcontract number, subcontractor, project, package, classification, start date and currency are required.');
+    }
+    const value = Number(data.contractValue);
+    if (!Number.isFinite(value) || value <= 0) throw new Error('Contract value must be greater than zero.');
+    const retention = Number(data.retentionPercent || 0);
+    const advancePct = Number(data.mobilizationAdvancePercent || 0);
+    if (retention < 0 || retention > 100 || advancePct < 0 || advancePct > 100) throw new Error('Retention and mobilization percentages must be between 0 and 100.');
     const now = new Date().toISOString();
-    const newSub: CommercialSubcontract = {
-      id: `sub-${uuidv4().substring(0, 8)}`,
-      agreementNumber: data.agreementNumber || `SUB-2026-${String(20 + count).padStart(3, '0')}`,
-      subcontractorName: data.subcontractorName || 'Specialist Subcontractor',
-      subcontractorCode: data.subcontractorCode || `VND-2026-${String(100 + count).padStart(3, '0')}`,
-      projectId: data.projectId || 'p-101',
-      projectName: data.projectName || 'Infrastructure Project',
-      packageTitle: data.packageTitle || 'Execution Package',
-      tradeCategory: data.tradeCategory || 'CIVIL_MASONRY',
-      contractType: data.contractType || 'ITEM_RATE_BOQ',
-      contractValue: data.contractValue || 10000000,
-      retentionPercent: data.retentionPercent || 5.0,
-      mobilizationAdvancePercent: data.mobilizationAdvancePercent || 10.0,
-      mobilizationAdvancePaid: data.mobilizationAdvancePaid || 0,
-      mobilizationAdvanceRecovered: 0,
-      totalBilledAmount: 0,
-      totalCertifiedAmount: 0,
-      totalPaidAmount: 0,
-      totalRetentionWithheld: 0,
-      startDate: data.startDate || now.split('T')[0],
-      completionDate: data.completionDate || new Date(Date.now() + 180 * 86400000).toISOString().split('T')[0],
-      status: 'ACTIVE',
-      performanceRating: 4.5,
-      complianceDocumentsVerified: true,
-      notes: data.notes,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.subcontracts.unshift(newSub);
-    return newSub;
+    const id = `sub-${uuidv4().slice(0, 8)}`;
+    await db.insert(commercialSubcontracts).values({
+      id, agreementNumber: data.agreementNumber, subcontractorName: data.subcontractorName, subcontractorCode: data.subcontractorCode,
+      projectId: data.projectId, projectName: data.projectName || null, contractId: (data as any).contractId || null, wbsId: (data as any).wbsId || null,
+      packageTitle: data.packageTitle, tradeCategory: data.tradeCategory, contractType: data.contractType, contractValue: value,
+      currency: String((data as any).currency).toUpperCase(), retentionPercent: retention, mobilizationAdvancePercent: advancePct,
+      mobilizationAdvancePaid: Number(data.mobilizationAdvancePaid || 0), mobilizationAdvanceRecovered: 0, totalBilledAmount: 0, totalCertifiedAmount: 0,
+      totalPaidAmount: 0, totalRetentionWithheld: 0, startDate: data.startDate, completionDate: data.completionDate || null, status: data.status || 'DRAFT',
+      performanceRating: data.performanceRating == null ? null : Number(data.performanceRating), complianceDocumentsVerified: Boolean(data.complianceDocumentsVerified),
+      notes: data.notes || null, createdAt: now, updatedAt: now,
+    });
+    const [row] = await db.select().from(commercialSubcontracts).where(eq(commercialSubcontracts.id, id)).limit(1);
+    if (!row) throw new Error('Subcontract was not persisted.');
+    return this.mapSubcontract(row);
   }
 
   // --- Subcontract Bills (RA Bills) API ---
+
+  // --- Subcontract Bills (RA Bills) API ---
   public async getSubcontractBills(subcontractId?: string): Promise<CommercialSubcontractBill[]> {
-    if (subcontractId) {
-      return this.subcontractBills.filter(b => b.subcontractId === subcontractId);
-    }
-    return this.subcontractBills;
+    await this.ensureCommercialPersistence();
+    const rows = subcontractId
+      ? await db.select().from(commercialSubcontractBills).where(eq(commercialSubcontractBills.subcontractId, subcontractId)).orderBy(desc(commercialSubcontractBills.createdAt))
+      : await db.select().from(commercialSubcontractBills).orderBy(desc(commercialSubcontractBills.createdAt));
+    return rows.map((row) => this.mapSubcontractBill(row));
   }
 
   public async createSubcontractBill(data: Partial<CommercialSubcontractBill>): Promise<CommercialSubcontractBill> {
-    const count = this.subcontractBills.length + 1;
-    const now = new Date().toISOString();
-    const gross = data.grossClaimedAmount || 1000000;
-    const cert = data.certifiedAmount || gross;
-    const retPct = data.retentionPercent || 5.0;
-    const retAmt = Math.round((cert * retPct) / 100);
-    const mobRec = data.mobilizationRecovery || Math.round(cert * 0.10);
-    const ded = data.otherDeductions || 0;
-    const net = cert - retAmt - mobRec - ded;
-
-    const newBill: CommercialSubcontractBill = {
-      id: `sb-${uuidv4().substring(0, 8)}`,
-      subcontractId: data.subcontractId || 'sub-001',
-      subcontractNumber: data.subcontractNumber || 'SUB-2026-001',
-      subcontractorName: data.subcontractorName || 'Subcontractor Partner',
-      billNumber: data.billNumber || `RA-0${count}`,
-      billPeriodStart: data.billPeriodStart || now.split('T')[0],
-      billPeriodEnd: data.billPeriodEnd || now.split('T')[0],
-      submissionDate: data.submissionDate || now.split('T')[0],
-      grossClaimedAmount: gross,
-      certifiedAmount: cert,
-      retentionPercent: retPct,
-      retentionAmount: retAmt,
-      mobilizationRecovery: mobRec,
-      otherDeductions: ded,
-      netCertifiedPayable: net,
-      status: data.status || 'SUBMITTED',
-      remarks: data.remarks,
-      createdAt: now,
-    };
-    this.subcontractBills.unshift(newBill);
-
-    // Update subcontract totals
-    const parentSub = this.subcontracts.find(s => s.id === newBill.subcontractId);
-    if (parentSub) {
-      parentSub.totalBilledAmount += gross;
-      parentSub.totalCertifiedAmount += cert;
-      parentSub.totalRetentionWithheld += retAmt;
-      parentSub.mobilizationAdvanceRecovered += mobRec;
+    await this.ensureCommercialPersistence();
+    if (!data.subcontractId || !data.billNumber || !data.billPeriodStart || !data.billPeriodEnd || !data.submissionDate || !(data as any).currency) {
+      throw new Error('Subcontract, bill number, period, submission date and currency are required.');
     }
-
-    return newBill;
+    const [parent] = await db.select().from(commercialSubcontracts).where(eq(commercialSubcontracts.id, data.subcontractId)).limit(1);
+    if (!parent) throw new Error('Subcontract not found.');
+    const gross = Number(data.grossClaimedAmount);
+    if (!Number.isFinite(gross) || gross <= 0) throw new Error('Gross claimed amount must be greater than zero.');
+    const retentionPct = Number(data.retentionPercent ?? parent.retentionPercent ?? 0);
+    const mobilization = Number(data.mobilizationRecovery || 0);
+    const deductions = Number(data.otherDeductions || 0);
+    if (retentionPct < 0 || retentionPct > 100 || mobilization < 0 || deductions < 0) throw new Error('Bill deduction values are invalid.');
+    const now = new Date().toISOString();
+    const id = `sb-${uuidv4().slice(0, 8)}`;
+    await db.insert(commercialSubcontractBills).values({
+      id, subcontractId: parent.id, subcontractNumber: data.subcontractNumber || parent.agreementNumber,
+      subcontractorName: data.subcontractorName || parent.subcontractorName, billNumber: data.billNumber,
+      billPeriodStart: data.billPeriodStart, billPeriodEnd: data.billPeriodEnd, submissionDate: data.submissionDate,
+      grossClaimedAmount: gross, certifiedAmount: 0, currency: String((data as any).currency).toUpperCase(),
+      retentionPercent: retentionPct, retentionAmount: 0, mobilizationRecovery: mobilization, otherDeductions: deductions,
+      netCertifiedPayable: 0, status: 'SUBMITTED', certifiedBy: null, certifiedDate: null, remarks: data.remarks || null, createdAt: now, updatedAt: now,
+    });
+    return (await this.getSubcontractBills(parent.id)).find((bill) => bill.id === id)!;
   }
 
+  // --- Subcontract certification ---
+
   public async certifySubcontractBill(id: string, certifiedAmount: number, status = 'CERTIFIED'): Promise<CommercialSubcontractBill | null> {
-    const bill = this.subcontractBills.find(b => b.id === id);
+    await this.ensureCommercialPersistence();
+    const [bill] = await db.select().from(commercialSubcontractBills).where(eq(commercialSubcontractBills.id, id)).limit(1);
     if (!bill) return null;
-    bill.certifiedAmount = certifiedAmount;
-    bill.retentionAmount = Math.round((certifiedAmount * bill.retentionPercent) / 100);
-    bill.netCertifiedPayable = certifiedAmount - bill.retentionAmount - bill.mobilizationRecovery - bill.otherDeductions;
-    bill.status = status as any;
-    bill.certifiedDate = new Date().toISOString().split('T')[0];
-    bill.certifiedBy = 'Commercial Manager';
+    if (!['SUBMITTED', 'UNDER_MEASUREMENT'].includes(bill.status)) throw new Error(`Subcontract bill cannot be certified from status ${bill.status}.`);
+    const cert = Number(certifiedAmount);
+    if (!Number.isFinite(cert) || cert < 0 || cert > bill.grossClaimedAmount) throw new Error('Certified amount is invalid.');
+    const retentionAmount = Math.round((cert * (bill.retentionPercent || 0)) / 100 * 100) / 100;
+    const net = Math.max(0, cert - retentionAmount - (bill.mobilizationRecovery || 0) - (bill.otherDeductions || 0));
+    const certDate = new Date().toISOString().split('T')[0];
 
-    // Cross-Module Integration: Post Subcontract Certified Bill to Finance AP & GL
-    if (status === 'CERTIFIED' && certifiedAmount > 0) {
-      try {
-        await financeRepository.createAPInvoice({
-          invoiceNumber: bill.billNumber,
-          vendorName: bill.subcontractorName,
-          totalAmount: bill.netCertifiedPayable,
-          taxAmount: 0,
-          dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-        });
-
-        const jvLines: any[] = [
-          {
-            accountCode: '5020',
-            accountName: 'Subcontractor Works Incurred',
-            debitAmount: certifiedAmount,
-            creditAmount: 0,
-            lineDescription: `Certified subcontract bill ${bill.billNumber} (${bill.subcontractorName})`,
-          },
-          {
-            accountCode: '2010',
-            accountName: 'Accounts Payable Control - Trade Creditors',
-            debitAmount: 0,
-            creditAmount: bill.netCertifiedPayable,
-            lineDescription: `Trade payable for bill ${bill.billNumber}`,
-          },
-        ];
-
-        if (bill.retentionAmount > 0) {
-          jvLines.push({
-            accountCode: '2040',
-            accountName: 'Subcontractor Retention Payable',
-            debitAmount: 0,
-            creditAmount: bill.retentionAmount,
-            lineDescription: `Retention deduction withheld (${bill.retentionPercent}%)`,
-          });
-        }
-
-        const advanceAndDeductions = (bill.mobilizationRecovery || 0) + (bill.otherDeductions || 0);
-        if (advanceAndDeductions > 0) {
-          jvLines.push({
-            accountCode: '2060',
-            accountName: 'Client Mobilization Advance',
-            debitAmount: 0,
-            creditAmount: advanceAndDeductions,
-            lineDescription: `Advance recovery / deductions for bill ${bill.billNumber}`,
-          });
-        }
-
-        await financeRepository.createJournalEntry(
-          {
-            voucherType: 'SUBCONTRACT_JOURNAL',
-            postingDate: bill.certifiedDate,
-            referenceNumber: bill.billNumber,
-            narration: `Commercial Subcontract certification for ${bill.subcontractorName} (${bill.billNumber})`,
-          },
-          jvLines
-        );
-      } catch (err) {
-        console.warn('[Commercial->Finance] Subcontract bill certification JV notice:', err);
-      }
+    if (status === 'CERTIFIED' && cert > 0) {
+      await financeRepository.createAPInvoice({
+        invoiceNumber: bill.billNumber,
+        vendorName: bill.subcontractorName,
+        totalAmount: net,
+        taxAmount: 0,
+        dueDate: certDate,
+      });
+      const lines: any[] = [
+        { accountCode: '5020', accountName: 'Subcontractor Works Incurred', debitAmount: cert, creditAmount: 0, lineDescription: `Certified subcontract bill ${bill.billNumber}` },
+        { accountCode: '2010', accountName: 'Accounts Payable Control - Trade Creditors', debitAmount: 0, creditAmount: net, lineDescription: `Payable for bill ${bill.billNumber}` },
+      ];
+      if (retentionAmount > 0) lines.push({ accountCode: '2040', accountName: 'Subcontractor Retention Payable', debitAmount: 0, creditAmount: retentionAmount, lineDescription: `Retention for bill ${bill.billNumber}` });
+      const deductions = (bill.mobilizationRecovery || 0) + (bill.otherDeductions || 0);
+      if (deductions > 0) lines.push({ accountCode: '2060', accountName: 'Client Mobilization Advance', debitAmount: 0, creditAmount: deductions, lineDescription: `Advance/deductions for bill ${bill.billNumber}` });
+      const debits = lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0);
+      const credits = lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0);
+      if (Math.abs(debits - credits) > 0.01) throw new Error('Subcontract certification journal is not balanced.');
+      await financeRepository.createJournalEntry({ voucherType: 'SUBCONTRACT_JOURNAL', postingDate: certDate, referenceNumber: bill.billNumber, narration: `Commercial subcontract certification ${bill.billNumber}` }, lines);
     }
 
-    return bill;
+    const [updated] = await db.update(commercialSubcontractBills).set({
+      certifiedAmount: cert,
+      retentionAmount,
+      netCertifiedPayable: net,
+      status,
+      certifiedBy: status === 'CERTIFIED' ? 'Authenticated workflow actor' : null,
+      certifiedDate: status === 'CERTIFIED' ? certDate : null,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(commercialSubcontractBills.id, id)).returning();
+
+    if (!updated) return null;
+    const bills = await this.getSubcontractBills(updated.subcontractId);
+    const totals = bills.reduce((a, b) => ({ billed: a.billed + b.grossClaimedAmount, certified: a.certified + b.certifiedAmount, retention: a.retention + b.retentionAmount }), { billed: 0, certified: 0, retention: 0 });
+    await db.update(commercialSubcontracts).set({ totalBilledAmount: totals.billed, totalCertifiedAmount: totals.certified, totalRetentionWithheld: totals.retention, updatedAt: new Date().toISOString() }).where(eq(commercialSubcontracts.id, updated.subcontractId));
+    return this.mapSubcontractBill(updated);
   }
 
   // --- Variation Orders & Claims API ---
+
+  // --- Variation Orders & Claims API ---
   public async getVariationOrders(projectId?: string): Promise<CommercialVariationOrder[]> {
-    if (projectId) {
-      return this.variationOrders.filter(v => v.projectId === projectId);
-    }
-    return this.variationOrders;
+    await this.ensureCommercialPersistence();
+    const rows = projectId
+      ? await db.select().from(commercialVariationOrders).where(eq(commercialVariationOrders.projectId, projectId)).orderBy(desc(commercialVariationOrders.createdAt))
+      : await db.select().from(commercialVariationOrders).orderBy(desc(commercialVariationOrders.createdAt));
+    return rows.map((row) => this.mapVariation(row));
   }
 
   public async createVariationOrder(data: Partial<CommercialVariationOrder>): Promise<CommercialVariationOrder> {
-    const count = this.variationOrders.length + 1;
+    await this.ensureCommercialPersistence();
+    if (!data.projectId || !data.voNumber || !data.title || !data.scopeDescription || !data.variationType || !(data as any).currency || !data.submittedDate) {
+      throw new Error('Project, VO number, title, scope, variation type, currency and submission date are required.');
+    }
+    const amount = Number(data.claimedAmount);
+    if (!Number.isFinite(amount) || amount < 0) throw new Error('Claimed variation amount must be a valid non-negative number.');
     const now = new Date().toISOString();
-    const newVO: CommercialVariationOrder = {
-      id: `vo-${uuidv4().substring(0, 8)}`,
-      projectId: data.projectId || 'p-101',
-      projectName: data.projectName || 'Infrastructure Project',
-      voNumber: data.voNumber || `VO-SITE-${String(count).padStart(3, '0')}`,
-      title: data.title || 'Site Variation Order',
-      scopeDescription: data.scopeDescription || 'Authorized variation to original contract BOQ scope',
-      variationType: data.variationType || 'ADDITION',
-      claimedAmount: data.claimedAmount || 500000,
-      approvedAmount: data.approvedAmount || 0,
-      timeExtensionDays: data.timeExtensionDays || 0,
-      impactOnCriticalPath: data.impactOnCriticalPath || false,
-      status: data.status || 'SUBMITTED',
-      clientReference: data.clientReference,
-      submittedDate: data.submittedDate || now.split('T')[0],
-      createdAt: now,
-    };
-    this.variationOrders.unshift(newVO);
-    return newVO;
+    const id = `vo-${uuidv4().slice(0, 8)}`;
+    await db.insert(commercialVariationOrders).values({
+      id, projectId: data.projectId, projectName: data.projectName || null, contractId: (data as any).contractId || null,
+      wbsId: (data as any).wbsId || null, boqItemId: (data as any).boqItemId || null, voNumber: data.voNumber, title: data.title,
+      scopeDescription: data.scopeDescription, variationType: data.variationType, claimedAmount: amount, approvedAmount: 0,
+      currency: String((data as any).currency).toUpperCase(), timeExtensionDays: Number(data.timeExtensionDays || 0),
+      impactOnCriticalPath: Boolean(data.impactOnCriticalPath), status: 'SUBMITTED', clientReference: data.clientReference || null,
+      submittedDate: data.submittedDate, approvedDate: null, createdAt: now, updatedAt: now,
+    });
+    return (await this.getVariationOrders(data.projectId)).find((v) => v.id === id)!;
   }
 
-  public async updateVariationStatus(id: string, status: any, approvedAmount?: number): Promise<CommercialVariationOrder | null> {
-    const vo = this.variationOrders.find(v => v.id === id);
-    if (!vo) return null;
-    vo.status = status;
-    if (approvedAmount !== undefined) vo.approvedAmount = approvedAmount;
-    if (status === 'ENGINEER_APPROVED' || status === 'FORMALLY_INCORPORATED') {
-      vo.approvedDate = new Date().toISOString().split('T')[0];
-    }
-    return vo;
+  public async updateVariationStatus(id: string, status: CommercialVariationOrder['status'], approvedAmount?: number): Promise<CommercialVariationOrder | null> {
+    await this.ensureCommercialPersistence();
+    const [current] = await db.select().from(commercialVariationOrders).where(eq(commercialVariationOrders.id, id)).limit(1);
+    if (!current) return null;
+    const transitions: Record<string, string[]> = {
+      SUBMITTED: ['CLIENT_REVIEW', 'DISPUTED'],
+      CLIENT_REVIEW: ['ENGINEER_APPROVED', 'DISPUTED'],
+      ENGINEER_APPROVED: ['FORMALLY_INCORPORATED', 'DISPUTED'],
+      DISPUTED: ['CLIENT_REVIEW'],
+      FORMALLY_INCORPORATED: [],
+    };
+    if (!transitions[current.status]?.includes(status)) throw new Error(`Invalid variation status transition: ${current.status} → ${status}`);
+    const nextAmount = approvedAmount === undefined ? (current.approvedAmount || 0) : Number(approvedAmount);
+    if (!Number.isFinite(nextAmount) || nextAmount < 0 || nextAmount > current.claimedAmount) throw new Error('Approved variation amount is invalid.');
+    if (['ENGINEER_APPROVED', 'FORMALLY_INCORPORATED'].includes(status) && current.claimedAmount > 0 && nextAmount === 0) throw new Error('Approved variation amount is required before approval.');
+    const [updated] = await db.update(commercialVariationOrders).set({
+      status, approvedAmount: nextAmount,
+      approvedDate: ['ENGINEER_APPROVED', 'FORMALLY_INCORPORATED'].includes(status) ? new Date().toISOString().split('T')[0] : current.approvedDate,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(commercialVariationOrders.id, id)).returning();
+    return updated ? this.mapVariation(updated) : null;
   }
 
   // --- Client Interim Payment Certificates (IPC) API ---
+
+  // --- Client Interim Payment Certificates (IPC) API ---
   public async getClientIPCs(projectId?: string): Promise<CommercialClientIPC[]> {
-    if (projectId) {
-      return this.clientIPCs.filter(i => i.projectId === projectId);
-    }
-    return this.clientIPCs;
+    await this.ensureCommercialPersistence();
+    const rows = projectId
+      ? await db.select().from(commercialClientIpcs).where(eq(commercialClientIpcs.projectId, projectId)).orderBy(desc(commercialClientIpcs.createdAt))
+      : await db.select().from(commercialClientIpcs).orderBy(desc(commercialClientIpcs.createdAt));
+    return rows.map((row) => this.mapIPC(row));
   }
 
   public async createClientIPC(data: Partial<CommercialClientIPC>): Promise<CommercialClientIPC> {
-    const count = this.clientIPCs.length + 1;
+    await this.ensureCommercialPersistence();
+    if (!data.projectId || !data.ipcNumber || !data.billingPeriod || !data.submissionDate || !(data as any).currency) {
+      throw new Error('Project, IPC number, billing period, submission date and currency are required.');
+    }
+    const gross = Number(data.grossWorkDoneClaimed);
+    const certified = Number(data.grossWorkDoneCertified || 0);
+    if (!Number.isFinite(gross) || gross <= 0 || !Number.isFinite(certified) || certified < 0 || certified > gross) throw new Error('IPC claimed/certified amounts are invalid.');
+    const materials = Number(data.materialsOnSiteValue || 0);
+    const retention = Number(data.retentionDeduction || 0);
+    const mob = Number(data.mobilizationRecovery || 0);
+    const tds = Number(data.statutoryTDS || 0);
+    if ([materials, retention, mob, tds].some((n) => !Number.isFinite(n) || n < 0)) throw new Error('IPC deduction and material values must be valid non-negative numbers.');
     const now = new Date().toISOString();
-    const gross = data.grossWorkDoneClaimed || 10000000;
-    const cert = data.grossWorkDoneCertified || gross;
-    const mos = data.materialsOnSiteValue || 0;
-    const ret = data.retentionDeduction || Math.round(cert * 0.05);
-    const mob = data.mobilizationRecovery || Math.round(cert * 0.10);
-    const tds = data.statutoryTDS || Math.round(cert * 0.02);
-    const net = cert + mos - ret - mob - tds;
-
-    const newIPC: CommercialClientIPC = {
-      id: `ipc-${uuidv4().substring(0, 8)}`,
-      projectId: data.projectId || 'p-101',
-      projectName: data.projectName || 'Infrastructure Project',
-      ipcNumber: data.ipcNumber || `IPC-0${count}`,
-      billingPeriod: data.billingPeriod || 'Current Month',
-      grossWorkDoneClaimed: gross,
-      grossWorkDoneCertified: cert,
-      materialsOnSiteValue: mos,
-      retentionDeduction: ret,
-      mobilizationRecovery: mob,
-      statutoryTDS: tds,
-      netReceivableAmount: net,
-      status: data.status || 'SUBMITTED',
-      submissionDate: data.submissionDate || now.split('T')[0],
-      dueDate: data.dueDate || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-      createdAt: now,
-    };
-    this.clientIPCs.unshift(newIPC);
-    return newIPC;
+    const id = `ipc-${uuidv4().slice(0, 8)}`;
+    const net = certified + materials - retention - mob - tds;
+    await db.insert(commercialClientIpcs).values({
+      id, projectId: data.projectId, projectName: data.projectName || null, contractId: (data as any).contractId || null,
+      ipcNumber: data.ipcNumber, billingPeriod: data.billingPeriod, grossWorkDoneClaimed: gross, grossWorkDoneCertified: certified,
+      materialsOnSiteValue: materials, retentionDeduction: retention, mobilizationRecovery: mob, statutoryTds: tds, netReceivableAmount: net,
+      currency: String((data as any).currency).toUpperCase(), status: 'SUBMITTED', submissionDate: data.submissionDate,
+      certificationDate: null, dueDate: data.dueDate || null, createdAt: now, updatedAt: now,
+    });
+    return (await this.getClientIPCs(data.projectId)).find((i) => i.id === id)!;
   }
 
   public async certifyClientIPC(id: string, certifiedAmount: number, status = 'CERTIFIED'): Promise<CommercialClientIPC | null> {
-    const ipc = this.clientIPCs.find(i => i.id === id);
-    if (!ipc) return null;
-    ipc.grossWorkDoneCertified = certifiedAmount;
-    ipc.retentionDeduction = Math.round(certifiedAmount * 0.05);
-    ipc.mobilizationRecovery = Math.round(certifiedAmount * 0.10);
-    ipc.statutoryTDS = Math.round(certifiedAmount * 0.02);
-    ipc.netReceivableAmount = certifiedAmount + ipc.materialsOnSiteValue - ipc.retentionDeduction - ipc.mobilizationRecovery - ipc.statutoryTDS;
-    ipc.status = status as any;
-    ipc.certificationDate = new Date().toISOString().split('T')[0];
+    await this.ensureCommercialPersistence();
+    const [current] = await db.select().from(commercialClientIpcs).where(eq(commercialClientIpcs.id, id)).limit(1);
+    if (!current) return null;
+    if (!['SUBMITTED', 'CONSULTANT_CHECKED'].includes(current.status)) throw new Error(`Client IPC cannot be certified from status ${current.status}.`);
+    const cert = Number(certifiedAmount);
+    if (!Number.isFinite(cert) || cert < 0 || cert > current.grossWorkDoneClaimed) throw new Error('Certified IPC amount is invalid.');
+    const net = cert + (current.materialsOnSiteValue || 0) - (current.retentionDeduction || 0) - (current.mobilizationRecovery || 0) - (current.statutoryTds || 0);
+    const certDate = new Date().toISOString().split('T')[0];
 
-    // Cross-Module Integration: Post Certified Client IPC to Finance AR & GL Revenue Recognition
-    if (status === 'CERTIFIED' && certifiedAmount > 0) {
-      try {
-        await financeRepository.createARInvoice({
-          invoiceNumber: ipc.ipcNumber,
-          customerName: 'Employer / Client Authority',
-          projectId: ipc.projectId,
-          projectName: ipc.projectName,
-          totalAmount: ipc.netReceivableAmount,
-          taxAmount: ipc.statutoryTDS,
-          dueDate: ipc.dueDate,
-        });
-
-        // Double-entry balancing:
-        // Dr. 1030 Accounts Receivable Control: netReceivableAmount
-        // Dr. 1040 Contract Retention Receivable: retentionDeduction
-        // Dr. 2030 Statutory Taxes & Social Security Payable: statutoryTDS
-        // Dr. 2060 Client Mobilization Advance: mobilizationRecovery
-        // Cr. 4010 Construction Contract Revenue (IPC): certifiedAmount
-        // Cr. 1060 Construction Inventory & Stores: materialsOnSiteValue
-        const jvLines: any[] = [
-          {
-            accountCode: '1030',
-            accountName: 'Accounts Receivable Control',
-            debitAmount: ipc.netReceivableAmount,
-            creditAmount: 0,
-            lineDescription: `Net certified claim receivable for ${ipc.ipcNumber}`,
-          },
-          {
-            accountCode: '1040',
-            accountName: 'Contract Retention Receivable',
-            debitAmount: ipc.retentionDeduction,
-            creditAmount: 0,
-            lineDescription: `Retention deduction withheld by client (5%)`,
-          },
-        ];
-
-        if (ipc.statutoryTDS > 0) {
-          jvLines.push({
-            accountCode: '2030',
-            accountName: 'Statutory Taxes & Social Security Payable',
-            debitAmount: ipc.statutoryTDS,
-            creditAmount: 0,
-            lineDescription: `Statutory TDS withheld on ${ipc.ipcNumber}`,
-          });
-        }
-
-        if (ipc.mobilizationRecovery > 0) {
-          jvLines.push({
-            accountCode: '2060',
-            accountName: 'Client Mobilization Advance',
-            debitAmount: ipc.mobilizationRecovery,
-            creditAmount: 0,
-            lineDescription: `Mobilization advance recovery on ${ipc.ipcNumber}`,
-          });
-        }
-
-        jvLines.push({
-          accountCode: '4010',
-          accountName: 'Construction Contract Revenue (IPC)',
-          debitAmount: 0,
-          creditAmount: certifiedAmount,
-          lineDescription: `Progress revenue certified under IPC ${ipc.ipcNumber} (${ipc.projectName})`,
-        });
-
-        if (ipc.materialsOnSiteValue > 0) {
-          jvLines.push({
-            accountCode: '1060',
-            accountName: 'Construction Inventory & Stores',
-            debitAmount: 0,
-            creditAmount: ipc.materialsOnSiteValue,
-            lineDescription: `Materials on site recovery for ${ipc.ipcNumber}`,
-          });
-        }
-
-        await financeRepository.createJournalEntry(
-          {
-            voucherType: 'REVENUE_JOURNAL',
-            postingDate: ipc.certificationDate,
-            referenceNumber: ipc.ipcNumber,
-            narration: `Client IPC Revenue recognition for ${ipc.ipcNumber} - Project ${ipc.projectName}`,
-          },
-          jvLines
-        );
-      } catch (err) {
-        console.warn('[Commercial->Finance] Client IPC certification JV notice:', err);
-      }
+    if (status === 'CERTIFIED' && cert > 0) {
+      await financeRepository.createARInvoice({
+        invoiceNumber: current.ipcNumber,
+        customerName: 'Employer / Client Authority',
+        projectId: current.projectId,
+        projectName: current.projectName || '',
+        totalAmount: net,
+        taxAmount: current.statutoryTds || 0,
+        dueDate: current.dueDate || certDate,
+      });
+      const lines: any[] = [
+        { accountCode: '1030', accountName: 'Accounts Receivable Control', debitAmount: net, creditAmount: 0, lineDescription: `Net certified receivable for ${current.ipcNumber}` },
+        { accountCode: '1040', accountName: 'Contract Retention Receivable', debitAmount: current.retentionDeduction || 0, creditAmount: 0, lineDescription: `Retention on ${current.ipcNumber}` },
+      ];
+      if ((current.statutoryTds || 0) > 0) lines.push({ accountCode: '2030', accountName: 'Statutory Taxes & Social Security Payable', debitAmount: current.statutoryTds, creditAmount: 0, lineDescription: `TDS on ${current.ipcNumber}` });
+      if ((current.mobilizationRecovery || 0) > 0) lines.push({ accountCode: '2060', accountName: 'Client Mobilization Advance', debitAmount: current.mobilizationRecovery, creditAmount: 0, lineDescription: `Mobilization recovery on ${current.ipcNumber}` });
+      lines.push({ accountCode: '4010', accountName: 'Construction Contract Revenue (IPC)', debitAmount: 0, creditAmount: cert, lineDescription: `Certified revenue for ${current.ipcNumber}` });
+      if ((current.materialsOnSiteValue || 0) > 0) lines.push({ accountCode: '1060', accountName: 'Construction Inventory & Stores', debitAmount: 0, creditAmount: current.materialsOnSiteValue, lineDescription: `Materials on site ${current.ipcNumber}` });
+      const debits = lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0);
+      const credits = lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0);
+      if (Math.abs(debits - credits) > 0.01) throw new Error('Client IPC journal is not balanced.');
+      await financeRepository.createJournalEntry({ voucherType: 'REVENUE_JOURNAL', postingDate: certDate, referenceNumber: current.ipcNumber, narration: `Client IPC revenue recognition ${current.ipcNumber}` }, lines);
     }
 
-    return ipc;
+    const [updated] = await db.update(commercialClientIpcs).set({
+      grossWorkDoneCertified: cert,
+      netReceivableAmount: net,
+      status,
+      certificationDate: status === 'CERTIFIED' ? certDate : null,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(commercialClientIpcs.id, id)).returning();
+    return updated ? this.mapIPC(updated) : null;
   }
+}
+ 
+export const commercialRepository
+
 }
 
 export const commercialRepository = CommercialRepository.getInstance();

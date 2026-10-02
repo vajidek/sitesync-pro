@@ -147,4 +147,36 @@ A module is not considered complete because a screen exists. Completion requires
 
 ## Current transformation status
 
-The first hardening branch is intended to remove immediately dangerous behavior without destroying existing functionality. Broader refactoring will follow the parity and dependency analysis rather than a blind rewrite.
+The repository has completed the first controlled hardening and ERP-truth pass without a blind rewrite.
+
+### Completed controls
+
+- Production/UAT authentication secrets now fail closed when explicit secrets are missing.
+- DEMO synthetic data seeding is isolated for authentication, HRMS, finance, project controls, procurement, WBS/BOQ and loans.
+- Static dashboard/navigation counters and attendance states that implied real operational records were removed or neutralized.
+- Employee-expense API endpoints are authenticated and controlled actions use authenticated actors with maker-checker/lifecycle validation.
+- Master Data and Commercial/Tender/Contract mutation paths received server-side authentication/role hardening.
+- Duplicate procurement transaction route registrations were removed so legacy handlers cannot shadow the enterprise transaction path.
+- Contract status transitions, variation approvals and extension approvals now enforce state/lifecycle controls and maker-checker separation.
+- Finance journal posting now validates balanced double-entry lines, referenced chart-of-account codes and atomic journal/GL/balance updates.
+- Cost Control/EVM was converted from synthetic category/burn-rate calculations to transaction-driven project economics with transparent WBS allocation status and source-document drill-down.
+- Project-linked labour allocations are included as actual labour cost; unallocated payroll is not guessed into project cost.
+- HRMS payroll approval/disbursement/hold/unhold, loan approval and attendance finalization actions are bound to authenticated actors.
+- Raw biometric punch access is restricted and the raw punch persistence path remains append-only.
+- Payroll disbursement no longer generates a fake bank reference outside DEMO and no longer marks payroll as paid when Finance journal posting fails.
+- Loan demo fixtures are disabled outside DEMO and loan request workflow history uses the authenticated applicant identity.
+- Technical schema inspection is confined to the administrator workspace and the About/system navigation no longer renders schema diagnostics.
+
+### Remaining ERP backbone work
+
+1. Reconcile duplicate Drizzle/Prisma schema definitions into one authoritative migration strategy.
+2. Complete Contract → BOQ → WBS → Cost Code linkage and enforce foreign-key/resource validity at all transaction boundaries.
+3. Complete BOQ → Procurement → Store → Site → Progress → Measurement → Billing → Cost → Finance traceability.
+4. Complete QA/QC, HSE, Document Control/CDE and Variations/Claims as governed transactional domains.
+5. Replace remaining organization-specific defaults and hardcoded business rules with configuration/master data.
+6. Complete planning/schedule baseline, resource loading and true time-phased PV/EV.
+7. Complete cashflow, project profitability and management analytics from authoritative ledgers.
+8. Harden offline/PWA synchronization, conflict handling, audit history and field UX.
+9. Add repository/build/route/integration regression coverage before production release.
+
+No module should be marked production-complete until the Definition of Done above is satisfied.

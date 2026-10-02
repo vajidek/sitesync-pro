@@ -25,6 +25,9 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - PR #78 — Store: central stock ledger preserves Project/WBS/BOQ/Cost Code allocation context.
 - PR #79 — Store: purchase requests carry WBS/BOQ/Cost Code traceability with migration.
 - PR #80 — Cost Control: material actual allocation consumes the central stock transaction ledger.
+- PR #81 — QA/QC: inspection and NCR transaction integrity with unique numbering.
+- PR #82 — QA/QC: NCR to CAPA transaction integrity with audit and unique numbering.
+- PR #83 — QA/QC: atomic ITP checklist persistence and removal of synthetic QA/QC input defaults.
 
 ## Current status
 - HR master-data hardening: completed in main through authenticated actor propagation, canonical employee/leave/salary/loan writes, configurable numbering, and removal of production fallback identities/codes.
@@ -33,15 +36,14 @@ Before any new implementation, read this file. Do not repeat a merged fix. Conti
 - Do not repeat the completed items above.
 
 ## Next unfinished area
-1. QA/QC — transaction integrity, inspection workflow, NCR/corrective-action lifecycle, and removal of synthetic defaults.
-2. HSE — incident/near-miss/risk/permit workflow integrity and role-based approvals.
-3. Documents/CDE — revision control, transmittals, approvals, and source-document traceability.
-4. Claims/Variations — commercial lifecycle integration and evidence linkage.
-5. UI/UX consolidation — remove duplicated modules/screens and unify ERP navigation/workflows.
-6. CI/testing — compile/test coverage and deployment gates.
+1. HSE — incident/near-miss/risk/permit workflow integrity and role-based approvals.
+2. Documents/CDE — revision control, transmittals, approvals, and source-document traceability.
+3. Claims/Variations — commercial lifecycle integration and evidence linkage.
+4. UI/UX consolidation — remove duplicated modules/screens and unify ERP navigation/workflows.
+5. CI/testing — compile/test coverage and deployment gates.
 
 ## Continuation marker
-Last verified main merge: PR #80. Next work should begin at QA/QC; do not restart Store/Cost/HR/Finance hardening unless new evidence shows a regression.
+Last verified main merge: PR #83. Next work should begin at QA/QC; do not restart Store/Cost/HR/Finance hardening unless new evidence shows a regression.
 
 ## Safe marking rule
 Prefer this checkpoint file. It does not affect ERP runtime behavior. Use source-code comments only when truly useful.

@@ -2230,7 +2230,7 @@ export class InventoryRepository {
       return { ...issueRecord, items: itemsToInsert };
     });
 
-    return createdResult;;
+    return createdResult;
   }
 
   // ==========================================

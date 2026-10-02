@@ -1,6 +1,6 @@
 import { db } from '../../db/index';
 import { isDemoSeedAllowed } from '../config/env';
-import { sql } from 'drizzle-orm';
+import { sql, eq, and } from 'drizzle-orm';
 import {
   phase62ItpMasters,
   phase62ItpChecklists,
@@ -20,6 +20,7 @@ import {
   phase62QualityApprovals,
   phase62QualityLogs,
   phase62QualityNotifications,
+  projects,
 } from '../../db/schema';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -155,41 +156,106 @@ export class QAQCRepository {
     return `INS-2026-${String(count).padStart(4, '0')}`;
   }
 
+  // ERP-TRACE: QAQC-P1 — inspection creation is project-linked, actor-audited and atomic.
   public async createInspection(data: any) {
-    requireFields(data, ['title','projectId','location'], 'Inspection');
+    requireFields(data, ['title','projectId','location','createdBy'], 'Inspection');
     await this.ensureQAQCTablesExist();
-    const id = uuidv4();
+
+    const projectId = String(data.projectId).trim();
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+
+    const [project] = await db.select({ id: projects.id, projectName: projects.projectName, isActive: projects.isActive })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (!project || !project.isActive) throw new Error('Inspection project not found or inactive.');
+
     const now = new Date().toISOString();
-    const insNumber = data.inspectionNumber || await this.getNextInspectionNumber();
+    const id = uuidv4();
+    const insNumber = String(data.inspectionNumber || `INS-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
 
-    await db.execute(sql`
-      INSERT INTO phase62_inspections (
-        id, inspection_number, itp_id, title, discipline, inspection_type, 
-        project_id, location, requested_date, inspection_date, inspector_name, 
-        client_representative, result, status, remarks, created_at, updated_at
-      ) VALUES (
-        ${id}, ${insNumber}, ${data.itpId || null}, ${data.title}, ${data.discipline || 'MECHANICAL'},
-        ${data.inspectionType || 'SITE_INSPECTION'}, ${data.projectId || null}, ${data.location},
-        ${data.requestedDate || now.split('T')[0]}, ${data.inspectionDate || null}, ${data.inspectorName || null},
-        ${data.clientRepresentative || null}, ${data.result || 'PENDING'}, ${data.status || 'SUBMITTED'},
-        ${data.remarks || null}, ${now}, ${now}
-      )
-    `);
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase62Inspections.id })
+        .from(phase62Inspections)
+        .where(eq(phase62Inspections.inspectionNumber, insNumber))
+        .limit(1);
+      if (duplicate.length) throw new Error(`Inspection number ${insNumber} already exists.`);
 
-    if (data.items && Array.isArray(data.items)) {
-      for (const item of data.items) {
-        await db.execute(sql`
-          INSERT INTO phase62_inspection_items (
-            id, inspection_id, check_point, acceptance_criteria, observed_result, status, comments, created_at, updated_at
-          ) VALUES (
-            ${uuidv4()}, ${id}, ${item.checkPoint}, ${item.acceptanceCriteria}, ${item.observedResult || null},
-            ${item.status || 'PENDING'}, ${item.comments || null}, ${now}, ${now}
-          )
-        `);
+      const [inspection] = await tx.insert(phase62Inspections).values({
+        id,
+        inspectionNumber: insNumber,
+        itpId: data.itpId || null,
+        title: String(data.title).trim(),
+        discipline: String(data.discipline || 'MECHANICAL').trim().toUpperCase(),
+        inspectionType: String(data.inspectionType || 'SITE_INSPECTION').trim().toUpperCase(),
+        projectId,
+        location: String(data.location).trim(),
+        requestedDate: String(data.requestedDate || now.slice(0,10)).trim(),
+        inspectionDate: data.inspectionDate || null,
+        inspectorName: data.inspectorName || creator,
+        clientRepresentative: data.clientRepresentative || null,
+        result: 'PENDING',
+        status: 'SUBMITTED',
+        remarks: data.remarks || null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      if (!inspection) throw new Error('Inspection creation failed.');
+
+      const items = Array.isArray(data.items) ? data.items : [];
+      for (const item of items) {
+        requireFields(item, ['checkPoint','acceptanceCriteria'], 'Inspection item');
+        await tx.insert(phase62InspectionItems).values({
+          id: uuidv4(),
+          inspectionId: id,
+          checkPoint: String(item.checkPoint).trim(),
+          acceptanceCriteria: String(item.acceptanceCriteria).trim(),
+          observedResult: item.observedResult || null,
+          status: String(item.status || 'PENDING').trim().toUpperCase(),
+          comments: item.comments || null,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: creator,
+          updatedBy: updater,
+          deletedAt: null,
+          isDeleted: false,
+        });
       }
-    }
 
-    return { id, inspectionNumber: insNumber, ...data };
+      await tx.insert(phase62QualityLogs).values({
+        id: uuidv4(),
+        actionType: 'INSPECTION_CREATED',
+        module: 'QAQC',
+        entityId: id,
+        performedBy: creator,
+        details: `Created inspection ${insNumber} for project ${project.projectName}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return {
+        id,
+        inspectionNumber: insNumber,
+        projectId,
+        projectName: project.projectName,
+        ...data,
+        status: 'SUBMITTED',
+        result: 'PENDING',
+        createdBy: creator,
+        updatedBy: updater,
+      };
+    });
   }
 
   // NCR
@@ -211,28 +277,104 @@ export class QAQCRepository {
     return `NCR-2026-${String(count).padStart(4, '0')}`;
   }
 
+  // ERP-TRACE: QAQC-P1 — NCR issuance is project-linked, actor-audited and atomic.
   public async createNcr(data: any) {
-    requireFields(data, ['projectId','title','description','location','issuedTo','issuedBy','targetCloseDate'], 'NCR');
+    requireFields(data, ['projectId','title','description','location','issuedTo','issuedBy','targetCloseDate','createdBy'], 'NCR');
     await this.ensureQAQCTablesExist();
-    const id = uuidv4();
+
+    const projectId = String(data.projectId).trim();
+    const creator = String(data.createdBy).trim();
+    const updater = String(data.updatedBy || creator).trim();
+    const targetCloseDate = String(data.targetCloseDate).trim();
+
+    const [project] = await db.select({ id: projects.id, projectName: projects.projectName, isActive: projects.isActive })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .limit(1);
+    if (!project || !project.isActive) throw new Error('NCR project not found or inactive.');
+
+    const severity = String(data.severity || 'MAJOR').trim().toUpperCase();
+    if (!['MINOR','MAJOR','CRITICAL'].includes(severity)) throw new Error('Unsupported NCR severity.');
+    const disposition = String(data.disposition || 'REWORK').trim().toUpperCase();
+    if (!['REWORK','REPAIR','USE_AS_IS','REJECT_REPLACE'].includes(disposition)) throw new Error('Unsupported NCR disposition.');
+
     const now = new Date().toISOString();
-    const ncrNum = data.ncrNumber || await this.getNextNcrNumber();
+    const id = uuidv4();
+    const ncrNum = String(data.ncrNumber || `NCR-${now.slice(0,4)}-${uuidv4().slice(0,8).toUpperCase()}`).trim();
 
-    await db.execute(sql`
-      INSERT INTO phase62_ncr (
-        id, ncr_number, inspection_id, project_id, title, severity, description,
-        location, issued_to, issued_by, issue_date, target_close_date, root_cause,
-        disposition, status, remarks, created_at, updated_at
-      ) VALUES (
-        ${id}, ${ncrNum}, ${data.inspectionId || null}, ${data.projectId || null},
-        ${data.title}, ${data.severity || 'MAJOR'}, ${data.description}, ${data.location},
-        ${data.issuedTo}, ${data.issuedBy || null}, ${now.split('T')[0]},
-        ${data.targetCloseDate}, ${data.rootCause || null}, ${data.disposition || 'REWORK'},
-        ${data.status || 'OPEN'}, ${data.remarks || null}, ${now}, ${now}
-      )
-    `);
+    return await db.transaction(async (tx) => {
+      const duplicate = await tx.select({ id: phase62Ncr.id })
+        .from(phase62Ncr)
+        .where(eq(phase62Ncr.ncrNumber, ncrNum))
+        .limit(1);
+      if (duplicate.length) throw new Error(`NCR number ${ncrNum} already exists.`);
 
-    return { id, ncrNumber: ncrNum, ...data };
+      if (data.inspectionId) {
+        const [inspection] = await tx.select({ id: phase62Inspections.id, projectId: phase62Inspections.projectId })
+          .from(phase62Inspections)
+          .where(and(eq(phase62Inspections.id, String(data.inspectionId).trim()), eq(phase62Inspections.isDeleted, false)))
+          .limit(1);
+        if (!inspection) throw new Error('Linked inspection was not found.');
+        if (inspection.projectId !== projectId) throw new Error('Linked inspection does not belong to the selected project.');
+      }
+
+      const [ncr] = await tx.insert(phase62Ncr).values({
+        id,
+        ncrNumber: ncrNum,
+        inspectionId: data.inspectionId || null,
+        projectId,
+        title: String(data.title).trim(),
+        severity,
+        description: String(data.description).trim(),
+        location: String(data.location).trim(),
+        issuedTo: String(data.issuedTo).trim(),
+        issuedBy: String(data.issuedBy).trim(),
+        issueDate: now.split('T')[0],
+        targetCloseDate,
+        actualCloseDate: null,
+        rootCause: data.rootCause || null,
+        disposition,
+        status: 'OPEN',
+        remarks: data.remarks || null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      if (!ncr) throw new Error('NCR creation failed.');
+
+      await tx.insert(phase62QualityLogs).values({
+        id: uuidv4(),
+        actionType: 'NCR_ISSUED',
+        module: 'QAQC',
+        entityId: id,
+        performedBy: creator,
+        details: `Issued NCR ${ncrNum} for project ${project.projectName}.`,
+        ipAddress: null,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: creator,
+        updatedBy: updater,
+        deletedAt: null,
+        isDeleted: false,
+      });
+
+      return {
+        id,
+        ncrNumber: ncrNum,
+        projectId,
+        projectName: project.projectName,
+        ...data,
+        severity,
+        disposition,
+        status: 'OPEN',
+        createdBy: creator,
+        updatedBy: updater,
+      };
+    });
   }
 
   // CAPA

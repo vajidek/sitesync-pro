@@ -761,7 +761,8 @@ export class StatutoryEngineService {
     const grossEarningsINR = Math.round(grossEarnings * (payrollCurrency === 'INR' ? 1 : exchangeRateToInr));
 
     // Resolve Applicable Rules from rule table
-    const targetStateCode = (profile.ptState === 'KERALA' ? 'KL' : profile.ptState === 'MAHARASHTRA' ? 'MH' : profile.ptState === 'KARNATAKA' ? 'KA' : (profile.ptState || 'KL')).toUpperCase();
+    const targetStateCode = String(profile.ptState || '').trim().toUpperCase();
+    if (jurisdiction === 'INDIA' && !targetStateCode) throw new Error(`Professional-tax state configuration is missing for employee ${employee.employeeCode || employee.id}.`);
     const epfRule = activeRules.find((r) => r.ruleType === 'EPF' && r.jurisdiction === jurisdiction) || activeRules.find((r) => r.ruleType === 'EPF');
     const esicRule = activeRules.find((r) => r.ruleType === 'ESIC' && r.jurisdiction === jurisdiction) || activeRules.find((r) => r.ruleType === 'ESIC');
     const ptRule = activeRules.find((r) => r.ruleType === 'PROFESSIONAL_TAX' && r.parameters?.stateCode === targetStateCode) ||
@@ -770,33 +771,20 @@ export class StatutoryEngineService {
     const tdsRule = activeRules.find((r) => r.ruleType === 'TDS' && r.parameters?.regime === (profile.taxRegime || 'NEW_REGIME'));
     const gratuityRule = activeRules.find((r) => r.ruleType === 'GRATUITY');
 
-    // Rule parameter extraction with safe defaults
-    const epfParams: EpfParameters = epfRule?.parameters || {
-      employeeRate: 0.12,
-      employerRate: 0.12,
-      wageCeilingINR: 15000,
-      epsRate: 0.0833,
-      epfDiffRate: 0.0367,
-      adminChargesRate: 0.005,
-      edliRate: 0.005,
-      allowVpf: true,
-      optOutAllowedAboveCeiling: true,
-    };
+    if (jurisdiction === 'INDIA' && (!epfRule || !esicRule || !ptRule || !tdsRule || !gratuityRule)) {
+      const missing = [
+        !epfRule && 'EPF',
+        !esicRule && 'ESIC',
+        !ptRule && 'PROFESSIONAL_TAX',
+        !tdsRule && 'TDS',
+        !gratuityRule && 'GRATUITY',
+      ].filter(Boolean);
+      throw new Error(`Required statutory rule configuration is missing: ${missing.join(', ')}.`);
+    }
 
-    const esicParams: EsicParameters = esicRule?.parameters || {
-      wageCeilingINR: 21000,
-      disabilityWageCeilingINR: 25000,
-      employeeRate: 0.0075,
-      employerRate: 0.0325,
-    };
-
-    const gratuityParams: GratuityParameters = gratuityRule?.parameters || {
-      tenureYearsThreshold: 5,
-      statutoryCapINR: 2000000,
-      formulaDays: 15,
-      monthWorkingDays: 26,
-      monthlyAccrualRate: 0.048077,
-    };
+    const epfParams = epfRule?.parameters as EpfParameters | undefined;
+    const esicParams = esicRule?.parameters as EsicParameters | undefined;
+    const gratuityParams = gratuityRule?.parameters as GratuityParameters | undefined;
 
     let employeePf = 0;
     let employeeVpf = 0;
@@ -817,29 +805,29 @@ export class StatutoryEngineService {
       // 1. EPFO / PF Calculation
       if (!profile.pfOptOut) {
         // Can be on actual basic or capped wage ceiling if applicable
-        employeePf = Math.round(pfWageBase * epfParams.employeeRate);
+        employeePf = Math.round(pfWageBase * epfParams!.employeeRate);
         
         if (profile.vpfPercentage && profile.vpfPercentage > 0) {
           employeeVpf = Math.round(pfWageBase * (profile.vpfPercentage / 100));
         }
 
         // Employer EPS (8.33% capped at ₹15,000 ceiling: max ₹1,250)
-        const epsCappedWageINR = Math.min(pfWageBaseINR, epfParams.wageCeilingINR);
+        const epsCappedWageINR = Math.min(pfWageBaseINR, epfParams!.wageCeilingINR);
         const epsCappedWageTx = epsCappedWageINR / (payrollCurrency === 'INR' ? 1 : exchangeRateToInr);
-        employerEps = Math.round(epsCappedWageTx * epfParams.epsRate);
+        employerEps = Math.round(epsCappedWageTx * epfParams!.epsRate);
         
         // Employer EPF difference (3.67% or remainder of 12% total)
         employerEpf = Math.round(employeePf - employerEps);
         
         // Admin & EDLI
-        epfAdminCharges = Math.round(epsCappedWageTx * epfParams.adminChargesRate);
-        edliCharges = Math.round(epsCappedWageTx * epfParams.edliRate);
+        epfAdminCharges = Math.round(epsCappedWageTx * epfParams!.adminChargesRate);
+        edliCharges = Math.round(epsCappedWageTx * epfParams!.edliRate);
       }
 
       // 2. ESIC Calculation (Eligible only if monthly gross <= ₹21,000 INR)
-      if (profile.esiApplicable && grossEarningsINR <= esicParams.wageCeilingINR) {
-        employeeEsi = Math.round(grossEarnings * esicParams.employeeRate);
-        employerEsi = Math.round(grossEarnings * esicParams.employerRate);
+      if (profile.esiApplicable && grossEarningsINR <= esicParams!.wageCeilingINR) {
+        employeeEsi = Math.round(grossEarnings * esicParams!.employeeRate);
+        employerEsi = Math.round(grossEarnings * esicParams!.employerRate);
       }
 
       // 3. Professional Tax (State Slab Aware)
@@ -851,13 +839,13 @@ export class StatutoryEngineService {
           professionalTax = Math.round(ptInr / (payrollCurrency === 'INR' ? 1 : exchangeRateToInr));
         }
       } else {
-        // Standard Maharashtra default fallback
-        professionalTax = grossEarningsINR > 10000 ? (isFebruary ? 300 : 200) : grossEarningsINR > 7500 ? 175 : 0;
+        throw new Error(`Professional Tax rule slabs are not configured for state ${targetStateCode}.`);
       }
 
       // 4. Section 192 TDS Income Tax Projection
       const annualizedGrossINR = grossEarningsINR * 12;
-      const stdDedINR = tdsRule?.parameters?.standardDeductionINR || 75000;
+      const stdDedINR = Number(tdsRule?.parameters?.standardDeductionINR);
+      if (!Number.isFinite(stdDedINR) || stdDedINR < 0) throw new Error('TDS standard deduction is not configured.');
       const taxableAnnualINR = Math.max(0, annualizedGrossINR - stdDedINR);
       
       let annualTaxINR = 0;
@@ -870,16 +858,12 @@ export class StatutoryEngineService {
           }
         }
       } else {
-        // New Regime fallback
-        if (taxableAnnualINR > 1500000) annualTaxINR = 150000 + (taxableAnnualINR - 1500000) * 0.30;
-        else if (taxableAnnualINR > 1200000) annualTaxINR = 90000 + (taxableAnnualINR - 1200000) * 0.20;
-        else if (taxableAnnualINR > 1000000) annualTaxINR = 60000 + (taxableAnnualINR - 1000000) * 0.15;
-        else if (taxableAnnualINR > 700000) annualTaxINR = 20000 + (taxableAnnualINR - 700000) * 0.10;
-        else if (taxableAnnualINR > 300000) annualTaxINR = (taxableAnnualINR - 300000) * 0.05;
+        throw new Error('TDS slab configuration is missing for the selected regime.');
       }
 
       // Sec 87A Rebate if applicable
-      const rebateLimit = tdsRule?.parameters?.rebate87ALimitINR || 700000;
+      const rebateLimit = Number(tdsRule?.parameters?.rebate87ALimitINR);
+      if (!Number.isFinite(rebateLimit) || rebateLimit < 0) throw new Error('TDS rebate configuration is missing.');
       if (taxableAnnualINR <= rebateLimit) {
         annualTaxINR = 0;
       } else {
@@ -892,7 +876,8 @@ export class StatutoryEngineService {
 
       // 5. Gratuity Accrual Provision (Payment of Gratuity Act 1972)
       if (profile.gratuityEnrolled) {
-        gratuityAccrual = Math.round(basic * gratuityParams.monthlyAccrualRate);
+        if (!gratuityParams || !Number.isFinite(Number(gratuityParams.monthlyAccrualRate))) throw new Error('Gratuity calculation configuration is missing.');
+        gratuityAccrual = Math.round(basic * Number(gratuityParams.monthlyAccrualRate));
       }
 
     } else if (jurisdiction === 'UAE') {

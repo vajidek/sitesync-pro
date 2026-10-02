@@ -12854,5 +12854,88 @@ export const costCodes = pgTable('cost_codes', {
   updatedAt: text('updated_at').notNull(),
 });
 
+// ============================================================
+// Enterprise Estimation & Cost Build-up
+// Tender/project commercial pre-construction control.
+// ============================================================
+
+export const estimateHeaders = pgTable('estimate_headers', {
+  id: text('id').primaryKey(),
+  companyId: text('company_id').notNull(),
+  branchId: text('branch_id'),
+  tenderId: text('tender_id'),
+  projectId: text('project_id'),
+  estimateNumber: text('estimate_number').notNull(),
+  title: text('title').notNull(),
+  estimateType: text('estimate_type').notNull(),
+  currency: text('currency').notNull(),
+  description: text('description'),
+  currentRevisionNumber: integer('current_revision_number').default(1).notNull(),
+  status: text('status').notNull(),
+  createdBy: text('created_by').notNull(),
+  createdByName: text('created_by_name').notNull(),
+  updatedBy: text('updated_by').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+});
+
+export const estimateRevisions = pgTable('estimate_revisions', {
+  id: text('id').primaryKey(),
+  estimateId: text('estimate_id').notNull(),
+  revisionNumber: integer('revision_number').notNull(),
+  revisionLabel: text('revision_label'),
+  status: text('status').notNull(),
+  description: text('description'),
+  directCost: doublePrecision('direct_cost').default(0).notNull(),
+  overheadAmount: doublePrecision('overhead_amount').default(0).notNull(),
+  contingencyAmount: doublePrecision('contingency_amount').default(0).notNull(),
+  profitAmount: doublePrecision('profit_amount').default(0).notNull(),
+  taxAmount: doublePrecision('tax_amount').default(0).notNull(),
+  totalCost: doublePrecision('total_cost').default(0).notNull(),
+  totalPrice: doublePrecision('total_price').default(0).notNull(),
+  approvedBy: text('approved_by'),
+  approvedAt: text('approved_at'),
+  createdBy: text('created_by').notNull(),
+  createdByName: text('created_by_name').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const estimateLines = pgTable('estimate_lines', {
+  id: text('id').primaryKey(),
+  revisionId: text('revision_id').notNull(),
+  lineNumber: integer('line_number').notNull(),
+  itemCode: text('item_code').notNull(),
+  description: text('description').notNull(),
+  unit: text('unit').notNull(),
+  quantity: doublePrecision('quantity').notNull(),
+  directRate: doublePrecision('direct_rate').default(0).notNull(),
+  directAmount: doublePrecision('direct_amount').default(0).notNull(),
+  overheadPercent: doublePrecision('overhead_percent').default(0).notNull(),
+  profitPercent: doublePrecision('profit_percent').default(0).notNull(),
+  quotedRate: doublePrecision('quoted_rate').default(0).notNull(),
+  quotedAmount: doublePrecision('quoted_amount').default(0).notNull(),
+  wbsId: text('wbs_id'),
+  boqItemId: text('boq_item_id'),
+  costCodeId: text('cost_code_id'),
+  costCode: text('cost_code'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const estimateResources = pgTable('estimate_resources', {
+  id: text('id').primaryKey(),
+  lineId: text('line_id').notNull(),
+  resourceType: text('resource_type').notNull(),
+  resourceCode: text('resource_code'),
+  description: text('description').notNull(),
+  unit: text('unit').notNull(),
+  quantity: doublePrecision('quantity').notNull(),
+  unitRate: doublePrecision('unit_rate').notNull(),
+  amount: doublePrecision('amount').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
 export * from "./enterprise_audit.schema";
 export * from "./enterprise_admin_services.schema";

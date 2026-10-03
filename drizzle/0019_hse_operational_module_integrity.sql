@@ -1,4 +1,18 @@
 -- SiteSync Pro 0019: HSE operational module integrity
+-- Reconcile the legacy environmental-monitoring baseline with the canonical
+-- operational model before enforcing its data-integrity rule.
+ALTER TABLE phase63_environment_monitoring
+  ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'UNSPECIFIED',
+  ADD COLUMN IF NOT EXISTS measured_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS permissible_limit DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS monitoring_date TEXT NOT NULL DEFAULT CURRENT_DATE::text;
+
+ALTER TABLE phase63_environment_monitoring
+  ALTER COLUMN location DROP DEFAULT,
+  ALTER COLUMN measured_value DROP DEFAULT,
+  ALTER COLUMN permissible_limit DROP DEFAULT,
+  ALTER COLUMN monitoring_date DROP DEFAULT;
+
 -- Replace human-looking schema fallbacks with an explicit DEMO-only actor marker.
 ALTER TABLE phase63_toolbox_talks
   ALTER COLUMN created_by SET DEFAULT 'SYSTEM_DEMO_SEED',

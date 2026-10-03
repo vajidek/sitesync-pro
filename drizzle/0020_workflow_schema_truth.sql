@@ -23,12 +23,6 @@ WHERE name IS NULL;
 ALTER TABLE phase66_workflows
   ALTER COLUMN name SET NOT NULL,
   ALTER COLUMN min_approval_amount DROP DEFAULT,
-  ALTER COLUMN verification_required DROP DEFAULT,
-  ALTER COLUMN approval_required DROP DEFAULT,
-  ALTER COLUMN prevent_maker_verification DROP DEFAULT,
-  ALTER COLUMN prevent_maker_approval DROP DEFAULT,
-  ALTER COLUMN prevent_verifier_approval DROP DEFAULT,
-  ALTER COLUMN require_higher_authority DROP DEFAULT,
   ALTER COLUMN hierarchy_scope DROP DEFAULT;
 
 ALTER TABLE phase66_workflow_steps

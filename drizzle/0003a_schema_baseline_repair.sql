@@ -1097,6 +1097,7 @@ CREATE TABLE IF NOT EXISTS "vendor_performance" (
 CREATE TABLE IF NOT EXISTS "procurement_logs" (
   "id" TEXT PRIMARY KEY,
   "entity_type" TEXT NOT NULL,
+  "entity_id" TEXT NOT NULL,
   "entity_number" TEXT NOT NULL,
   "action_type" TEXT NOT NULL,
   "details" TEXT NOT NULL,

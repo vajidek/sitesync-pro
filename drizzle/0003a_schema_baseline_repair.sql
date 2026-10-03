@@ -1878,6 +1878,7 @@ CREATE TABLE IF NOT EXISTS "phase59_fleet_documents" (
 CREATE TABLE IF NOT EXISTS "phase60_chart_of_accounts" (
   "id" TEXT PRIMARY KEY,
   "account_code" TEXT NOT NULL UNIQUE,
+  "account_name" TEXT NOT NULL DEFAULT 'UNSPECIFIED',
   "account_group" TEXT NOT NULL,
   "is_header_account" BOOLEAN NOT NULL DEFAULT FALSE,
   "currency" TEXT NOT NULL DEFAULT 'USD',
@@ -4513,6 +4514,7 @@ CREATE TABLE IF NOT EXISTS "phase68_mobile_activity_logs" (
 CREATE TABLE IF NOT EXISTS "phase69_vendor_master" (
   "id" TEXT PRIMARY KEY,
   "vendor_code" TEXT NOT NULL UNIQUE,
+  "company_name" TEXT NOT NULL DEFAULT 'UNSPECIFIED',
   "trade_name" TEXT,
   "registration_number" TEXT NOT NULL,
   "tax_identification_number" TEXT NOT NULL,
@@ -5156,6 +5158,7 @@ CREATE TABLE IF NOT EXISTS "phase70_employee_master" (
   "designation_id" TEXT NOT NULL,
   "reporting_manager_id" TEXT,
   "employment_type" TEXT NOT NULL DEFAULT 'FULL_TIME',
+  "work_location" TEXT NOT NULL DEFAULT 'Unspecified',
   "project_id" TEXT,
   "employment_status" TEXT NOT NULL DEFAULT 'ACTIVE',
   "grade" TEXT NOT NULL DEFAULT 'L3',

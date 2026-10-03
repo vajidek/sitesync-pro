@@ -1,4 +1,5 @@
 -- SiteSync Pro 0033: contract, GRN and performance-review schema truth
+-- Compatibility layer for legacy databases; no historical records are removed.
 
 ALTER TABLE phase69_contracts
   ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT 'Contract',

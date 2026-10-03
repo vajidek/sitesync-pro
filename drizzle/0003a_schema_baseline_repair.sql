@@ -5581,6 +5581,7 @@ CREATE TABLE IF NOT EXISTS "phase70_hr_notifications" (
 CREATE TABLE IF NOT EXISTS "phase70_hr_audit_logs" (
   "id" TEXT PRIMARY KEY,
   "action_type" TEXT NOT NULL,
+  "entity_type" TEXT,
   "entity_id" TEXT NOT NULL,
   "reference_number" TEXT NOT NULL,
   "performed_by" TEXT NOT NULL,

@@ -710,6 +710,7 @@ CREATE TABLE IF NOT EXISTS "material_returns" (
   "received_by" TEXT NOT NULL,
   "return_date" TEXT NOT NULL,
   "status" TEXT NOT NULL DEFAULT 'RECEIVED',
+  "reason" TEXT,
   "is_active" BOOLEAN NOT NULL DEFAULT TRUE,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
@@ -2713,6 +2714,7 @@ CREATE TABLE IF NOT EXISTS "phase62_quality_approvals" (
 CREATE TABLE IF NOT EXISTS "phase62_quality_logs" (
   "id" TEXT PRIMARY KEY,
   "action_type" TEXT NOT NULL,
+  "entity_type" TEXT NOT NULL DEFAULT 'UNKNOWN',
   "entity_id" TEXT NOT NULL,
   "performed_by" TEXT NOT NULL,
   "details" TEXT NOT NULL,
@@ -3135,6 +3137,7 @@ CREATE TABLE IF NOT EXISTS "phase64_activity_relationships" (
 CREATE TABLE IF NOT EXISTS "phase64_project_baselines" (
   "id" TEXT PRIMARY KEY,
   "baseline_number" TEXT NOT NULL,
+  "project_id" TEXT,
   "baseline_name" TEXT NOT NULL,
   "approved_by" TEXT NOT NULL DEFAULT 'Project Director',
   "approved_date" TEXT NOT NULL,

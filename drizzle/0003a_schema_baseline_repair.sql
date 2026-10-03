@@ -2113,6 +2113,7 @@ CREATE TABLE IF NOT EXISTS "phase61_document_versions" (
   "id" TEXT PRIMARY KEY,
   "document_id" TEXT NOT NULL,
   "version_name" TEXT NOT NULL,
+  "revision_number" INTEGER NOT NULL DEFAULT 1,
   "file_url" TEXT NOT NULL,
   "file_size_bytes" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "change_summary" TEXT,

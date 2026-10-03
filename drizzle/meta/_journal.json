@@ -274,6 +274,13 @@
       "when": 1791010633029,
       "tag": "0036_material_project_guarantee_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791010633030,
+      "tag": "0037_scorecard_inventory_wbs_schema_truth",
+      "breakpoints": true
     }
   ]
 }

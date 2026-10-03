@@ -1,4 +1,7 @@
 import assert from 'node:assert';
+import { eq } from 'drizzle-orm';
+import { db } from '../src/db';
+import { projects } from '../src/db/schema';
 import { financeRepository } from '../src/api/repositories/finance.repository';
 import { procurementEnterpriseRepository } from '../src/api/repositories/procurement_enterprise.repository';
 import { hrmsRepository } from '../src/api/repositories/hrms.repository';
@@ -13,6 +16,17 @@ async function runCrossModuleIntegrationsVerification() {
 
   let passed = 0;
   let failed = 0;
+
+  const [integrationProject] = await db
+    .select({ id: projects.id, projectName: projects.projectName })
+    .from(projects)
+    .where(eq(projects.isActive, true))
+    .limit(1);
+  const integrationProjectId = integrationProject?.id;
+  const integrationProjectName = integrationProject?.projectName || 'Integration Verification Project';
+  if (!integrationProjectId) {
+    throw new Error('Cross-module verification requires at least one active canonical project.');
+  }
 
   function pass(desc: string) {
     passed++;
@@ -94,7 +108,7 @@ async function runCrossModuleIntegrationsVerification() {
   console.log('\n--- 3. HRMS PAYROLL DISBURSEMENT -> FINANCE GL ---');
   try {
     const payrollRuns = await hrmsRepository.getPayrollRuns();
-    const activeRun = payrollRuns[0] || (await hrmsRepository.executePayrollRun('pp-2026-08', 'Verification Payroll Execution'));
+    const activeRun = payrollRuns[0] || (await hrmsRepository.executePayrollRun('pp-2026-08', 'Verification Payroll Execution', { makerUserId: 'ci-payroll-maker', makerUserName: 'CI Payroll Maker', jurisdiction: 'INDIA', currency: 'INR' }));
 
     const disbursed = await hrmsRepository.disbursePayrollRun(activeRun.id, { userId: 'ci-finance-actor', userName: 'Finance Director' }, 'NEFT-BAT-001');
     assert.ok(disbursed, 'Payroll run must be marked as disbursed');
@@ -113,8 +127,8 @@ async function runCrossModuleIntegrationsVerification() {
   console.log('\n--- 4. INVENTORY MATERIAL ISSUE -> PROJECT ACTUAL COST & GL ---');
   try {
     const issue = await inventoryRepository.createMaterialIssue({
-      projectId: 'PRJ-101',
-      projectName: 'Dubai Creek Harbor Desalination WTP',
+      projectId: integrationProjectId,
+      projectName: integrationProjectName,
       warehouseId: 'wh-001',
       warehouseName: 'Abu Dhabi Central Yard Warehouse',
       issuedTo: 'Structural Concrete Team - Site Pier 4',
@@ -178,7 +192,7 @@ async function runCrossModuleIntegrationsVerification() {
   // --- 6. PROJECT CONTROLS: LIVE COST MATRIX AGGREGATION ---
   console.log('\n--- 6. PROJECT CONTROLS LIVE COST MATRIX AGGREGATION ---');
   try {
-    const costMatrix = await projectControlsRepository.getCostControlMatrix('PRJ-101');
+    const costMatrix = await projectControlsRepository.getCostControlMatrix(integrationProjectId);
     const wbsList = Array.isArray(costMatrix) ? costMatrix : (costMatrix.wbsBreakdown || []);
     assert.ok(wbsList.length > 0, 'Cost control matrix must return project data');
     const wbs = wbsList[0];

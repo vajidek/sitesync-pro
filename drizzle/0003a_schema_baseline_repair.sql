@@ -702,6 +702,7 @@ CREATE TABLE IF NOT EXISTS "material_returns" (
   "id" TEXT PRIMARY KEY,
   "return_number" TEXT NOT NULL,
   "return_type" TEXT NOT NULL DEFAULT 'SITE_TO_STORE',
+  "project_id" TEXT,
   "project_name" TEXT,
   "warehouse_id" TEXT NOT NULL,
   "warehouse_name" TEXT NOT NULL,
@@ -3122,6 +3123,7 @@ CREATE TABLE IF NOT EXISTS "phase64_activity_relationships" (
   "predecessor_activity_id" TEXT NOT NULL,
   "successor_activity_id" TEXT NOT NULL,
   "relationship_type" TEXT NOT NULL DEFAULT 'FS',
+  "lag_days" INTEGER NOT NULL DEFAULT 0,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'System Administrator',
@@ -5151,6 +5153,7 @@ CREATE TABLE IF NOT EXISTS "phase69_contract_closures" (
 CREATE TABLE IF NOT EXISTS "phase69_procurement_audit_logs" (
   "id" TEXT PRIMARY KEY,
   "action_type" TEXT NOT NULL,
+  "entity_type" TEXT,
   "entity_id" TEXT NOT NULL,
   "reference_number" TEXT NOT NULL,
   "performed_by" TEXT NOT NULL,

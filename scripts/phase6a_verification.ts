@@ -380,8 +380,12 @@ async function runSuite() {
       raBill1 = await procurementRepository.createRABill({
         projectId: 'PRJ-WATER-001',
         projectName: 'Water Network Expansion',
+        workOrderId: `wo-test-${testRunId}`,
+        companyId: 'cmp-101',
         contractorName: 'Apex Groundworks LLC',
         billDate: new Date().toISOString().split('T')[0],
+        createdById: 'usr-ci-ra-biller',
+        createdByName: 'CI RA Billing Actor',
         items: [
           {
             id: `item-1-${testRunId}`,
@@ -437,8 +441,12 @@ async function runSuite() {
         await procurementRepository.createRABill({
           projectId: 'PRJ-WATER-001',
           projectName: 'Water Network Expansion',
-          contractorName: 'Apex Groundworks LLC',
+          workOrderId: `wo-test-${testRunId}`,
+        companyId: 'cmp-101',
+        contractorName: 'Apex Groundworks LLC',
           billDate: new Date().toISOString().split('T')[0],
+        createdById: 'usr-ci-ra-biller',
+        createdByName: 'CI RA Billing Actor',
           items: [
             {
               id: `item-2-fail-${testRunId}`,
@@ -475,8 +483,12 @@ async function runSuite() {
       const raBill2 = await procurementRepository.createRABill({
         projectId: 'PRJ-WATER-001',
         projectName: 'Water Network Expansion',
+        workOrderId: `wo-test-${testRunId}`,
+        companyId: 'cmp-101',
         contractorName: 'Apex Groundworks LLC',
         billDate: new Date().toISOString().split('T')[0],
+        createdById: 'usr-ci-ra-biller',
+        createdByName: 'CI RA Billing Actor',
         items: [
           {
             id: `item-2-success-${testRunId}`,

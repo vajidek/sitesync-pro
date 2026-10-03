@@ -66,8 +66,7 @@ CREATE TABLE "branches" (
 	"email" text,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" text NOT NULL,
-	"updated_at" text NOT NULL,
-	"deleted_at" text
+	"updated_at" text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "business_units" (
@@ -947,9 +946,11 @@ CREATE TABLE "projects" (
 	"project_incharge_id" text,
 	"project_supervisor_id" text,
 	"description" text,
+	"remarks" text,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" text NOT NULL,
-	"updated_at" text NOT NULL
+	"updated_at" text NOT NULL,
+	"deleted_at" text
 );
 --> statement-breakpoint
 CREATE TABLE "purchase_orders" (

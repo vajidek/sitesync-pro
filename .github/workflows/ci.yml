@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, erp-hse-operational-modules-v3-ci]
 
 permissions:
   contents: read

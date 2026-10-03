@@ -3779,6 +3779,7 @@ CREATE TABLE IF NOT EXISTS "phase66_escalations" (
   "escalated_to_name" TEXT NOT NULL DEFAULT 'Executive Director',
   "reason" TEXT NOT NULL DEFAULT 'SLA Breach / Unresponsive Approver',
   "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'System Administrator',
   "updated_by" TEXT NOT NULL DEFAULT 'System Administrator',

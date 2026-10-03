@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { eq } from 'drizzle-orm';
 import { db } from '../src/db';
-import { projects } from '../src/db/schema';
+import { phase70PayrollPeriods, projects } from '../src/db/schema';
 import { financeRepository } from '../src/api/repositories/finance.repository';
 import { procurementEnterpriseRepository } from '../src/api/repositories/procurement_enterprise.repository';
 import { hrmsRepository } from '../src/api/repositories/hrms.repository';
@@ -135,9 +135,29 @@ async function runCrossModuleIntegrationsVerification() {
   console.log('\n--- 3. HRMS PAYROLL DISBURSEMENT -> FINANCE GL ---');
   try {
     const payrollRuns = await hrmsRepository.getPayrollRuns();
-    const openPeriods = (await hrmsRepository.getPayrollPeriods()).filter((period: any) =>
+    let openPeriods = (await hrmsRepository.getPayrollPeriods()).filter((period: any) =>
       ['OPEN', 'REOPENED', 'CALCULATION'].includes(String(period.status || '').toUpperCase())
     );
+
+    if (openPeriods.length === 0) {
+      const now = new Date().toISOString();
+      await db.insert(phase70PayrollPeriods).values({
+        id: 'CI-PAYROLL-PERIOD',
+        periodCode: 'CI-2026-10',
+        monthYear: '2026-10',
+        startDate: '2026-10-01',
+        endDate: '2026-10-31',
+        totalWorkingDays: 26,
+        cutoffDate: '2026-10-28',
+        status: 'OPEN',
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing();
+      openPeriods = (await hrmsRepository.getPayrollPeriods()).filter((period: any) =>
+        ['OPEN', 'REOPENED', 'CALCULATION'].includes(String(period.status || '').toUpperCase())
+      );
+    }
+
     const activeRun = payrollRuns[0] || (openPeriods[0]
       ? await hrmsRepository.executePayrollRun(
           openPeriods[0].id,

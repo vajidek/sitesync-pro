@@ -1100,6 +1100,7 @@ CREATE TABLE IF NOT EXISTS "procurement_logs" (
   "entity_id" TEXT NOT NULL,
   "entity_number" TEXT NOT NULL,
   "action_type" TEXT NOT NULL,
+  "performed_by" TEXT NOT NULL DEFAULT 'SYSTEM_MIGRATION',
   "details" TEXT NOT NULL,
   "ip_address" TEXT,
   "is_active" BOOLEAN NOT NULL DEFAULT TRUE,

@@ -118,6 +118,7 @@ async function runCrossModuleIntegrationsVerification() {
       warehouseId: 'wh-001',
       warehouseName: 'Abu Dhabi Central Yard Warehouse',
       issuedTo: 'Structural Concrete Team - Site Pier 4',
+      issuedBy: 'ci-inventory-actor',
       items: [
         {
           materialId: 'mat-001',
@@ -147,7 +148,7 @@ async function runCrossModuleIntegrationsVerification() {
     const subBills = await commercialRepository.getSubcontractBills();
     const targetBill = subBills[0];
     if (targetBill) {
-      const certified = await commercialRepository.certifySubcontractBill(targetBill.id, targetBill.grossClaimedAmount, 'CERTIFIED');
+      const certified = await commercialRepository.certifySubcontractBill(targetBill.id, targetBill.grossClaimedAmount, 'CERTIFIED', { id: 'ci-commercial-actor', name: 'CI Commercial Certifier', role: 'COMMERCIAL_MANAGER' });
       assert.ok(certified, 'Subcontract bill must be certified');
       assert.strictEqual(certified.status, 'CERTIFIED');
       pass(`Subcontract Bill certified: ${certified.billNumber} ($${certified.certifiedAmount} certified, $${certified.netCertifiedPayable} payable)`);
@@ -161,7 +162,7 @@ async function runCrossModuleIntegrationsVerification() {
     const ipcs = await commercialRepository.getClientIPCs();
     const targetIPC = ipcs[0];
     if (targetIPC) {
-      const certifiedIPC = await commercialRepository.certifyClientIPC(targetIPC.id, targetIPC.grossWorkDoneClaimed, 'CERTIFIED');
+      const certifiedIPC = await commercialRepository.certifyClientIPC(targetIPC.id, targetIPC.grossWorkDoneClaimed, 'CERTIFIED', { id: 'ci-commercial-actor-2', name: 'CI Commercial Certifier', role: 'COMMERCIAL_MANAGER' });
       assert.ok(certifiedIPC, 'Client IPC must be certified');
       pass(`Client IPC certified: ${certifiedIPC.ipcNumber} (Gross: $${certifiedIPC.grossWorkDoneCertified}, Net: $${certifiedIPC.netReceivableAmount})`);
 

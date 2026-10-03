@@ -225,6 +225,13 @@
       "when": 1791010633022,
       "tag": "0029_vendor_quotation_attendance_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791010633023,
+      "tag": "0030_requisition_holiday_schema_truth",
+      "breakpoints": true
     }
   ]
 }

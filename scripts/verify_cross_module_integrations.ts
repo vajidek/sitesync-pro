@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { eq } from 'drizzle-orm';
 import { db } from '../src/db';
-import { phase70Attendance, phase70PayrollPeriods, projects } from '../src/db/schema';
+import { phase70Attendance, phase70PayrollPeriods, phase70SalaryStructures, projects } from '../src/db/schema';
 import { financeRepository } from '../src/api/repositories/finance.repository';
 import { procurementEnterpriseRepository } from '../src/api/repositories/procurement_enterprise.repository';
 import { hrmsRepository } from '../src/api/repositories/hrms.repository';
@@ -175,6 +175,80 @@ async function runCrossModuleIntegrationsVerification() {
       if (payrollEligibleEmployees.length === 0) {
         throw new Error('CI payroll integration requires at least one payroll-eligible employee fixture.');
       }
+
+      // CI-only master-data fixture: the payroll engine must consume an
+      // approved salary structure; do not bypass that production prerequisite.
+      await db.insert(phase70SalaryStructures).values([
+        {
+          id: 'ci-sal-l6',
+          structureCode: 'CI-SAL-L6',
+          title: 'CI Executive Payroll Structure',
+          grade: 'L6',
+          baseMonthlyAed: 22000,
+          hraAed: 8000,
+          conveyanceAed: 3000,
+          medicalAed: 2000,
+          specialAllowanceAed: 3000,
+          siteAllowanceAed: 2000,
+          otRatePerHour: 0,
+          pfApplicable: true,
+          esiApplicable: false,
+          ptApplicable: false,
+          status: 'ACTIVE',
+          effectiveFrom: '2026-01-01',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Fixture',
+          updatedBy: 'CI HR Fixture',
+          isDeleted: false,
+        },
+        {
+          id: 'ci-sal-l4',
+          structureCode: 'CI-SAL-L4',
+          title: 'CI Engineering Payroll Structure',
+          grade: 'L4',
+          baseMonthlyAed: 12000,
+          hraAed: 4500,
+          conveyanceAed: 2000,
+          medicalAed: 1000,
+          specialAllowanceAed: 1500,
+          siteAllowanceAed: 2000,
+          otRatePerHour: 85,
+          pfApplicable: true,
+          esiApplicable: false,
+          ptApplicable: false,
+          status: 'ACTIVE',
+          effectiveFrom: '2026-01-01',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Fixture',
+          updatedBy: 'CI HR Fixture',
+          isDeleted: false,
+        },
+        {
+          id: 'ci-sal-l3',
+          structureCode: 'CI-SAL-L3',
+          title: 'CI Site Operations Payroll Structure',
+          grade: 'L3',
+          baseMonthlyAed: 8500,
+          hraAed: 3000,
+          conveyanceAed: 1500,
+          medicalAed: 1000,
+          specialAllowanceAed: 1000,
+          siteAllowanceAed: 1500,
+          otRatePerHour: 60,
+          pfApplicable: true,
+          esiApplicable: false,
+          ptApplicable: false,
+          status: 'ACTIVE',
+          effectiveFrom: '2026-01-01',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Fixture',
+          updatedBy: 'CI HR Fixture',
+          isDeleted: false,
+        },
+      ]).onConflictDoNothing();
 
       await db.insert(phase70Attendance).values(
         payrollEligibleEmployees.map((emp: any) => ({

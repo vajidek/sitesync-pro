@@ -3051,6 +3051,7 @@ CREATE TABLE IF NOT EXISTS "phase64_projects_wbs" (
   "planned_start_date" TEXT,
   "planned_end_date" TEXT,
   "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "created_at" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'System Administrator',
   "updated_by" TEXT NOT NULL DEFAULT 'System Administrator',

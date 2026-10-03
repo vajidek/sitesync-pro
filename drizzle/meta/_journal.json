@@ -288,6 +288,13 @@
       "when": 1791010633031,
       "tag": "0038_project_relationship_return_audit_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791010633032,
+      "tag": "0039_integration_schema_truth",
+      "breakpoints": true
     }
   ]
 }

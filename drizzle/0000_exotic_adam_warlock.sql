@@ -1,11 +1,15 @@
 CREATE TABLE "audit_logs" (
 	"id" text PRIMARY KEY NOT NULL,
 	"user_id" text,
+	"user_name" text,
 	"user_email" text,
 	"user_role" text,
 	"action" text NOT NULL,
 	"module" text NOT NULL,
 	"details" text NOT NULL,
+	"ack_time" text,
+	"comments" text,
+	"expected_action" text,
 	"ip_address" text,
 	"user_agent" text,
 	"created_at" text NOT NULL

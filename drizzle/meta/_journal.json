@@ -197,6 +197,13 @@
       "when": 1791010633018,
       "tag": "0025_master_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791010633019,
+      "tag": "0026_master_schema_completion",
+      "breakpoints": true
     }
   ]
 }

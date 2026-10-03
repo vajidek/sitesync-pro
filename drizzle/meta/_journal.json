@@ -246,6 +246,13 @@
       "when": 1791010633025,
       "tag": "0032_po_item_candidate_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791010633026,
+      "tag": "0033_contract_grn_performance_schema_truth",
+      "breakpoints": true
     }
   ]
 }

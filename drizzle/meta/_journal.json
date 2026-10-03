@@ -267,6 +267,13 @@
       "when": 1791010633028,
       "tag": "0035_governance_and_hr_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791010633029,
+      "tag": "0036_material_project_guarantee_schema_truth",
+      "breakpoints": true
     }
   ]
 }

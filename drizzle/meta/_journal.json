@@ -176,6 +176,13 @@
       "when": 1791010633017,
       "tag": "0023_purchase_order_actor_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791010633017,
+      "tag": "0024_procurement_log_entity_schema_truth",
+      "breakpoints": true
     }
   ]
 }

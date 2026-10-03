@@ -3815,7 +3815,13 @@ export class ProcurementRepository {
     return rows[0] as unknown as RABillRecord;
   }
 
-  async createRABill(data: Partial<RABillRecord>): Promise<RABillRecord> {
+  async createRABill(
+    data: Partial<RABillRecord> & {
+      companyId?: string;
+      createdById?: string;
+      createdByName?: string;
+    }
+  ): Promise<RABillRecord> {
     await ensureProcurementSeeded();
     const newId = `ra_bill_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
     const now = new Date().toISOString();

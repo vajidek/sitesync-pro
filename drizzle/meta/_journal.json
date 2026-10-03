@@ -239,6 +239,13 @@
       "when": 1791010633024,
       "tag": "0031_purchase_order_recruitment_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791010633025,
+      "tag": "0032_po_item_candidate_schema_truth",
+      "breakpoints": true
     }
   ]
 }

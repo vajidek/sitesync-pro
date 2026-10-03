@@ -295,6 +295,13 @@
       "when": 1791010633032,
       "tag": "0039_integration_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791010633032,
+      "tag": "0039_legacy_project_hr_schema_truth",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { eq } from 'drizzle-orm';
 import { db } from '../src/db';
-import { phase70PayrollPeriods, projects } from '../src/db/schema';
+import { phase70Attendance, phase70PayrollPeriods, projects } from '../src/db/schema';
 import { financeRepository } from '../src/api/repositories/finance.repository';
 import { procurementEnterpriseRepository } from '../src/api/repositories/procurement_enterprise.repository';
 import { hrmsRepository } from '../src/api/repositories/hrms.repository';
@@ -159,6 +159,45 @@ async function runCrossModuleIntegrationsVerification() {
     }
 
     if (!payrollRuns[0] && openPeriods[0]) {
+      // CI-only fixture: production/UAT finalization derives exclusively from
+      // verified attendance. Seed one deterministic verified workday for each
+      // payroll-eligible employee so the integration test exercises the real
+      // finalization -> payroll path without weakening that control.
+      const payrollEligibleEmployees = (await hrmsRepository.getEmployees()).filter((emp: any) => {
+        const type = String(emp.employmentType || '').toUpperCase();
+        const status = String(emp.employmentStatus || '').toUpperCase();
+        const subcontract = ['SUBCONTRACT_LABOUR', 'SUBCONTRACTOR_WORKER', 'LABOUR_SUPPLIER', 'THIRD_PARTY_LABOUR'].includes(type);
+        return !subcontract && !['TERMINATED', 'RESIGNED', 'INACTIVE'].includes(status);
+      });
+      const attendanceDate = `${openPeriods[0].monthYear}-01`;
+      const now = new Date().toISOString();
+
+      if (payrollEligibleEmployees.length === 0) {
+        throw new Error('CI payroll integration requires at least one payroll-eligible employee fixture.');
+      }
+
+      await db.insert(phase70Attendance).values(
+        payrollEligibleEmployees.map((emp: any) => ({
+          id: `ci-att-${openPeriods[0].id}-${emp.id}`,
+          employeeId: emp.id,
+          employeeCode: emp.employeeCode || `EMP-${emp.id}`,
+          attendanceDate,
+          inTime: `${attendanceDate}T08:00:00.000Z`,
+          outTime: `${attendanceDate}T17:00:00.000Z`,
+          totalHours: 8,
+          status: 'PRESENT',
+          punchSource: 'BIOMETRIC_ESSL',
+          isVerified: true,
+          verifiedBy: 'CI HR Verifier',
+          remarks: 'Controlled CI payroll integration fixture',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Verifier',
+          updatedBy: 'CI HR Verifier',
+          isDeleted: false,
+        }))
+      ).onConflictDoNothing();
+
       await hrmsRepository.finalizeAttendanceForPeriod({
         periodId: openPeriods[0].id,
         monthYear: openPeriods[0].monthYear,

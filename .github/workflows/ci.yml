@@ -1,4 +1,5 @@
 name: SiteSync Pro CI
+# Enterprise release-gate verification is intentionally enabled on the active development branch.
 
 on:
   pull_request:

@@ -23,7 +23,6 @@ WHERE name IS NULL;
 ALTER TABLE phase66_workflows
   ALTER COLUMN name SET NOT NULL,
   ALTER COLUMN min_approval_amount DROP DEFAULT,
-  ALTER COLUMN policy_config DROP DEFAULT,
   ALTER COLUMN verification_required DROP DEFAULT,
   ALTER COLUMN approval_required DROP DEFAULT,
   ALTER COLUMN prevent_maker_verification DROP DEFAULT,
@@ -94,7 +93,8 @@ ALTER TABLE phase66_escalations
   ALTER COLUMN created_at DROP DEFAULT;
 
 ALTER TABLE phase66_delegations
-  ADD COLUMN IF NOT EXISTS start_date TEXT NOT NULL DEFAULT CURRENT_DATE::text;
+  ADD COLUMN IF NOT EXISTS start_date TEXT NOT NULL DEFAULT CURRENT_DATE::text,
+  ADD COLUMN IF NOT EXISTS reason TEXT;
 
 ALTER TABLE phase66_delegations
   ALTER COLUMN start_date DROP DEFAULT;

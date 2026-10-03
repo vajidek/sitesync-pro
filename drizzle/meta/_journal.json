@@ -232,6 +232,13 @@
       "when": 1791010633023,
       "tag": "0030_requisition_holiday_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791010633024,
+      "tag": "0031_purchase_order_recruitment_schema_truth",
+      "breakpoints": true
     }
   ]
 }

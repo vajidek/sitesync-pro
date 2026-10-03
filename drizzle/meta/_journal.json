@@ -211,6 +211,13 @@
       "when": 1791010633020,
       "tag": "0027_rfq_finance_shift_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791010633021,
+      "tag": "0028_rfq_ar_gl_payroll_schema_truth",
+      "breakpoints": true
     }
   ]
 }

@@ -158,6 +158,15 @@ async function runCrossModuleIntegrationsVerification() {
       );
     }
 
+    if (!payrollRuns[0] && openPeriods[0]) {
+      await hrmsRepository.finalizeAttendanceForPeriod({
+        periodId: openPeriods[0].id,
+        monthYear: openPeriods[0].monthYear,
+        finalizedBy: 'CI HR Finalizer',
+        remarks: 'Controlled CI payroll integration fixture',
+      });
+    }
+
     const activeRun = payrollRuns[0] || (openPeriods[0]
       ? await hrmsRepository.executePayrollRun(
           openPeriods[0].id,

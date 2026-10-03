@@ -169,6 +169,13 @@
       "when": 1791010633017,
       "tag": "0022_comparative_statement_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791010633017,
+      "tag": "0023_purchase_order_actor_schema_truth",
+      "breakpoints": true
     }
   ]
 }

@@ -309,6 +309,13 @@
       "when": 1791010633033,
       "tag": "0040_hr_loan_project_resource_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791010633034,
+      "tag": "0041_hr_statutory_project_progress_schema_truth",
+      "breakpoints": true
     }
   ]
 }

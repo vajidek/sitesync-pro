@@ -1418,6 +1418,7 @@ CREATE TABLE IF NOT EXISTS "contract_change_evidence" (
   "id" TEXT PRIMARY KEY,
   "contract_id" TEXT NOT NULL,
   "entity_type" TEXT NOT NULL,
+  "entity_id" TEXT NOT NULL,
   "document_id" TEXT NOT NULL,
   "evidence_type" TEXT NOT NULL,
   "created_by" TEXT NOT NULL,

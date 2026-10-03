@@ -135,7 +135,17 @@ async function runCrossModuleIntegrationsVerification() {
   console.log('\n--- 3. HRMS PAYROLL DISBURSEMENT -> FINANCE GL ---');
   try {
     const payrollRuns = await hrmsRepository.getPayrollRuns();
-    const activeRun = payrollRuns[0] || (await hrmsRepository.executePayrollRun('pp-2026-08', 'Verification Payroll Execution', { makerUserId: 'ci-payroll-maker', makerUserName: 'CI Payroll Maker', jurisdiction: 'INDIA', currency: 'INR' }));
+    const openPeriods = (await hrmsRepository.getPayrollPeriods()).filter((period: any) =>
+      ['OPEN', 'REOPENED', 'CALCULATION'].includes(String(period.status || '').toUpperCase())
+    );
+    const activeRun = payrollRuns[0] || (openPeriods[0]
+      ? await hrmsRepository.executePayrollRun(
+          openPeriods[0].id,
+          'Verification Payroll Execution',
+          { makerUserId: 'ci-payroll-maker', makerUserName: 'CI Payroll Maker', jurisdiction: 'INDIA', currency: 'INR' }
+        )
+      : null);
+    if (!activeRun) throw new Error('No open payroll period is available for integration verification.');
 
     const disbursed = await hrmsRepository.disbursePayrollRun(activeRun.id, { userId: 'ci-finance-actor', userName: 'Finance Director' }, 'NEFT-BAT-001');
     assert.ok(disbursed, 'Payroll run must be marked as disbursed');

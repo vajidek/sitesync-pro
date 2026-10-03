@@ -992,6 +992,7 @@ CREATE TABLE IF NOT EXISTS "phase56_purchase_orders" (
   "revised_amount" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "revision_count" INTEGER NOT NULL DEFAULT 0,
   "status" TEXT NOT NULL DEFAULT 'DRAFT',
+  "issued_by" TEXT,
   "approved_by" TEXT,
   "notes" TEXT,
   "is_active" BOOLEAN NOT NULL DEFAULT TRUE,

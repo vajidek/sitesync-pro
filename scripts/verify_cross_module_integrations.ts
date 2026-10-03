@@ -17,11 +17,38 @@ async function runCrossModuleIntegrationsVerification() {
   let passed = 0;
   let failed = 0;
 
-  const [integrationProject] = await db
+  let [integrationProject] = await db
     .select({ id: projects.id, projectName: projects.projectName })
     .from(projects)
     .where(eq(projects.isActive, true))
     .limit(1);
+
+  if (!integrationProject) {
+    const now = new Date().toISOString();
+    await db.insert(projects).values({
+      id: 'CI-INTEGRATION-PROJECT',
+      projectCode: 'CI-INT-001',
+      projectName: 'SiteSync Pro Integration Verification Project',
+      shortName: 'CI Integration',
+      companyId: 'cmp-101',
+      location: 'CI Test Site',
+      startDate: now.slice(0, 10),
+      targetCompletionDate: '2030-12-31',
+      budget: 1000000,
+      status: 'ACTIVE',
+      priority: 'HIGH',
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoNothing();
+
+    [integrationProject] = await db
+      .select({ id: projects.id, projectName: projects.projectName })
+      .from(projects)
+      .where(eq(projects.isActive, true))
+      .limit(1);
+  }
+
   const integrationProjectId = integrationProject?.id;
   const integrationProjectName = integrationProject?.projectName || 'Integration Verification Project';
   if (!integrationProjectId) {

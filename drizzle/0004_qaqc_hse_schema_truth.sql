@@ -5,7 +5,8 @@
 -- so both fresh installs and upgrades converge on the same shape.
 ALTER TABLE phase62_itp_masters
   ADD COLUMN IF NOT EXISTS project_id TEXT,
-  ADD COLUMN IF NOT EXISTS prepared_by TEXT;
+  ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'DRAFT',
+  ADD COLUMN IF NOT EXISTS prepared_by TEXT DEFAULT 'SYSTEM_MIGRATION';
 
 ALTER TABLE phase62_inspections
   ADD COLUMN IF NOT EXISTS project_id TEXT;

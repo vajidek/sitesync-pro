@@ -2663,6 +2663,7 @@ CREATE TABLE IF NOT EXISTS "phase62_punch_lists" (
   "completion_date" TEXT,
   "cleared_by_inspector" TEXT,
   "status" TEXT NOT NULL DEFAULT 'OPEN',
+  "created_at" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'System Administrator',
   "updated_by" TEXT NOT NULL DEFAULT 'System Administrator',
@@ -3225,8 +3226,10 @@ CREATE TABLE IF NOT EXISTS "phase64_project_progress" (
 CREATE TABLE IF NOT EXISTS "phase64_project_delays" (
   "id" TEXT PRIMARY KEY,
   "delay_number" TEXT NOT NULL,
+  "project_id" TEXT,
   "activity_id" TEXT,
   "delay_category" TEXT NOT NULL DEFAULT 'CLIENT',
+  "description" TEXT,
   "delay_days" INTEGER NOT NULL DEFAULT 1,
   "impact_on_critical_path" BOOLEAN NOT NULL DEFAULT FALSE,
   "mitigation_plan" TEXT,

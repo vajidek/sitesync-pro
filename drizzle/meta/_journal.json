@@ -162,6 +162,13 @@
       "when": 1791010633017,
       "tag": "0021_procurement_quotation_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791010633017,
+      "tag": "0022_comparative_statement_schema_truth",
+      "breakpoints": true
     }
   ]
 }

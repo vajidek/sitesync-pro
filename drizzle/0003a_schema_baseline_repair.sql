@@ -2924,9 +2924,13 @@ CREATE TABLE IF NOT EXISTS "phase63_fire_equipment" (
 CREATE TABLE IF NOT EXISTS "phase63_environment_monitoring" (
   "id" TEXT PRIMARY KEY,
   "record_number" TEXT NOT NULL,
+  "location" TEXT NOT NULL DEFAULT 'UNSPECIFIED',
   "parameter" TEXT NOT NULL DEFAULT 'NOISE_LEVEL',
+  "measured_value" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "unit" TEXT NOT NULL DEFAULT 'dBA',
+  "permissible_limit" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "compliance_status" TEXT NOT NULL DEFAULT 'COMPLIANT',
+  "monitoring_date" TEXT NOT NULL DEFAULT CURRENT_DATE::text,
   "monitored_by" TEXT NOT NULL,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,

@@ -155,6 +155,13 @@
       "when": 1791010633017,
       "tag": "0020_workflow_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791010633017,
+      "tag": "0021_procurement_quotation_schema_truth",
+      "breakpoints": true
     }
   ]
 }

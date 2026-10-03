@@ -260,6 +260,13 @@
       "when": 1791010633027,
       "tag": "0034_cross_module_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791010633028,
+      "tag": "0035_governance_and_hr_schema_truth",
+      "breakpoints": true
     }
   ]
 }

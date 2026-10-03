@@ -4945,6 +4945,8 @@ CREATE TABLE IF NOT EXISTS "phase69_bank_guarantees" (
   "expiry_date" TEXT NOT NULL,
   "claim_period_days" INTEGER NOT NULL DEFAULT 30,
   "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "guarantee_amount_aed" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "custody_location" TEXT,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'Finance Admin',

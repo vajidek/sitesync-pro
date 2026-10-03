@@ -42,6 +42,21 @@ ALTER TABLE phase63_waste_management
   ALTER COLUMN created_by SET DEFAULT 'SYSTEM_DEMO_SEED',
   ALTER COLUMN updated_by SET DEFAULT 'SYSTEM_DEMO_SEED';
 
+-- Reconcile the legacy waste-management baseline with the canonical model.
+ALTER TABLE phase63_waste_management
+  ADD COLUMN IF NOT EXISTS waste_category TEXT NOT NULL DEFAULT 'HAZARDOUS',
+  ADD COLUMN IF NOT EXISTS waste_type TEXT NOT NULL DEFAULT 'UNSPECIFIED',
+  ADD COLUMN IF NOT EXISTS quantity_kg DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS approved_contractor TEXT NOT NULL DEFAULT 'UNSPECIFIED',
+  ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text;
+
+ALTER TABLE phase63_waste_management
+  ALTER COLUMN waste_category DROP DEFAULT,
+  ALTER COLUMN waste_type DROP DEFAULT,
+  ALTER COLUMN quantity_kg DROP DEFAULT,
+  ALTER COLUMN approved_contractor DROP DEFAULT,
+  ALTER COLUMN created_at DROP DEFAULT;
+
 -- Database-level collision protection for operational document identifiers.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hse_toolbox_tbt_number
   ON phase63_toolbox_talks(tbt_number)
@@ -88,7 +103,7 @@ BEGIN
         AND compliant_items >= 0
         AND non_compliant_items >= 0
         AND compliant_items + non_compliant_items = total_items_checked
-      );
+      ) NOT VALID;
   END IF;
 
   IF NOT EXISTS (
@@ -96,7 +111,7 @@ BEGIN
   ) THEN
     ALTER TABLE phase63_training_records
       ADD CONSTRAINT ck_hse_training_validity
-      CHECK (validity_months > 0 AND participants_count > 0);
+      CHECK (validity_months > 0 AND participants_count > 0) NOT VALID;
   END IF;
 
   IF NOT EXISTS (
@@ -104,7 +119,7 @@ BEGIN
   ) THEN
     ALTER TABLE phase63_emergency_drills
       ADD CONSTRAINT ck_hse_emergency_drill_values
-      CHECK (evacuation_time_seconds > 0 AND participants_count > 0);
+      CHECK (evacuation_time_seconds > 0 AND participants_count > 0) NOT VALID;
   END IF;
 
   IF NOT EXISTS (
@@ -112,7 +127,7 @@ BEGIN
   ) THEN
     ALTER TABLE phase63_environment_monitoring
       ADD CONSTRAINT ck_hse_environment_limit
-      CHECK (permissible_limit >= 0);
+      CHECK (permissible_limit >= 0) NOT VALID;
   END IF;
 
   IF NOT EXISTS (
@@ -120,7 +135,7 @@ BEGIN
   ) THEN
     ALTER TABLE phase63_waste_management
       ADD CONSTRAINT ck_hse_waste_quantity
-      CHECK (quantity_kg > 0);
+      CHECK (quantity_kg > 0) NOT VALID;
   END IF;
 END
 $$;

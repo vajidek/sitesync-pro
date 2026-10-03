@@ -190,6 +190,13 @@
       "when": 1791010633017,
       "tag": "0025_procurement_log_actor_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791010633018,
+      "tag": "0025_master_schema_truth",
+      "breakpoints": true
     }
   ]
 }

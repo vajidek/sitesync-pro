@@ -22,8 +22,7 @@ WHERE name IS NULL;
 
 ALTER TABLE phase66_workflows
   ALTER COLUMN name SET NOT NULL,
-  ALTER COLUMN min_approval_amount DROP DEFAULT,
-  ALTER COLUMN hierarchy_scope DROP DEFAULT;
+  ALTER COLUMN min_approval_amount DROP DEFAULT;
 
 ALTER TABLE phase66_workflow_steps
   ADD COLUMN IF NOT EXISTS approver_user_id TEXT,

@@ -636,6 +636,7 @@ CREATE TABLE IF NOT EXISTS "material_issues" (
   "issued_by" TEXT NOT NULL,
   "issue_date" TEXT NOT NULL,
   "status" TEXT NOT NULL DEFAULT 'ISSUED',
+  "notes" TEXT,
   "is_active" BOOLEAN NOT NULL DEFAULT TRUE,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
@@ -1903,6 +1904,8 @@ CREATE TABLE IF NOT EXISTS "phase60_cost_centers" (
   "annual_budget" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "utilized_amount" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "guarantee_amount_aed" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "custody_location" TEXT,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'System Administrator',
@@ -3062,6 +3065,7 @@ CREATE TABLE IF NOT EXISTS "phase64_projects_wbs" (
 CREATE TABLE IF NOT EXISTS "phase64_work_packages" (
   "id" TEXT PRIMARY KEY,
   "wp_number" TEXT NOT NULL,
+  "wbs_id" TEXT NOT NULL,
   "project_id" TEXT NOT NULL DEFAULT 'PRJ-101',
   "name" TEXT NOT NULL,
   "code" TEXT NOT NULL,
@@ -3081,6 +3085,7 @@ CREATE TABLE IF NOT EXISTS "phase64_work_packages" (
 CREATE TABLE IF NOT EXISTS "phase64_project_activities" (
   "id" TEXT PRIMARY KEY,
   "activity_number" TEXT NOT NULL,
+  "project_id" TEXT NOT NULL DEFAULT 'PRJ-101',
   "wbs_id" TEXT NOT NULL,
   "wp_id" TEXT,
   "activity_code" TEXT NOT NULL,

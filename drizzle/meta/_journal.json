@@ -218,6 +218,13 @@
       "when": 1791010633021,
       "tag": "0028_rfq_ar_gl_payroll_schema_truth",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791010633022,
+      "tag": "0029_vendor_quotation_attendance_schema_truth",
+      "breakpoints": true
     }
   ]
 }

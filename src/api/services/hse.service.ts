@@ -93,6 +93,14 @@ export class HSEService {
     return this.repo.getToolboxTalks();
   }
 
+  // Operational HSE modules
+  public async createToolboxTalk(data: any) { return this.repo.createToolboxTalk(data); }
+  public async createSafetyInspection(data: any) { return this.repo.createSafetyInspection(data); }
+  public async createTrainingRecord(data: any) { return this.repo.createTrainingRecord(data); }
+  public async createEmergencyDrill(data: any) { return this.repo.createEmergencyDrill(data); }
+  public async createFireEquipment(data: any) { return this.repo.createFireEquipment(data); }
+  public async createEnvironmentLog(data: any) { return this.repo.createEnvironmentLog(data); }
+  public async createWasteLog(data: any) { return this.repo.createWasteLog({ ...data, status: 'STORED_ON_SITE' }); }
   // Permits To Work (PTW)
   public async getWorkPermits() {
     return this.repo.getWorkPermits();

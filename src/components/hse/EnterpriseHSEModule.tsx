@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { HseOperationalRecordModal, type HseOperationalRecordType } from './HseOperationalRecordModal';
 import {
   ShieldAlert,
   Flame,
@@ -65,15 +66,15 @@ export const EnterpriseHSEModule: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<HSEStats>({
-    safeManHours: 1250400,
-    totalIncidents: 2,
-    openIncidents: 1,
-    totalNearMiss: 1,
-    totalHazards: 1,
-    openHazards: 1,
-    activePermits: 2,
-    highRisks: 2,
-    totalInspections: 5,
+    safeManHours: 0,
+    totalIncidents: 0,
+    openIncidents: 0,
+    totalNearMiss: 0,
+    totalHazards: 0,
+    openHazards: 0,
+    activePermits: 0,
+    highRisks: 0,
+    totalInspections: 0,
   });
 
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -95,6 +96,7 @@ export const EnterpriseHSEModule: React.FC = () => {
   const [showNewIncidentModal, setShowNewIncidentModal] = useState(false);
   const [showNewPermitModal, setShowNewPermitModal] = useState(false);
   const [showNewRiskModal, setShowNewRiskModal] = useState(false);
+  const [operationalRecordType, setOperationalRecordType] = useState<HseOperationalRecordType | null>(null);
 
   // Forms
   const [newIncidentForm, setNewIncidentForm] = useState({
@@ -105,28 +107,28 @@ export const EnterpriseHSEModule: React.FC = () => {
     injuredPersonName: '',
     description: '',
     immediateAction: '',
-    reportedBy: 'HSE Officer',
+    reportedBy: '',
   });
 
   const [newPermitForm, setNewPermitForm] = useState({
     permitType: 'HOT_WORK',
     location: '',
     description: '',
-    contractorName: 'SiteSync Mechanical Division',
-    supervisorName: 'Er. Abdul Vajid EK',
+    contractorName: '',
+    supervisorName: '',
     isolationStatus: 'NOT_APPLICABLE',
-    gasTestResult: 'O2: 20.9%, LEL: 0%, H2S: 0 ppm',
+    gasTestResult: '',
   });
 
   const [newRiskForm, setNewRiskForm] = useState({
     activityName: '',
-    departmentOrSite: 'Site Operations Sector 1',
+    departmentOrSite: '',
     hazardDescription: '',
     severity: 3,
     likelihood: 3,
     existingControls: '',
     additionalControls: '',
-    assessedBy: 'Senior HSE Engineer',
+    assessedBy: '',
   });
 
   const fetchHSEData = async () => {
@@ -209,7 +211,7 @@ export const EnterpriseHSEModule: React.FC = () => {
       });
       if (res.ok) {
         setShowNewIncidentModal(false);
-        setNewIncidentForm({
+                setNewIncidentForm({
           title: '',
           incidentType: 'FIRST_AID',
           severity: 'LOW',
@@ -217,7 +219,7 @@ export const EnterpriseHSEModule: React.FC = () => {
           injuredPersonName: '',
           description: '',
           immediateAction: '',
-          reportedBy: 'HSE Officer',
+          reportedBy: '',
         });
         fetchHSEData();
       }
@@ -240,14 +242,14 @@ export const EnterpriseHSEModule: React.FC = () => {
       });
       if (res.ok) {
         setShowNewPermitModal(false);
-        setNewPermitForm({
+                setNewPermitForm({
           permitType: 'HOT_WORK',
           location: '',
           description: '',
-          contractorName: 'SiteSync Mechanical Division',
-          supervisorName: 'Er. Abdul Vajid EK',
+          contractorName: '',
+          supervisorName: '',
           isolationStatus: 'NOT_APPLICABLE',
-          gasTestResult: 'O2: 20.9%, LEL: 0%, H2S: 0 ppm',
+          gasTestResult: '',
         });
         fetchHSEData();
       }
@@ -272,13 +274,13 @@ export const EnterpriseHSEModule: React.FC = () => {
         setShowNewRiskModal(false);
         setNewRiskForm({
           activityName: '',
-          departmentOrSite: 'Site Operations Sector 1',
+          departmentOrSite: '',
           hazardDescription: '',
           severity: 3,
           likelihood: 3,
           existingControls: '',
           additionalControls: '',
-          assessedBy: 'Senior HSE Engineer',
+          assessedBy: '',
         });
         fetchHSEData();
       }
@@ -787,7 +789,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 8: TOOLBOX TALKS */}
       {activeTab === 'toolbox' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Toolbox Talks (TBT) Register</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">Toolbox Talks (TBT) Register</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('toolbox' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record Toolbox Talk
+            </button>
+          </div>
           <div className="space-y-3">
             {toolboxTalks.map((tbt) => (
               <div key={tbt.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
@@ -810,7 +822,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 9: SAFETY INSPECTIONS */}
       {activeTab === 'inspections' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Safety Inspections & Site Audits</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">Safety Inspections & Site Audits</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('inspections' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record Safety Inspection
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-100 text-slate-800 font-bold uppercase tracking-wider">
@@ -846,7 +868,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 10: PPE ISSUANCE */}
       {activeTab === 'ppe' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">PPE Issuance Register</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">PPE Issuance Register</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('ppe' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record PPE Issuance
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-100 text-slate-800 font-bold uppercase tracking-wider">
@@ -879,7 +911,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 11: TRAINING MATRIX */}
       {activeTab === 'training' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">HSE Safety Training & Certifications</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">HSE Safety Training & Certifications</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('training' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record Training
+            </button>
+          </div>
           <div className="space-y-3">
             {trainingRecords.map((t) => (
               <div key={t.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
@@ -901,7 +943,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 12: EMERGENCY DRILLS */}
       {activeTab === 'drills' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Emergency Mock Drills Register</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">Emergency Mock Drills Register</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('drills' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record Emergency Drill
+            </button>
+          </div>
           <div className="space-y-3">
             {emergencyDrills.map((d) => (
               <div key={d.id} className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
@@ -923,7 +975,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 13: FIRE EQUIPMENT */}
       {activeTab === 'fire' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Fire Protection Equipment Master</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">Fire Protection Equipment Master</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('fire' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Register Fire Equipment
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-100 text-slate-800 font-bold uppercase tracking-wider">
@@ -956,7 +1018,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 14: ENVIRONMENTAL MONITORING */}
       {activeTab === 'environmental' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Environmental Parameters Log</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">Environmental Parameters Log</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('environmental' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record Environment
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-100 text-slate-800 font-bold uppercase tracking-wider">
@@ -989,7 +1061,17 @@ export const EnterpriseHSEModule: React.FC = () => {
       {/* TAB 15: WASTE DISPOSAL */}
       {activeTab === 'waste' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Waste Disposal Tracking & Manifests</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900">Waste Disposal Tracking & Manifests</h2>
+            <button
+              type="button"
+              onClick={() => setOperationalRecordType('waste' as HseOperationalRecordType)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Plus className="h-4 w-4" />
+              Record Waste Manifest
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-slate-100 text-slate-800 font-bold uppercase tracking-wider">
@@ -1020,6 +1102,14 @@ export const EnterpriseHSEModule: React.FC = () => {
             </table>
           </div>
         </div>
+      )}
+
+      {operationalRecordType && (
+        <HseOperationalRecordModal
+          type={operationalRecordType}
+          onClose={() => setOperationalRecordType(null)}
+          onCreated={fetchHSEData}
+        />
       )}
 
       {/* MODAL: REPORT INCIDENT */}

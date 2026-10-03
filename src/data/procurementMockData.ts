@@ -405,6 +405,7 @@ export const INITIAL_GRNS: GoodsReceiptNote[] = [
     vendorName: 'Larsen Steel & Infra Supplies Ltd',
     projectId: 'prj_01',
     projectName: 'Peruvannamuzhi WTP Pipe Network',
+    warehouseId: 'wh-central',
     warehouseName: 'Central Mechanical Store Bay 1',
     receivedDate: '2026-08-01',
     challanNo: 'LSS-DC-9921',

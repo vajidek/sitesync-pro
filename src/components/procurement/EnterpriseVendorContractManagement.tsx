@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ContractClaimsWorkspace } from './ContractClaimsWorkspace';
 import { 
   Building2, Plus, Search, Star, ShieldCheck, FileText, Phone, Mail, MapPin, 
   CreditCard, Award, CheckCircle2, Clock, X, AlertTriangle, FileSpreadsheet, 

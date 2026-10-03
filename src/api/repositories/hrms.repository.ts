@@ -81,6 +81,11 @@ export class HrmsRepository {
         ALTER TABLE phase70_pay_slips ADD COLUMN IF NOT EXISTS held_by TEXT;
         ALTER TABLE phase70_pay_slips ADD COLUMN IF NOT EXISTS held_at TEXT;
         ALTER TABLE phase70_pay_slips ADD COLUMN IF NOT EXISTS unheld_reason TEXT;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS employee_code TEXT;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS employee_name TEXT;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS total_repayable_aed DOUBLE PRECISION DEFAULT 0;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS balance_outstanding_aed DOUBLE PRECISION DEFAULT 0;
+        ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS purpose TEXT;
         ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS repayment_method TEXT DEFAULT 'PER_DUTY_DAY';
         ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS repayment_rate DOUBLE PRECISION DEFAULT 1000;
         ALTER TABLE phase70_loans ADD COLUMN IF NOT EXISTS repayment_frequency TEXT DEFAULT 'PER_DUTY_DAY';
@@ -532,7 +537,50 @@ export class HrmsRepository {
   // 3. Employees
   public async getEmployees(): Promise<any[]> {
     await this.ensureHrmsTablesExist();
-    return db.select().from(phase70EmployeeMaster).where(eq(phase70EmployeeMaster.isDeleted, false)).orderBy(desc(phase70EmployeeMaster.createdAt));
+
+    const employees = await db
+      .select()
+      .from(phase70EmployeeMaster)
+      .where(eq(phase70EmployeeMaster.isDeleted, false))
+      .orderBy(desc(phase70EmployeeMaster.createdAt));
+
+    // Canonical salary source: employee grade resolves to the active salary
+    // structure. Keep the payroll engine's existing normalized contract at this
+    // repository boundary instead of duplicating salary fields on employee master.
+    const salaryStructures = await db
+      .select()
+      .from(phase70SalaryStructures)
+      .where(eq(phase70SalaryStructures.isDeleted, false));
+
+    const byGrade = new Map<string, any>();
+    for (const structure of salaryStructures) {
+      const grade = String(structure.grade || '').trim().toUpperCase();
+      if (!grade || String(structure.status || '').toUpperCase() !== 'ACTIVE') continue;
+
+      const existing = byGrade.get(grade);
+      if (!existing || String(structure.effectiveFrom || '') > String(existing.effectiveFrom || '')) {
+        byGrade.set(grade, structure);
+      }
+    }
+
+    return employees.map((employee: any) => {
+      const structure = byGrade.get(String(employee.grade || '').trim().toUpperCase());
+      if (!structure) return employee;
+
+      return {
+        ...employee,
+        salaryINR: Number(structure.baseMonthlyAed || 0),
+        salaryStructure: {
+          basicUSD: Number(structure.baseMonthlyAed || 0),
+          hraUSD: Number(structure.hraAed || 0),
+          daUSD: 0,
+          specialAllowanceUSD: Number(structure.specialAllowanceAed || 0),
+          siteAllowanceUSD: Number(structure.siteAllowanceAed || 0),
+          travelAllowanceUSD: Number(structure.conveyanceAed || 0),
+          overtimeHourlyRateUSD: Number(structure.otRatePerHour || 0),
+        },
+      };
+    });
   }
 
   public async getEmployeeById(id: string): Promise<any | null> {
@@ -933,7 +981,7 @@ export class HrmsRepository {
       detailsJson: JSON.stringify({ actorId, employeeId: employee.id, leaveTypeId: leaveType.id, startDate, endDate, totalDays: requestedDays }),
     });
     return app;
-  },
+   }
 
 
 
@@ -1562,6 +1610,53 @@ export class HrmsRepository {
     return updated;
   }
 
+  public async rejectPayrollRun(
+    runId: string,
+    checker: { userId: string; userName: string },
+    remarks: string
+  ): Promise<any> {
+    await this.ensureHrmsTablesExist();
+    if (!checker?.userId?.trim() || !checker?.userName?.trim()) {
+      throw new Error('Authenticated payroll checker identity is required.');
+    }
+    const reason = String(remarks || '').trim();
+    if (!reason) throw new Error('Payroll rejection reason is required.');
+
+    return await db.transaction(async (tx) => {
+      const [run] = await tx.select().from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
+      if (!run) throw new Error(`Payroll run ${runId} not found`);
+      if (run.isLocked) throw new Error(`Payroll run ${run.runNumber} is locked and cannot be rejected.`);
+      if (run.makerUserId && run.makerUserId === checker.userId) {
+        throw new Error('Maker-checker violation: payroll maker cannot reject the same run.');
+      }
+      if (run.status !== 'SUBMITTED_FOR_REVIEW') {
+        throw new Error(`Payroll run ${run.runNumber} can be rejected only from SUBMITTED_FOR_REVIEW. Current status: ${run.status}`);
+      }
+
+      const now = new Date().toISOString();
+      const [updated] = await tx.update(hrPayrollRuns).set({
+        status: 'REJECTED',
+        checkerUserId: checker.userId,
+        checkerUserName: checker.userName,
+        checkerTimestamp: now,
+        checkerRemarks: reason,
+        isLocked: false,
+        updatedAt: now,
+      }).where(eq(hrPayrollRuns.id, runId)).returning();
+
+      await this.recordAuditLog({
+        actionType: 'PAYROLL_REJECTED_BY_CHECKER',
+        entityType: 'PAYROLL_RUN',
+        entityId: runId,
+        referenceNumber: run.runNumber,
+        performedBy: checker.userName,
+        detailsJson: JSON.stringify({ reason }),
+      }, tx);
+
+      return updated;
+    });
+  }
+
   public async holdEmployeePayslip(
     payslipId: string,
     actor: { userId: string; userName: string; role?: string },
@@ -2131,7 +2226,7 @@ export class HrmsRepository {
     return loans;
   }
 
-  public async createLoan(data: any, actor: { userId: string; userName: string }): Promise<any> {
+  public async createLoan(data: any, actor: { userId: string; userName: string; role?: string }): Promise<any> {
     await this.ensureHrmsTablesExist();
 
     const actorId = String(actor?.userId || '').trim();

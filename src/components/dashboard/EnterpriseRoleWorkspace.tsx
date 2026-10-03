@@ -333,7 +333,18 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
         kpis: baseWorkspace.kpis.map((kpi, idx) => {
           if (!liveMetrics) return kpi;
           if (idx === 0 && liveMetrics.totalPrjBudgetUSD !== undefined) {
-            return { ...kpi, value: '
+            return { ...kpi, value: `$${(Number(liveMetrics.totalPrjBudgetUSD) / 1000000).toFixed(1)}M` };
+          }
+          if (idx === 1 && liveMetrics.avgProgressPercent !== undefined) {
+            return { ...kpi, value: `${Number(liveMetrics.avgProgressPercent)}%` };
+          }
+          return kpi;
+        }),
+      }
+    : {
+        ...baseWorkspace,
+        kpis: sanitizeProductionKpis(baseWorkspace.kpis, liveMetrics),
+      };
 
   const toggleTaskComplete = (taskId: string, title: string) => {
     setCompletedTaskIds((prev) => {

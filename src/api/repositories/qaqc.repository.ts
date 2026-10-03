@@ -204,7 +204,7 @@ export class QAQCRepository {
         updatedBy: updater,
         deletedAt: null,
         isDeleted: false,
-      });
+      }).returning();
 
       if (!inspection) throw new Error('Inspection creation failed.');
 
@@ -342,7 +342,7 @@ export class QAQCRepository {
         updatedBy: updater,
         deletedAt: null,
         isDeleted: false,
-      });
+      }).returning();
 
       if (!ncr) throw new Error('NCR creation failed.');
 
@@ -443,7 +443,7 @@ export class QAQCRepository {
         updatedBy: updater,
         deletedAt: null,
         isDeleted: false,
-      });
+      }).returning();
 
       if (!capa) throw new Error('CAPA creation failed.');
 
@@ -561,7 +561,7 @@ export class QAQCRepository {
         updatedBy: updater,
         deletedAt: null,
         isDeleted: false,
-      });
+      }).returning();
 
       if (!itp) throw new Error('ITP creation failed.');
 

@@ -276,17 +276,25 @@ export class VendorContractRepository {
         throw new Error('Variation time-extension days must be a valid non-negative integer.');
       }
 
+      const title = String(variationData.title || '').trim();
+      const description = String(variationData.description || '').trim();
+      if (!title || !description) {
+        throw new Error('Contract variation title and description are required.');
+      }
+
       const projectId = variationData.projectId || contract.projectId || null;
       const now = new Date().toISOString();
 
       const [varItem] = await tx.insert(contractVariations).values({
-        id: variationData.id,
+        id: variationData.id || crypto.randomUUID(),
         contractId: contract.id,
         projectId,
         wbsId: variationData.wbsId || null,
         boqItemId: variationData.boqItemId || null,
         costCodeId: variationData.costCodeId || null,
         variationNumber: variationData.variationNumber,
+        title,
+        description,
         amount,
         claimedAmount,
         approvedAmount: 0,
@@ -659,17 +667,30 @@ export class VendorContractRepository {
       if (!newEndDate) throw new Error('New end date is required.');
       if (new Date(newEndDate) <= new Date(baseEndDate)) throw new Error('New end date must be later than the current contract end date.');
 
+      const extensionNumber = Number(extensionData.extensionNumber);
+      const reason = String(extensionData.reason || '').trim();
+      if (!Number.isInteger(extensionNumber) || extensionNumber < 1) {
+        throw new Error('Contract extension number is required.');
+      }
+      if (!reason) {
+        throw new Error('Contract extension reason is required.');
+      }
+
       const now = new Date().toISOString();
       const [ext] = await tx.insert(contractExtensions).values({
+        id: extensionData.id || crypto.randomUUID(),
+        contractId: contract.id,
         projectId: extensionData.projectId || contract.projectId || null,
         wbsId: extensionData.wbsId || null,
         causeType: extensionData.causeType || null,
         changeEventReference: extensionData.changeEventReference || null,
+        extensionNumber,
         extensionDays,
         originalEndDate: baseEndDate,
         newEndDate,
         noticeDate: extensionData.noticeDate || null,
         eventDate: extensionData.eventDate || null,
+        reason,
         status: 'REQUESTED',
         requestedBy: actor,
         approvedBy: null,

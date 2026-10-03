@@ -1,0 +1,59 @@
+-- SiteSync Pro 0034: cross-module finance, inventory, project-control and HR schema truth
+
+ALTER TABLE exchange_rates
+  ADD COLUMN IF NOT EXISTS source TEXT;
+
+ALTER TABLE phase60_cash_transactions
+  ADD COLUMN IF NOT EXISTS bank_account_id TEXT,
+  ADD COLUMN IF NOT EXISTS amount DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text;
+
+ALTER TABLE phase69_three_way_matching
+  ADD COLUMN IF NOT EXISTS verified_by TEXT NOT NULL DEFAULT 'Automated 3-Way Engine';
+
+ALTER TABLE hr_payroll_runs
+  ADD COLUMN IF NOT EXISTS payroll_month TEXT NOT NULL DEFAULT CURRENT_DATE::text,
+  ADD COLUMN IF NOT EXISTS jurisdiction TEXT NOT NULL DEFAULT 'INDIA',
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'DRAFT',
+  ADD COLUMN IF NOT EXISTS maker_user_id TEXT;
+
+ALTER TABLE stock_transactions
+  ADD COLUMN IF NOT EXISTS wbs_id TEXT,
+  ADD COLUMN IF NOT EXISTS boq_item_id TEXT,
+  ADD COLUMN IF NOT EXISTS cost_code_id TEXT,
+  ADD COLUMN IF NOT EXISTS cost_code TEXT;
+
+ALTER TABLE phase64_projects_wbs
+  ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT 'PRJ-101';
+
+ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS short_name TEXT,
+  ADD COLUMN IF NOT EXISTS project_category_id TEXT,
+  ADD COLUMN IF NOT EXISTS project_category TEXT,
+  ADD COLUMN IF NOT EXISTS project_type_id TEXT,
+  ADD COLUMN IF NOT EXISTS project_type TEXT,
+  ADD COLUMN IF NOT EXISTS client_id TEXT,
+  ADD COLUMN IF NOT EXISTS client_name TEXT,
+  ADD COLUMN IF NOT EXISTS consultant_id TEXT,
+  ADD COLUMN IF NOT EXISTS consultant_name TEXT,
+  ADD COLUMN IF NOT EXISTS funding_agency_id TEXT,
+  ADD COLUMN IF NOT EXISTS funding_agency_name TEXT,
+  ADD COLUMN IF NOT EXISTS contract_number TEXT,
+  ADD COLUMN IF NOT EXISTS work_order_number TEXT,
+  ADD COLUMN IF NOT EXISTS tender_number TEXT,
+  ADD COLUMN IF NOT EXISTS agreement_number TEXT,
+  ADD COLUMN IF NOT EXISTS business_unit_id TEXT,
+  ADD COLUMN IF NOT EXISTS region_id TEXT,
+  ADD COLUMN IF NOT EXISTS branch_id TEXT,
+  ADD COLUMN IF NOT EXISTS division_id TEXT,
+  ADD COLUMN IF NOT EXISTS parent_project_id TEXT,
+  ADD COLUMN IF NOT EXISTS state TEXT,
+  ADD COLUMN IF NOT EXISTS district TEXT,
+  ADD COLUMN IF NOT EXISTS taluk TEXT,
+  ADD COLUMN IF NOT EXISTS village TEXT,
+  ADD COLUMN IF NOT EXISTS scheduled_completion_date TEXT,
+  ADD COLUMN IF NOT EXISTS contract_value DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS revised_contract_value DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'AED',
+  ADD COLUMN IF NOT EXISTS remarks TEXT,
+  ADD COLUMN IF NOT EXISTS deleted_at TEXT;

@@ -1,4 +1,9 @@
 -- SiteSync Pro 0018: contract change / claim traceability
+-- The baseline contract-change evidence table predates entity_id. Reconcile
+-- that column before applying the traceability indexes below.
+ALTER TABLE contract_change_evidence
+  ADD COLUMN IF NOT EXISTS entity_id TEXT;
+
 ALTER TABLE contract_variations
   ADD COLUMN IF NOT EXISTS project_id TEXT,
   ADD COLUMN IF NOT EXISTS wbs_id TEXT,

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { safeJson } from '../../lib/safeFetch';
+import { getStoredAccessToken } from '../../lib/authStorage';
 import {
   DollarSign,
   TrendingUp,
@@ -126,7 +127,7 @@ export const ProjectCommercialCostView: React.FC<ProjectCommercialCostViewProps>
   const fetchCommercialData = async () => {
     try {
       setLoading(true);
-      const token = getAuthToken();
+      const token = getStoredAccessToken();
       const res = await fetch(`/api/projects/${projectId}/commercial-control`, {
         headers: { Authorization: `Bearer ${token}` },
       });

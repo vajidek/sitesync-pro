@@ -31,7 +31,7 @@ export class DashboardsController {
 
   async createDashboard(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const actor = String(req.user?.fullName || req.user?.name || req.user?.email || '').trim();
+      const actor = String(req.user?.name || req.user?.email || '').trim();
       if (!actor) return res.status(401).json({ success: false, message: 'Authenticated dashboard actor identity is required.' });
       const dashboard = await dashboardsService.createDashboard({ ...req.body, createdBy: actor });
       res.status(201).json({ success: true, data: dashboard, message: 'Dashboard created successfully' });

@@ -416,6 +416,8 @@ export class ProcurementEnterpriseRepository {
           status: 'APPROVED',
           createdAt: now,
           updatedAt: now,
+          createdBy: 'SYSTEM_DEMO_SEED',
+          updatedBy: 'SYSTEM_DEMO_SEED',
         },
       ]);
 
@@ -638,13 +640,20 @@ export class ProcurementEnterpriseRepository {
     }));
   }
 
-  public async createRfq(data: any, createdBy: string = 'Procurement Admin'): Promise<any> {
+  public async createRfq(data: any, createdBy?: string): Promise<any> {
     await this.ensureProcurementTablesExist();
     const now = new Date().toISOString();
     const id = uuidv4();
+    const actor = String(createdBy || '').trim();
+    const projectId = String(data.projectId || '').trim();
+    const projectName = String(data.projectName || '').trim();
+    const companyId = String(data.companyId || '').trim();
+    if (!actor || !projectId || !projectName || !companyId) {
+      throw new Error('Authenticated creator, company and project context are required for an RFQ.');
+    }
     const rfqNumber = data.rfqNumber || (await numberingService.generateRfqNumber({
-      companyId: data.companyId || 'cmp-101',
-      projectId: data.projectId || 'PRJ-WATER-001',
+      companyId,
+      projectId,
       date: data.issueDate || now,
     }));
 

@@ -136,6 +136,7 @@ export async function createFolder(data: {
     createdBy: actor,
     updatedBy: actor,
     isDeleted: false,
+    deletedAt: null,
   };
 
   await db.insert(phase61DocumentFolders).values(record);
@@ -145,7 +146,7 @@ export async function createFolder(data: {
 export async function updateFolder(id: string, data: any) {
   await ensureDocumentTablesExist();
   const now = new Date().toISOString();
-  const update = {
+  const update: Record<string, any> = {
     ...(data.folderName !== undefined ? { folderName: String(data.folderName).trim() } : {}),
     ...(data.parentId !== undefined ? { parentId: data.parentId || null } : {}),
     ...(data.projectId !== undefined ? { projectId: data.projectId || null } : {}),
@@ -937,6 +938,62 @@ export async function logAudit(documentId: string, actor: string, action: string
     isDeleted: false,
   });
   return true;
+}
+
+export async function getAuditLogs(documentId?: string) {
+  await ensureDocumentTablesExist();
+  const rows = await db.select().from(phase61DocumentAuditLogs)
+    .where(documentId
+      ? and(eq(phase61DocumentAuditLogs.documentId, documentId), eq(phase61DocumentAuditLogs.isDeleted, false))
+      : eq(phase61DocumentAuditLogs.isDeleted, false))
+    .orderBy(desc(phase61DocumentAuditLogs.timestamp));
+  return rows;
+}
+
+export async function shareDocument(data: any) {
+  await ensureDocumentTablesExist();
+  const documentId = String(data?.documentId || '').trim();
+  const createdBy = String(data?.createdBy || '').trim();
+  if (!documentId || !createdBy) throw new Error('Document and authenticated share actor identity are required.');
+
+  const [doc] = await db.select().from(phase61DocumentFiles)
+    .where(and(eq(phase61DocumentFiles.id, documentId), eq(phase61DocumentFiles.isDeleted, false)))
+    .limit(1);
+  if (!doc) throw new Error('Document not found.');
+
+  const now = new Date().toISOString();
+  const shareToken = crypto.randomBytes(24).toString('hex');
+  const [share] = await db.insert(phase61DocumentShares).values({
+    id: crypto.randomUUID(),
+    documentId,
+    shareToken,
+    sharedWithEmail: data.sharedWithEmail || null,
+    recipientName: data.recipientName || null,
+    permissionLevel: data.permissionLevel || 'READ_ONLY',
+    expiryDate: data.expiryDate || null,
+    passwordProtected: Boolean(data.passwordProtected),
+    status: 'ACTIVE',
+    createdAt: now,
+    updatedAt: now,
+    createdBy,
+    updatedBy: createdBy,
+    isDeleted: false,
+    deletedAt: null,
+  }).returning();
+
+  await db.insert(phase61DocumentAuditLogs).values({
+    id: crypto.randomUUID(), documentId, actorName: createdBy, actionExecuted: 'SHARE',
+    detailsJson: JSON.stringify({ recipientName: data.recipientName || null, sharedWithEmail: data.sharedWithEmail || null, permissionLevel: data.permissionLevel || 'READ_ONLY' }),
+    timestamp: now, status: 'LOGGED', createdAt: now, updatedAt: now, createdBy, updatedBy: createdBy, isDeleted: false,
+  });
+  return share;
+}
+
+export async function getDocumentShares(documentId: string) {
+  await ensureDocumentTablesExist();
+  return db.select().from(phase61DocumentShares)
+    .where(and(eq(phase61DocumentShares.documentId, documentId), eq(phase61DocumentShares.isDeleted, false)))
+    .orderBy(desc(phase61DocumentShares.createdAt));
 }
 
 export async function getEDMSStats()

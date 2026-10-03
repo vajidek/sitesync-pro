@@ -76,6 +76,15 @@ export class HrmsService {
     return this.repo.syncEsslBiometric(deviceId, punches);
   }
 
+  public async verifyAttendanceRecord(
+    attendanceId: string,
+    actor: { userId: string; userName: string },
+    decision: 'VERIFY' | 'REJECT',
+    reason: string
+  ) {
+    return this.repo.verifyAttendanceRecord(attendanceId, actor, decision, reason);
+  }
+
   // Shifts
   public async getAllShifts() {
     return this.repo.getShifts();

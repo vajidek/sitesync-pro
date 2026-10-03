@@ -1,4 +1,7 @@
 import assert from 'node:assert';
+import { eq } from 'drizzle-orm';
+import { db } from '../src/db';
+import { phase70Attendance, phase70PayrollPeriods, phase70SalaryStructures, projects } from '../src/db/schema';
 import { financeRepository } from '../src/api/repositories/finance.repository';
 import { procurementEnterpriseRepository } from '../src/api/repositories/procurement_enterprise.repository';
 import { hrmsRepository } from '../src/api/repositories/hrms.repository';
@@ -13,6 +16,44 @@ async function runCrossModuleIntegrationsVerification() {
 
   let passed = 0;
   let failed = 0;
+
+  let [integrationProject] = await db
+    .select({ id: projects.id, projectName: projects.projectName })
+    .from(projects)
+    .where(eq(projects.isActive, true))
+    .limit(1);
+
+  if (!integrationProject) {
+    const now = new Date().toISOString();
+    await db.insert(projects).values({
+      id: 'CI-INTEGRATION-PROJECT',
+      projectCode: 'CI-INT-001',
+      projectName: 'SiteSync Pro Integration Verification Project',
+      shortName: 'CI Integration',
+      companyId: 'cmp-101',
+      location: 'CI Test Site',
+      startDate: now.slice(0, 10),
+      targetCompletionDate: '2030-12-31',
+      budget: 1000000,
+      status: 'ACTIVE',
+      priority: 'HIGH',
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoNothing();
+
+    [integrationProject] = await db
+      .select({ id: projects.id, projectName: projects.projectName })
+      .from(projects)
+      .where(eq(projects.isActive, true))
+      .limit(1);
+  }
+
+  const integrationProjectId = integrationProject?.id;
+  const integrationProjectName = integrationProject?.projectName || 'Integration Verification Project';
+  if (!integrationProjectId) {
+    throw new Error('Cross-module verification requires at least one active canonical project.');
+  }
 
   function pass(desc: string) {
     passed++;
@@ -94,9 +135,161 @@ async function runCrossModuleIntegrationsVerification() {
   console.log('\n--- 3. HRMS PAYROLL DISBURSEMENT -> FINANCE GL ---');
   try {
     const payrollRuns = await hrmsRepository.getPayrollRuns();
-    const activeRun = payrollRuns[0] || (await hrmsRepository.executePayrollRun('pp-2026-08', 'Verification Payroll Execution'));
+    let openPeriods = (await hrmsRepository.getPayrollPeriods()).filter((period: any) =>
+      ['OPEN', 'REOPENED', 'CALCULATION'].includes(String(period.status || '').toUpperCase())
+    );
 
-    const disbursed = await hrmsRepository.disbursePayrollRun(activeRun.id, 'Finance Director', 'NEFT-BAT-001');
+    if (openPeriods.length === 0) {
+      const now = new Date().toISOString();
+      await db.insert(phase70PayrollPeriods).values({
+        id: 'CI-PAYROLL-PERIOD',
+        periodCode: 'CI-2026-10',
+        monthYear: '2026-10',
+        startDate: '2026-10-01',
+        endDate: '2026-10-31',
+        totalWorkingDays: 26,
+        cutoffDate: '2026-10-28',
+        status: 'OPEN',
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing();
+      openPeriods = (await hrmsRepository.getPayrollPeriods()).filter((period: any) =>
+        ['OPEN', 'REOPENED', 'CALCULATION'].includes(String(period.status || '').toUpperCase())
+      );
+    }
+
+    if (!payrollRuns[0] && openPeriods[0]) {
+      // CI-only fixture: production/UAT finalization derives exclusively from
+      // verified attendance. Seed one deterministic verified workday for each
+      // payroll-eligible employee so the integration test exercises the real
+      // finalization -> payroll path without weakening that control.
+      const payrollEligibleEmployees = (await hrmsRepository.getEmployees()).filter((emp: any) => {
+        const type = String(emp.employmentType || '').toUpperCase();
+        const status = String(emp.employmentStatus || '').toUpperCase();
+        const subcontract = ['SUBCONTRACT_LABOUR', 'SUBCONTRACTOR_WORKER', 'LABOUR_SUPPLIER', 'THIRD_PARTY_LABOUR'].includes(type);
+        return !subcontract && !['TERMINATED', 'RESIGNED', 'INACTIVE'].includes(status);
+      });
+      const attendanceDate = `${openPeriods[0].monthYear}-01`;
+      const now = new Date().toISOString();
+
+      if (payrollEligibleEmployees.length === 0) {
+        throw new Error('CI payroll integration requires at least one payroll-eligible employee fixture.');
+      }
+
+      // CI-only master-data fixture: the payroll engine must consume an
+      // approved salary structure; do not bypass that production prerequisite.
+      await db.insert(phase70SalaryStructures).values([
+        {
+          id: 'ci-sal-l6',
+          structureCode: 'CI-SAL-L6',
+          title: 'CI Executive Payroll Structure',
+          grade: 'L6',
+          baseMonthlyAed: 22000,
+          hraAed: 8000,
+          conveyanceAed: 3000,
+          medicalAed: 2000,
+          specialAllowanceAed: 3000,
+          siteAllowanceAed: 2000,
+          otRatePerHour: 0,
+          pfApplicable: true,
+          esiApplicable: false,
+          ptApplicable: false,
+          status: 'ACTIVE',
+          effectiveFrom: '2026-01-01',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Fixture',
+          updatedBy: 'CI HR Fixture',
+          isDeleted: false,
+        },
+        {
+          id: 'ci-sal-l4',
+          structureCode: 'CI-SAL-L4',
+          title: 'CI Engineering Payroll Structure',
+          grade: 'L4',
+          baseMonthlyAed: 12000,
+          hraAed: 4500,
+          conveyanceAed: 2000,
+          medicalAed: 1000,
+          specialAllowanceAed: 1500,
+          siteAllowanceAed: 2000,
+          otRatePerHour: 85,
+          pfApplicable: true,
+          esiApplicable: false,
+          ptApplicable: false,
+          status: 'ACTIVE',
+          effectiveFrom: '2026-01-01',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Fixture',
+          updatedBy: 'CI HR Fixture',
+          isDeleted: false,
+        },
+        {
+          id: 'ci-sal-l3',
+          structureCode: 'CI-SAL-L3',
+          title: 'CI Site Operations Payroll Structure',
+          grade: 'L3',
+          baseMonthlyAed: 8500,
+          hraAed: 3000,
+          conveyanceAed: 1500,
+          medicalAed: 1000,
+          specialAllowanceAed: 1000,
+          siteAllowanceAed: 1500,
+          otRatePerHour: 60,
+          pfApplicable: true,
+          esiApplicable: false,
+          ptApplicable: false,
+          status: 'ACTIVE',
+          effectiveFrom: '2026-01-01',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Fixture',
+          updatedBy: 'CI HR Fixture',
+          isDeleted: false,
+        },
+      ]).onConflictDoNothing();
+
+      await db.insert(phase70Attendance).values(
+        payrollEligibleEmployees.map((emp: any) => ({
+          id: `ci-att-${openPeriods[0].id}-${emp.id}`,
+          employeeId: emp.id,
+          employeeCode: emp.employeeCode || `EMP-${emp.id}`,
+          attendanceDate,
+          inTime: `${attendanceDate}T08:00:00.000Z`,
+          outTime: `${attendanceDate}T17:00:00.000Z`,
+          totalHours: 8,
+          status: 'PRESENT',
+          punchSource: 'BIOMETRIC_ESSL',
+          isVerified: true,
+          verifiedBy: 'CI HR Verifier',
+          remarks: 'Controlled CI payroll integration fixture',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: 'CI HR Verifier',
+          updatedBy: 'CI HR Verifier',
+          isDeleted: false,
+        }))
+      ).onConflictDoNothing();
+
+      await hrmsRepository.finalizeAttendanceForPeriod({
+        periodId: openPeriods[0].id,
+        monthYear: openPeriods[0].monthYear,
+        finalizedBy: 'CI HR Finalizer',
+        remarks: 'Controlled CI payroll integration fixture',
+      });
+    }
+
+    const activeRun = payrollRuns[0] || (openPeriods[0]
+      ? await hrmsRepository.executePayrollRun(
+          openPeriods[0].id,
+          'Verification Payroll Execution',
+          { makerUserId: 'ci-payroll-maker', makerUserName: 'CI Payroll Maker', jurisdiction: 'INDIA', currency: 'INR' }
+        )
+      : null);
+    if (!activeRun) throw new Error('No open payroll period is available for integration verification.');
+
+    const disbursed = await hrmsRepository.disbursePayrollRun(activeRun.id, { userId: 'ci-finance-actor', userName: 'Finance Director' }, 'NEFT-BAT-001');
     assert.ok(disbursed, 'Payroll run must be marked as disbursed');
     assert.ok(disbursed.status === 'PAID' || disbursed.status === 'DISBURSED', 'Payroll run status must be PAID or DISBURSED');
     pass(`Payroll Run disbursed: ${disbursed.payrollMonth} (Total Net: $${(disbursed.totalNetPay ?? disbursed.totalNet ?? 0).toLocaleString()})`);
@@ -113,11 +306,12 @@ async function runCrossModuleIntegrationsVerification() {
   console.log('\n--- 4. INVENTORY MATERIAL ISSUE -> PROJECT ACTUAL COST & GL ---');
   try {
     const issue = await inventoryRepository.createMaterialIssue({
-      projectId: 'PRJ-101',
-      projectName: 'Dubai Creek Harbor Desalination WTP',
+      projectId: integrationProjectId,
+      projectName: integrationProjectName,
       warehouseId: 'wh-001',
       warehouseName: 'Abu Dhabi Central Yard Warehouse',
       issuedTo: 'Structural Concrete Team - Site Pier 4',
+      issuedBy: 'ci-inventory-actor',
       items: [
         {
           materialId: 'mat-001',
@@ -147,7 +341,7 @@ async function runCrossModuleIntegrationsVerification() {
     const subBills = await commercialRepository.getSubcontractBills();
     const targetBill = subBills[0];
     if (targetBill) {
-      const certified = await commercialRepository.certifySubcontractBill(targetBill.id, targetBill.grossClaimedAmount, 'CERTIFIED');
+      const certified = await commercialRepository.certifySubcontractBill(targetBill.id, targetBill.grossClaimedAmount, 'CERTIFIED', { id: 'ci-commercial-actor', name: 'CI Commercial Certifier', role: 'COMMERCIAL_MANAGER' });
       assert.ok(certified, 'Subcontract bill must be certified');
       assert.strictEqual(certified.status, 'CERTIFIED');
       pass(`Subcontract Bill certified: ${certified.billNumber} ($${certified.certifiedAmount} certified, $${certified.netCertifiedPayable} payable)`);
@@ -161,7 +355,7 @@ async function runCrossModuleIntegrationsVerification() {
     const ipcs = await commercialRepository.getClientIPCs();
     const targetIPC = ipcs[0];
     if (targetIPC) {
-      const certifiedIPC = await commercialRepository.certifyClientIPC(targetIPC.id, targetIPC.grossWorkDoneClaimed, 'CERTIFIED');
+      const certifiedIPC = await commercialRepository.certifyClientIPC(targetIPC.id, targetIPC.grossWorkDoneClaimed, 'CERTIFIED', { id: 'ci-commercial-actor-2', name: 'CI Commercial Certifier', role: 'COMMERCIAL_MANAGER' });
       assert.ok(certifiedIPC, 'Client IPC must be certified');
       pass(`Client IPC certified: ${certifiedIPC.ipcNumber} (Gross: $${certifiedIPC.grossWorkDoneCertified}, Net: $${certifiedIPC.netReceivableAmount})`);
 
@@ -177,7 +371,7 @@ async function runCrossModuleIntegrationsVerification() {
   // --- 6. PROJECT CONTROLS: LIVE COST MATRIX AGGREGATION ---
   console.log('\n--- 6. PROJECT CONTROLS LIVE COST MATRIX AGGREGATION ---');
   try {
-    const costMatrix = await projectControlsRepository.getCostControlMatrix('PRJ-101');
+    const costMatrix = await projectControlsRepository.getCostControlMatrix(integrationProjectId);
     const wbsList = Array.isArray(costMatrix) ? costMatrix : (costMatrix.wbsBreakdown || []);
     assert.ok(wbsList.length > 0, 'Cost control matrix must return project data');
     const wbs = wbsList[0];

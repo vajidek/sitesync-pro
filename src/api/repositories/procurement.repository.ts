@@ -6,6 +6,7 @@ import {
   PurchaseOrder,
   POStatus,
   GoodsReceiptNote,
+  GRNItem,
   SubcontractWorkOrder,
   WOVariationOrder,
   BOQItem,
@@ -67,6 +68,7 @@ import {
   warehouses,
   stocks,
   sites,
+  commercialSubcontracts,
 } from '../../db/schema';
 import { legacyProcurementTelemetry } from '../telemetry/legacy_procurement.telemetry';
 import { legacyProcurementAdapter } from '../services/legacy_procurement_adapter';
@@ -1715,7 +1717,7 @@ export class ProcurementRepository {
     const storedRate = Number(boqRow.rateUSD || 0);
     if (!Number.isFinite(storedRate) || storedRate < 0) throw new Error('Linked BOQ rate is invalid.');
     const valuation = Math.round(calculatedQuantity * storedRate * 100) / 100;
-    const boqUnit = String(boqRow.unit || boqRow.uom || '').trim();
+    const boqUnit = String(boqRow.unit || boqRow.unit || '').trim();
     if (boqUnit && boqUnit.toLowerCase() !== unit.toLowerCase()) {
       throw new Error(`Measurement unit '${unit}' does not match BOQ unit '${boqUnit}'.`);
     }
@@ -3813,7 +3815,13 @@ export class ProcurementRepository {
     return rows[0] as unknown as RABillRecord;
   }
 
-  async createRABill(data: Partial<RABillRecord>): Promise<RABillRecord> {
+  async createRABill(
+    data: Partial<RABillRecord> & {
+      companyId?: string;
+      createdById?: string;
+      createdByName?: string;
+    }
+  ): Promise<RABillRecord> {
     await ensureProcurementSeeded();
     const newId = `ra_bill_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
     const now = new Date().toISOString();
@@ -4051,7 +4059,7 @@ export class ProcurementRepository {
       id: `audit_${Date.now()}_1`,
       action: 'BILL_CREATED',
       fromStatus: 'None' as const,
-      toStatus: 'Draft',
+      toStatus: 'Draft' as RABillStatus,
       performedBy: creatorName,
       role: 'CONTRACTOR_REP',
       timestamp: now,

@@ -2,7 +2,9 @@
 -- Existing ledger rows are preserved; future journal rows must provide explicit actor identity.
 
 ALTER TABLE phase60_journal_entries
-  ADD COLUMN IF NOT EXISTS posted_by TEXT DEFAULT 'SYSTEM_MIGRATION',
+  ADD COLUMN IF NOT EXISTS posted_by TEXT DEFAULT 'SYSTEM_MIGRATION';
+
+ALTER TABLE phase60_journal_entries
   ALTER COLUMN posted_by DROP DEFAULT,
   ALTER COLUMN created_by DROP DEFAULT,
   ALTER COLUMN updated_by DROP DEFAULT;

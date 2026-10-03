@@ -3797,6 +3797,7 @@ CREATE TABLE IF NOT EXISTS "phase66_delegations" (
   "start_date" TEXT NOT NULL,
   "end_date" TEXT NOT NULL,
   "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "reason" TEXT,
   "created_at" TEXT NOT NULL,
   "updated_at" TEXT NOT NULL,
   "created_by" TEXT NOT NULL DEFAULT 'System Administrator',

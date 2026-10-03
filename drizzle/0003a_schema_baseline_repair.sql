@@ -956,6 +956,7 @@ CREATE TABLE IF NOT EXISTS "comparative_statements" (
   "recommended_quotation_id" TEXT,
   "justification" TEXT,
   "status" TEXT NOT NULL DEFAULT 'DRAFT',
+  "approved_by" TEXT,
   "approved_at" TEXT,
   "is_active" BOOLEAN NOT NULL DEFAULT TRUE,
   "is_deleted" BOOLEAN NOT NULL DEFAULT FALSE,

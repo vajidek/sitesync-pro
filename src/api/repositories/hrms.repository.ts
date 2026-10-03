@@ -537,7 +537,50 @@ export class HrmsRepository {
   // 3. Employees
   public async getEmployees(): Promise<any[]> {
     await this.ensureHrmsTablesExist();
-    return db.select().from(phase70EmployeeMaster).where(eq(phase70EmployeeMaster.isDeleted, false)).orderBy(desc(phase70EmployeeMaster.createdAt));
+
+    const employees = await db
+      .select()
+      .from(phase70EmployeeMaster)
+      .where(eq(phase70EmployeeMaster.isDeleted, false))
+      .orderBy(desc(phase70EmployeeMaster.createdAt));
+
+    // Canonical salary source: employee grade resolves to the active salary
+    // structure. Keep the payroll engine's existing normalized contract at this
+    // repository boundary instead of duplicating salary fields on employee master.
+    const salaryStructures = await db
+      .select()
+      .from(phase70SalaryStructures)
+      .where(eq(phase70SalaryStructures.isDeleted, false));
+
+    const byGrade = new Map<string, any>();
+    for (const structure of salaryStructures) {
+      const grade = String(structure.grade || '').trim().toUpperCase();
+      if (!grade || String(structure.status || '').toUpperCase() !== 'ACTIVE') continue;
+
+      const existing = byGrade.get(grade);
+      if (!existing || String(structure.effectiveFrom || '') > String(existing.effectiveFrom || '')) {
+        byGrade.set(grade, structure);
+      }
+    }
+
+    return employees.map((employee: any) => {
+      const structure = byGrade.get(String(employee.grade || '').trim().toUpperCase());
+      if (!structure) return employee;
+
+      return {
+        ...employee,
+        salaryINR: Number(structure.baseMonthlyAed || 0),
+        salaryStructure: {
+          basicUSD: Number(structure.baseMonthlyAed || 0),
+          hraUSD: Number(structure.hraAed || 0),
+          daUSD: 0,
+          specialAllowanceUSD: Number(structure.specialAllowanceAed || 0),
+          siteAllowanceUSD: Number(structure.siteAllowanceAed || 0),
+          travelAllowanceUSD: Number(structure.conveyanceAed || 0),
+          overtimeHourlyRateUSD: Number(structure.otRatePerHour || 0),
+        },
+      };
+    });
   }
 
   public async getEmployeeById(id: string): Promise<any | null> {

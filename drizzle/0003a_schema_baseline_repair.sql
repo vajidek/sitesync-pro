@@ -865,6 +865,7 @@ CREATE TABLE IF NOT EXISTS "vendor_quotations" (
   "total_amount" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "currency" TEXT NOT NULL DEFAULT 'AED',
   "status" TEXT NOT NULL DEFAULT 'SUBMITTED',
+  "technical_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "commercial_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "overall_score" DOUBLE PRECISION NOT NULL DEFAULT 0,
   "notes" TEXT,

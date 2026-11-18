@@ -28,3 +28,6 @@ Unify legacy Project Commercial Cost Control presentation with the source-driven
 
 ## Safety
 The checkpoint must not contain secrets, credentials, API keys, real employee data, or production database contents.
+
+## Build verification
+Run `bun install --frozen-lockfile`, `bun run lint`, and `bun run build` with Bun 1.2.23 to reproduce the CI compilation checks.

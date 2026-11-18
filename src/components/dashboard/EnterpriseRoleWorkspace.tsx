@@ -327,13 +327,12 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
 
   const baseWorkspace: WorkspaceConfig = getWorkspaceConfig(selectedWorkspaceId, user, isDemo) || WORKSPACE_CONFIGS.EXECUTIVE;
 
-  const activeWorkspace: WorkspaceConfig = isDemo
-    ? {
-        ...baseWorkspace,
-        kpis: baseWorkspace.kpis.map((kpi, idx) => {
-          if (!liveMetrics) return kpi;
-          if (idx === 0 && liveMetrics.totalPrjBudgetUSD !== undefined) {
-            return { ...kpi, value: '
+  const activeWorkspace: WorkspaceConfig = {
+    ...baseWorkspace,
+    kpis: isDemo
+      ? baseWorkspace.kpis.map(kpi => ({ ...kpi, value: getLiveMetricForKpi(kpi.label, liveMetrics) ?? kpi.value }))
+      : sanitizeProductionKpis(baseWorkspace.kpis, liveMetrics),
+  };
 
   const toggleTaskComplete = (taskId: string, title: string) => {
     setCompletedTaskIds((prev) => {
@@ -589,7 +588,7 @@ export const EnterpriseRoleWorkspace: React.FC<EnterpriseRoleWorkspaceProps> = (
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
-              {isDemo ? getRoleSummaryCards(activeWorkspace, liveMetrics, true) : sanitizeProductionSummaryCards(getRoleSummaryCards(activeWorkspace, liveMetrics, false), liveMetrics).map((card, idx) => (
+              {(isDemo ? getRoleSummaryCards(activeWorkspace, liveMetrics, true) : sanitizeProductionSummaryCards(getRoleSummaryCards(activeWorkspace, liveMetrics, false), liveMetrics)).map((card, idx) => (
                 <div key={idx} className="p-3 rounded-xl bg-slate-800/80 border border-slate-700/80 flex flex-col justify-between">
                   <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">{card.label}</div>
                   <div className={`text-lg font-black font-mono mt-1 ${card.color}`}>{card.val}</div>

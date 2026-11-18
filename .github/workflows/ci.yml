@@ -64,14 +64,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Production build
+        run: bun run build
+
       - name: Typecheck
         run: bun run lint
 
       - name: Database migrations
         run: bun run db:migrate
-
-      - name: Production build
-        run: bun run build
 
       - name: Enterprise verification suite
         run: bun run test
